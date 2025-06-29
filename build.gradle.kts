@@ -2,9 +2,10 @@ plugins {
 	kotlin("jvm") version "1.9.22"
 	id("io.papermc.paperweight.userdev") version "2.0.0-beta.17"
 	id("xyz.jpenilla.run-paper") version "2.2.3"
+	id("com.github.johnrengelman.shadow") version "8.1.1"
 }
 
-group = "net.sneakymannequin"
+group = "net.sneakymannequins"
 version = "1.0.0"
 
 repositories {
@@ -14,6 +15,7 @@ repositories {
 
 dependencies {
 	paperweight.paperDevBundle("1.21.4-R0.1-SNAPSHOT")
+	implementation(kotlin("stdlib"))
 }
 
 tasks {
@@ -32,6 +34,16 @@ tasks {
 	
 	runServer {
 		minecraftVersion("1.21.4")
+	}
+
+	shadowJar {
+		dependencies {
+			include(dependency("org.jetbrains.kotlin:.*"))
+		}
+	}
+
+	reobfJar {
+		dependsOn(shadowJar)
 	}
 }
 
