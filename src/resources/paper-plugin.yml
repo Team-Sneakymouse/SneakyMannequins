@@ -1,0 +1,7 @@
+name: SneakyMannequin
+version: 1.0.0
+main: net.sneakymannequin.SneakyMannequin
+description: A Minecraft Paper plugin designed to create mannequins for skin previews.
+author: Team Sneakymouse
+website: https://rawb.tv
+api-version: 1.19
