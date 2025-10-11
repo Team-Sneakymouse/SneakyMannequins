@@ -1,58 +1,40 @@
 plugins {
-	kotlin("jvm") version "1.9.22"
-	id("io.papermc.paperweight.userdev") version "2.0.0-beta.17"
-	id("xyz.jpenilla.run-paper") version "2.2.3"
-	id("com.github.johnrengelman.shadow") version "8.1.1"
+    kotlin("jvm") version "1.9.21"
+    id("xyz.jpenilla.run-paper") version "3.0.2"
 }
 
-group = "net.sneakymannequins"
+group = "com.sneakymannequins"
 version = "1.0.0"
 
 repositories {
-	mavenCentral()
-	maven("https://repo.papermc.io/repository/maven-public/")
+    mavenCentral()
+    maven("https://repo.papermc.io/repository/maven-public/")
 }
+
 
 dependencies {
-	paperweight.paperDevBundle("1.21.4-R0.1-SNAPSHOT")
-	implementation(kotlin("stdlib"))
-}
-
-tasks {
-	assemble {
-		dependsOn(reobfJar)
-	}
-	
-	compileKotlin {
-		kotlinOptions.jvmTarget = "21"
-	}
-	
-	compileJava {
-		options.encoding = Charsets.UTF_8.name()
-		options.release.set(21)
-	}
-	
-	runServer {
-		minecraftVersion("1.21.4")
-	}
-
-	shadowJar {
-		dependencies {
-			include(dependency("org.jetbrains.kotlin:.*"))
-		}
-	}
-
-	reobfJar {
-		dependsOn(shadowJar)
-	}
-}
-
-java {
-	toolchain.languageVersion.set(JavaLanguageVersion.of(21))
+    compileOnly("io.papermc.paper:paper-api:1.21.9-R0.1-SNAPSHOT")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.21")
 }
 
 kotlin {
-	jvmToolchain(21)
+    jvmToolchain(21)
 }
 
-paperweight.reobfArtifactConfiguration = io.papermc.paperweight.userdev.ReobfArtifactConfiguration.MOJANG_PRODUCTION
+tasks {
+    compileKotlin {
+        kotlinOptions {
+            jvmTarget = "21"
+        }
+    }
+    
+    runServer {
+        minecraftVersion("1.21.9")
+    }
+    
+    jar {
+        from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    }
+}
+
