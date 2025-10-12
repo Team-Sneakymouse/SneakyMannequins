@@ -35,6 +35,7 @@ class SneakyMannequins : JavaPlugin() {
 		// Register commands
         server.commandMap.register(IDENTIFIER, CommandMannequin())
         server.commandMap.register(IDENTIFIER, CommandTest())
+        server.commandMap.register(IDENTIFIER, CommandTest2())
         
         // Save default config if it doesn't exist
         saveDefaultConfig()
