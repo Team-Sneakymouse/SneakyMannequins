@@ -24,3 +24,7 @@ run.bat
 /run/
 /.idea
 /bin/
+
+# Web server images directory (volume bind)
+/web/images/*
+!/web/images/.gitkeep

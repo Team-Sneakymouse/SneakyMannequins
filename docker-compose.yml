@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: sneakymannequins-webserver
+    ports:
+      - "8080:80"
+    volumes:
+      - ./web/images:/usr/share/nginx/html/images:ro
+      - ./web/nginx.conf:/etc/nginx/nginx.conf:ro
+    restart: unless-stopped
+    networks:
+      - sneakymannequins-network
+
+networks:
+  sneakymannequins-network:
+    driver: bridge
