@@ -1,0 +1,19 @@
+# SneakyMannequins Configuration
+
+# Image storage and serving configuration
+images:
+  # Relative path from Minecraft server directory to store generated images
+  # Default: ../web/images/ (relative to run/ directory)
+  storage-path: "../web/images/"
+  
+  # URL prefix where images can be accessed by clients
+  # Default: http://localhost:8080/images/
+  url-prefix: "http://localhost:8080/images/"
+
+# Plugin settings
+plugin:
+  # Enable debug logging
+  debug: false
+  
+  # Default skin model for mannequins
+  default-skin-model: "CLASSIC"

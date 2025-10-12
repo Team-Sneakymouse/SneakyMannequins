@@ -1,10 +1,8 @@
 package com.sneakymannequins
 
 import org.bukkit.plugin.java.JavaPlugin
-import com.sneakymannequins.commands.CommandMannequin
-import com.sneakymannequins.managers.MannequinManager
-import com.sneakymannequins.managers.MannequinData
-import com.sneakymannequins.managers.SkinData
+import com.sneakymannequins.commands.*
+import com.sneakymannequins.managers.*
 import org.bukkit.Bukkit
 import org.bukkit.Location
 import org.bukkit.World
@@ -18,6 +16,10 @@ class SneakyMannequins : JavaPlugin() {
 	companion object {
 		const val IDENTIFIER = "sneakymannequins"
 		lateinit var instance: SneakyMannequins
+
+		public fun log(message: String) {
+			instance.logger.info(message)
+		}
 	}
 
 	/**
@@ -32,6 +34,7 @@ class SneakyMannequins : JavaPlugin() {
 
 		// Register commands
         server.commandMap.register(IDENTIFIER, CommandMannequin())
+        server.commandMap.register(IDENTIFIER, CommandTest())
         
         // Save default config if it doesn't exist
         saveDefaultConfig()

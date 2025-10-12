@@ -15,6 +15,7 @@ repositories {
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.9-R0.1-SNAPSHOT")
     implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.21")
+    implementation("com.google.code.gson:gson:2.10.1")
 }
 
 kotlin {
