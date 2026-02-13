@@ -9,8 +9,13 @@ import com.sneakymannequins.nms.VolatileHandler
 import com.sneakymannequins.nms.VolatileHandlerRegistry
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
+import org.bukkit.event.entity.EntityDamageByEntityEvent
+import org.bukkit.event.player.PlayerInteractAtEntityEvent
+import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.event.player.PlayerMoveEvent
+import org.bukkit.event.player.PlayerQuitEvent
+import org.bukkit.inventory.EquipmentSlot
 
 class SneakyMannequins : JavaPlugin(), Listener {
 
@@ -44,7 +49,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
         persistence = MannequinPersistence(this)
         mannequinManager = MannequinManager(this, layerManager, handler, persistence).also { it.loadFromDisk() }
 
-        // Register commands
+		// Register commands
         registerCommand("mannequin", CommandMannequin(mannequinManager))
         server.pluginManager.registerEvents(this, this)
     }
@@ -72,6 +77,33 @@ class SneakyMannequins : JavaPlugin(), Listener {
         if (to.distanceSquared(from) > 1.0) {
             mannequinManager.renderVisibleTo(event.player)
         }
+    }
+
+    @EventHandler
+    fun onInteractControl(event: PlayerInteractAtEntityEvent) {
+        if (event.hand != EquipmentSlot.HAND) return
+        mannequinManager.handleControlInteract(event.rightClicked, event.player, backwards = false)
+        event.isCancelled = true
+    }
+
+    @EventHandler
+    fun onInteractControlGeneric(event: PlayerInteractEntityEvent) {
+        if (event.hand != EquipmentSlot.HAND) return
+        if (event.isCancelled) return
+        mannequinManager.handleControlInteract(event.rightClicked, event.player, backwards = false)
+        event.isCancelled = true
+    }
+
+    @EventHandler
+    fun onDamageControl(event: EntityDamageByEntityEvent) {
+        val player = event.damager as? org.bukkit.entity.Player ?: return
+        mannequinManager.handleControlInteract(event.entity, player, backwards = true)
+        event.isCancelled = true
+    }
+
+    @EventHandler
+    fun onQuit(event: PlayerQuitEvent) {
+        mannequinManager.forgetViewer(event.player.uniqueId)
     }
     
 }

@@ -13,7 +13,8 @@ data class ProjectedPixel(
     val yaw: Float,
     val pitch: Float,
     val argb: Int,
-    val scale: Float
+    val scale: Float,
+    val visible: Boolean
 )
 
 /**
@@ -26,15 +27,16 @@ object PixelProjector {
         origin: Location,
         changes: Collection<PixelChange>,
         pixelScale: Double = 1.0 / 16.0,
-        scaleMultiplier: Float = 1f
+        scaleMultiplier: Float = 1f,
+        slimArms: Boolean = false
     ): List<ProjectedPixel> {
         val yawRad = Math.toRadians(origin.yaw.toDouble())
         val sin = sin(yawRad)
         val cos = cos(yawRad)
 
         return changes.mapNotNull { change ->
-            val pose = mapSkinPixelToModel(change.x, change.y, pixelScale) ?: return@mapNotNull null
-            if (!change.visible) return@mapNotNull null
+            val pose = mapSkinPixelToModel(change.x, change.y, pixelScale, slimArms) ?: return@mapNotNull null
+            val isVisible = change.visible
 
             // rotate around Y by origin yaw
             val rotX = pose.x * cos - pose.z * sin
@@ -47,14 +49,15 @@ object PixelProjector {
                 yaw = pose.yaw + origin.yaw,
                 pitch = pose.pitch,
                 argb = change.argb ?: 0,
-                scale = (pixelScale * scaleMultiplier).toFloat()
+                scale = (pixelScale * scaleMultiplier).toFloat(),
+                visible = isVisible
             )
         }
     }
 
     private data class PixelPose(val x: Double, val y: Double, val z: Double, val yaw: Float, val pitch: Float)
 
-    private fun mapSkinPixelToModel(x: Int, y: Int, s: Double): PixelPose? {
+    private fun mapSkinPixelToModel(x: Int, y: Int, s: Double, slimArms: Boolean): PixelPose? {
         fun faceFront(x0: Int, y0: Int, w: Int, h: Int, cx: Double, by: Double, z: Double) =
             if (x in x0 until x0 + w && y in y0 until y0 + h) {
                 val lx = x - x0
@@ -133,35 +136,93 @@ object PixelProjector {
         faceTop(20, 32, 8, 4, 0.0, bodyY + 12.0 * s + 0.001, 0.0)?.let { return it }
         faceBottom(28, 32, 8, 4, 0.0, bodyY - 0.001, 0.0)?.let { return it }
 
-        // Right arm (4x12x4)
-        faceFront(44, 20, 4, 12, -6.0 * s, bodyY, 2.0 * s)?.let { return it }
-        faceBack(52, 20, 4, 12, -6.0 * s, bodyY, -2.0 * s)?.let { return it }
-        faceLeft(40, 20, 4, 12, -8.0 * s, bodyY, 0.0)?.let { return it }
-        faceRight(48, 20, 4, 12, -4.0 * s, bodyY, 0.0)?.let { return it }
-        faceTop(44, 16, 4, 4, -6.0 * s, bodyY + 12.0 * s, 0.0)?.let { return it }
-        faceBottom(48, 16, 4, 4, -6.0 * s, bodyY, 0.0)?.let { return it }
-        // Right arm overlay
-        faceFront(44, 36, 4, 12, -6.0 * s, bodyY, 2.0 * s + 0.001)?.let { return it }
-        faceBack(52, 36, 4, 12, -6.0 * s, bodyY, -2.0 * s - 0.001)?.let { return it }
-        faceLeft(40, 36, 4, 12, -8.0 * s - 0.001, bodyY, 0.0)?.let { return it }
-        faceRight(48, 36, 4, 12, -4.0 * s + 0.001, bodyY, 0.0)?.let { return it }
-        faceTop(44, 32, 4, 4, -6.0 * s, bodyY + 12.0 * s + 0.001, 0.0)?.let { return it }
-        faceBottom(48, 32, 4, 4, -6.0 * s, bodyY - 0.001, 0.0)?.let { return it }
+        data class ArmSpec(
+            val frontWidth: Int,
+            val topWidth: Int,
+            val centerX: Double,
+            val outerX: Double,
+            val innerX: Double,
+            val backBaseX: Int,
+            val backOverlayX: Int
+        )
 
-        // Left arm (4x12x4) using second layer areas
-        faceFront(36, 52, 4, 12, 6.0 * s, bodyY, 2.0 * s)?.let { return it }
-        faceBack(44, 52, 4, 12, 6.0 * s, bodyY, -2.0 * s)?.let { return it }
-        faceLeft(32, 52, 4, 12, 4.0 * s, bodyY, 0.0)?.let { return it }
-        faceRight(40, 52, 4, 12, 8.0 * s, bodyY, 0.0)?.let { return it }
-        faceTop(36, 48, 4, 4, 6.0 * s, bodyY + 12.0 * s, 0.0)?.let { return it }
-        faceBottom(40, 48, 4, 4, 6.0 * s, bodyY, 0.0)?.let { return it }
-        // Left arm overlay
-        faceFront(52, 52, 4, 12, 6.0 * s, bodyY, 2.0 * s + 0.001)?.let { return it }
-        faceBack(60, 52, 4, 12, 6.0 * s, bodyY, -2.0 * s - 0.001)?.let { return it }
-        faceLeft(48, 52, 4, 12, 4.0 * s - 0.001, bodyY, 0.0)?.let { return it }
-        faceRight(56, 52, 4, 12, 8.0 * s + 0.001, bodyY, 0.0)?.let { return it }
-        faceTop(52, 48, 4, 4, 6.0 * s, bodyY + 12.0 * s + 0.001, 0.0)?.let { return it }
-        faceBottom(56, 48, 4, 4, 6.0 * s, bodyY - 0.001, 0.0)?.let { return it }
+        val rightArm = if (slimArms) {
+            ArmSpec(
+                frontWidth = 3,
+                topWidth = 3,
+                centerX = -5.5 * s,
+                outerX = -7.0 * s,
+                innerX = -4.0 * s,
+                backBaseX = 51,       // shift left by 1 for slim back
+                backOverlayX = 51
+            )
+        } else {
+            ArmSpec(
+                frontWidth = 4,
+                topWidth = 4,
+                centerX = -6.0 * s,
+                outerX = -8.0 * s,
+                innerX = -4.0 * s,
+                backBaseX = 52,
+                backOverlayX = 52
+            )
+        }
+        val leftArm = if (slimArms) {
+            ArmSpec(
+                frontWidth = 3,
+                topWidth = 3,
+                centerX = 5.5 * s,
+                outerX = 7.0 * s,
+                innerX = 4.0 * s,
+                backBaseX = 43,        // shift left by 1 for slim back
+                backOverlayX = 59      // overlay region shifted left by 1
+            )
+        } else {
+            ArmSpec(
+                frontWidth = 4,
+                topWidth = 4,
+                centerX = 6.0 * s,
+                outerX = 8.0 * s,
+                innerX = 4.0 * s,
+                backBaseX = 44,
+                backOverlayX = 60
+            )
+        }
+
+        fun renderRightArm(spec: ArmSpec): PixelPose? {
+            return faceFront(44, 20, spec.frontWidth, 12, spec.centerX, bodyY, 2.0 * s)
+                ?: faceBack(spec.backBaseX, 20, spec.frontWidth, 12, spec.centerX, bodyY, -2.0 * s)
+                ?: faceLeft(40, 20, 4, 12, spec.outerX, bodyY, 0.0)   // outer (shared UV)
+                ?: faceRight(48, 20, 4, 12, spec.innerX, bodyY, 0.0)  // inner (shared UV)
+                ?: faceTop(44, 16, spec.topWidth, 4, spec.centerX, bodyY + 12.0 * s, 0.0)
+                ?: faceBottom(48, 16, spec.topWidth, 4, spec.centerX, bodyY, 0.0)
+                ?: faceFront(44, 36, spec.frontWidth, 12, spec.centerX, bodyY, 2.0 * s + 0.001)
+                ?: faceBack(spec.backOverlayX, 36, spec.frontWidth, 12, spec.centerX, bodyY, -2.0 * s - 0.001)
+                ?: faceLeft(40, 36, 4, 12, spec.outerX - 0.001, bodyY, 0.0)
+                ?: faceRight(48, 36, 4, 12, spec.innerX + 0.001, bodyY, 0.0)
+                ?: faceTop(44, 32, spec.topWidth, 4, spec.centerX, bodyY + 12.0 * s + 0.001, 0.0)
+                ?: faceBottom(48, 32, spec.topWidth, 4, spec.centerX, bodyY - 0.001, 0.0)
+        }
+
+        fun renderLeftArm(spec: ArmSpec): PixelPose? {
+            val outerBaseUvX = if (spec.frontWidth == 3) 39 else 40
+            val outerOverlayUvX = if (spec.frontWidth == 3) 55 else 56
+            return faceFront(36, 52, spec.frontWidth, 12, spec.centerX, bodyY, 2.0 * s)
+                ?: faceBack(spec.backBaseX, 52, spec.frontWidth, 12, spec.centerX, bodyY, -2.0 * s)
+                ?: faceLeft(32, 52, 4, 12, spec.innerX, bodyY, 0.0)   // inner (shared UV)
+                ?: faceRight(outerBaseUvX, 52, 4, 12, spec.outerX, bodyY, 0.0)  // outer (shared UV)
+                ?: faceTop(36, 48, spec.topWidth, 4, spec.centerX, bodyY + 12.0 * s, 0.0)
+                ?: faceBottom(40, 48, spec.topWidth, 4, spec.centerX, bodyY, 0.0)
+                ?: faceFront(52, 52, spec.frontWidth, 12, spec.centerX, bodyY, 2.0 * s + 0.001)
+                ?: faceBack(spec.backOverlayX, 52, spec.frontWidth, 12, spec.centerX, bodyY, -2.0 * s - 0.001)
+                ?: faceLeft(48, 52, 4, 12, spec.innerX - 0.001, bodyY, 0.0)
+                ?: faceRight(outerOverlayUvX, 52, 4, 12, spec.outerX + 0.001, bodyY, 0.0) // outer
+                ?: faceTop(52, 48, spec.topWidth, 4, spec.centerX, bodyY + 12.0 * s + 0.001, 0.0)
+                ?: faceBottom(56, 48, spec.topWidth, 4, spec.centerX, bodyY - 0.001, 0.0)
+        }
+
+        renderRightArm(rightArm)?.let { return it }
+        renderLeftArm(leftArm)?.let { return it }
 
         // Right leg (4x12x4)
         faceFront(4, 20, 4, 12, -2.0 * s, legY, 2.0 * s)?.let { return it }

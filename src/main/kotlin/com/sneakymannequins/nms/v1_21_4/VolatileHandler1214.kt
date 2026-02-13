@@ -72,6 +72,13 @@ class VolatileHandler1214(
         projected.forEach { proj ->
             val key = proj.index
             val existing = pixels[key]
+            // If pixel is now invisible, remove and skip spawning
+            if (!proj.visible) {
+                existing?.let { connection.send(ClientboundRemoveEntitiesPacket(*intArrayOf(it))) }
+                pixels.remove(key)
+                return@forEach
+            }
+
             // Remove old entity if present (simpler than updating metadata)
             existing?.let { connection.send(ClientboundRemoveEntitiesPacket(*intArrayOf(it))) }
 
