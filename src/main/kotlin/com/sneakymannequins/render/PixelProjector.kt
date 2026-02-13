@@ -86,6 +86,20 @@ object PixelProjector {
                 PixelPose(planeX, by + ly * s, depth + (lz - (w - 1) / 2.0) * s, -90f, 0f)
             } else null
 
+        fun faceLeftFlipped(x0: Int, y0: Int, w: Int, h: Int, planeX: Double, by: Double, depth: Double) =
+            if (x in x0 until x0 + w && y in y0 until y0 + h) {
+                val lz = (x0 + w - 1) - x // mirror horizontally
+                val ly = (y0 + h - 1) - y
+                PixelPose(planeX, by + ly * s, depth - (lz - (w - 1) / 2.0) * s, 90f, 0f)
+            } else null
+
+        fun faceRightFlipped(x0: Int, y0: Int, w: Int, h: Int, planeX: Double, by: Double, depth: Double) =
+            if (x in x0 until x0 + w && y in y0 until y0 + h) {
+                val lz = (x0 + w - 1) - x // mirror horizontally
+                val ly = (y0 + h - 1) - y
+                PixelPose(planeX, by + ly * s, depth + (lz - (w - 1) / 2.0) * s, -90f, 0f)
+            } else null
+
         fun faceTop(x0: Int, y0: Int, w: Int, h: Int, cx: Double, topY: Double, depth: Double) =
             if (x in x0 until x0 + w && y in y0 until y0 + h) {
                 val lx = x - x0
@@ -109,15 +123,15 @@ object PixelProjector {
         // Head (8x8x8)
         faceFront(8, 8, 8, 8, 0.0, headY, 4.0 * s)?.let { return it }
         faceBack(24, 8, 8, 8, 0.0, headY, -4.0 * s)?.let { return it }
-        faceLeft(0, 8, 8, 8, -4.0 * s, headY, 0.0)?.let { return it }
-        faceRight(16, 8, 8, 8, 4.0 * s, headY, 0.0)?.let { return it }
+        faceLeftFlipped(0, 8, 8, 8, -4.0 * s, headY, 0.0)?.let { return it }
+        faceRightFlipped(16, 8, 8, 8, 4.0 * s, headY, 0.0)?.let { return it }
         faceTop(8, 0, 8, 8, 0.0, headY + 8.0 * s, 0.0)?.let { return it }
         faceBottom(16, 0, 8, 8, 0.0, headY, 0.0)?.let { return it }
         // Hat overlay
         faceFront(40, 8, 8, 8, 0.0, headY, 4.0 * s + 0.001)?.let { return it }
         faceBack(56, 8, 8, 8, 0.0, headY, -4.0 * s - 0.001)?.let { return it }
-        faceLeft(32, 8, 8, 8, -4.0 * s - 0.001, headY, 0.0)?.let { return it }
-        faceRight(48, 8, 8, 8, 4.0 * s + 0.001, headY, 0.0)?.let { return it }
+        faceLeftFlipped(32, 8, 8, 8, -4.0 * s - 0.001, headY, 0.0)?.let { return it }
+        faceRightFlipped(48, 8, 8, 8, 4.0 * s + 0.001, headY, 0.0)?.let { return it }
         faceTop(40, 0, 8, 8, 0.0, headY + 8.0 * s + 0.001, 0.0)?.let { return it }
         faceBottom(48, 0, 8, 8, 0.0, headY - 0.001, 0.0)?.let { return it }
 
