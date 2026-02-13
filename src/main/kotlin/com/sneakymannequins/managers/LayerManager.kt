@@ -69,21 +69,6 @@ class LayerManager(
         loadedLayers[baseDef.id] = baseDef to options
     }
 
-    private fun ensureGlobalDefaultSkin(): Path? {
-        val target = plugin.dataFolder.toPath().resolve("default.png")
-        if (!java.nio.file.Files.exists(target)) {
-            plugin.getResource("default.png")?.use { input ->
-                java.nio.file.Files.createDirectories(target.parent)
-                java.nio.file.Files.copy(input, target)
-                plugin.logger.info("Seeded global default skin at $target")
-            } ?: run {
-                plugin.logger.warning("default.png not found in resources; cannot seed global default")
-                return null
-            }
-        }
-        return target
-    }
-
     fun definitionsInOrder(): List<LayerDefinition> =
         layerOrder.mapNotNull { loadedLayers[it]?.first }
 
@@ -123,11 +108,11 @@ class LayerManager(
 
         // Only seed the base layer; overlays (e.g., hats) should stay empty if not provided
         if (definition.id.equals("base", ignoreCase = true)) {
-            ensureGlobalDefaultSkin()?.let { globalDefault ->
-                val target = directory.resolve("default.png")
+            ensureDefaultSkinVariants().forEach { (name, path) ->
+                val target = directory.resolve("$name.png")
                 if (!Files.exists(target)) {
-                    Files.copy(globalDefault, target)
-                    plugin.logger.info("Seeded default layer option for '${definition.id}' at $target")
+                    Files.copy(path, target)
+                    plugin.logger.info("Seeded default base option '$name' at $target")
                 }
             }
         }
@@ -173,6 +158,30 @@ class LayerManager(
         val data = IntArray(image.width * image.height)
         image.getRGB(0, 0, image.width, image.height, data, 0, image.width)
         return data.any { (it ushr 24) != 0 }
+    }
+
+    private fun ensureDefaultSkinVariants(): Map<String, Path> {
+        val seeds = mutableMapOf<String, Path>()
+        copyResourceIfMissing("steve.png")?.let { seeds["steve"] = it }
+        copyResourceIfMissing("alex_slim.png")?.let { seeds["alex_slim"] = it }
+        return seeds
+    }
+
+    private fun copyResourceIfMissing(resourceName: String): Path? {
+        val target = plugin.dataFolder.toPath().resolve(resourceName)
+        if (!java.nio.file.Files.exists(target)) {
+            val stream = plugin.getResource(resourceName)
+            if (stream == null) {
+                plugin.logger.warning("$resourceName not found in resources; cannot seed default skin variant")
+                return null
+            }
+            stream.use { input ->
+                java.nio.file.Files.createDirectories(target.parent)
+                java.nio.file.Files.copy(input, target)
+                plugin.logger.info("Seeded $resourceName at $target")
+            }
+        }
+        return target
     }
 
     private fun ConfigurationSection.toDefinition(dataFolder: Path): LayerDefinition {

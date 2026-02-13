@@ -59,11 +59,19 @@ class MannequinManager(
 
     private fun bootstrapSelection(): SkinSelection {
         val definitions = layerManager.definitionsInOrder()
+        val preferredModel = plugin.config.getString("plugin.default-skin-model", "CLASSIC")?.uppercase() ?: "CLASSIC"
         val selections = definitions.associate { def ->
-            val firstOption = layerManager.optionsFor(def.id).firstOrNull()
+            val options = layerManager.optionsFor(def.id)
+            val chosen = when {
+                def.id.equals("base", ignoreCase = true) && preferredModel == "SLIM" ->
+                    options.firstOrNull { it.id.equals("alex_slim", ignoreCase = true) } ?: options.firstOrNull()
+                def.id.equals("base", ignoreCase = true) ->
+                    options.firstOrNull { it.id.equals("steve", ignoreCase = true) } ?: options.firstOrNull()
+                else -> options.firstOrNull()
+            }
             def.id to LayerSelection(
                 layerId = def.id,
-                option = firstOption,
+                option = chosen,
                 colorMask = def.defaultColorMask
             )
         }
