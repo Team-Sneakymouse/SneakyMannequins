@@ -3,13 +3,10 @@ package com.sneakymannequins
 import org.bukkit.plugin.java.JavaPlugin
 import com.sneakymannequins.commands.*
 import com.sneakymannequins.managers.*
-import org.bukkit.Bukkit
-import org.bukkit.Location
-import org.bukkit.World
-import org.bukkit.entity.EntityType
-import org.bukkit.entity.Mannequin
-import org.bukkit.NamespacedKey
-import org.bukkit.profile.PlayerTextures
+import com.sneakymannequins.managers.LayerManager
+import com.sneakymannequins.managers.MannequinManager
+import com.sneakymannequins.nms.VolatileHandler
+import com.sneakymannequins.nms.VolatileHandlerRegistry
 
 class SneakyMannequins : JavaPlugin() {
 
@@ -29,19 +26,26 @@ class SneakyMannequins : JavaPlugin() {
         instance = this
     }
     
+    private lateinit var handler: VolatileHandler
+    private lateinit var layerManager: LayerManager
+    private lateinit var mannequinManager: MannequinManager
+    
     override fun onEnable() {
         logger.info("SneakyMannequins plugin has been enabled!")
 
-		// Register commands
-        server.commandMap.register(IDENTIFIER, CommandMannequin())
-        server.commandMap.register(IDENTIFIER, CommandTest())
-        server.commandMap.register(IDENTIFIER, CommandTest2())
-        
-        // Save default config if it doesn't exist
-        saveDefaultConfig()
+		saveDefaultConfig()
+        handler = VolatileHandlerRegistry.resolve(this)
+        layerManager = LayerManager(this).also { it.reload() }
+        mannequinManager = MannequinManager(this, layerManager, handler)
+
+        // Register commands
+        registerCommand("mannequin", CommandMannequin(mannequinManager))
     }
     
     override fun onDisable() {
+        if (this::mannequinManager.isInitialized) {
+            mannequinManager.shutdown()
+        }
         logger.info("SneakyMannequins plugin has been disabled!")
     }
     

@@ -13,7 +13,50 @@ images:
 # Plugin settings
 plugin:
   # Enable debug logging
-  debug: false
+  debug: true
   
   # Default skin model for mannequins
   default-skin-model: "CLASSIC"
+
+# Layer configuration
+layers:
+  palettes:
+    earth:
+      - "5E503F"
+      - "7A5C42"
+      - "A67C52"
+      - "C2A47B"
+      - "E0C9A6"
+    neon:
+      - "FF4D6D"
+      - "4DFFFF"
+      - "7CFF4D"
+      - "FFD24D"
+      - "AA4DFF"
+
+  # Rendering order for layers (top to bottom)
+  order:
+    - base
+    - hat
+
+  definitions:
+    base:
+      display-name: "Base Skin"
+      directory: "layers/Base"
+      allow-color-mask: false
+      default-palettes: []
+
+    hat:
+      display-name: "Hats"
+      directory: "layers/Hats"
+      allow-color-mask: true
+      # Hex color applied to the hat layer when color masking is used
+      default-color-mask: "FFFFFF"
+      default-palettes:
+        - earth
+        - neon
+      # Optional per-option overrides:
+      # options:
+      #   fedora:
+      #     palettes:
+      #       - earth

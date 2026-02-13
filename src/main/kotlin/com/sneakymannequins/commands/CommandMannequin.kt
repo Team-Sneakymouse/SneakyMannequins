@@ -1,41 +1,30 @@
 package com.sneakymannequins.commands
 
-import com.sneakymannequins.SneakyMannequins
-import com.sneakymannequins.managers.MannequinData
-import com.sneakymannequins.managers.SkinData
+import com.sneakymannequins.managers.MannequinManager
 import com.sneakymannequins.util.TextUtility
-import org.bukkit.command.CommandSender
-import org.bukkit.command.Command
+import io.papermc.paper.command.brigadier.CommandSourceStack
 import org.bukkit.entity.Player
-import org.bukkit.entity.EntityType
-import org.bukkit.entity.Mannequin
-import org.bukkit.profile.PlayerTextures
 
-class CommandMannequin : CommandBase("mannequin") {
-	
-    override fun execute(sender: CommandSender, label: String, args: Array<String>): Boolean {
-		val player = sender as? Player ?: run {
-			sender.sendMessage("You must be a player to use this command")
-			return true
+class CommandMannequin(
+    private val mannequinManager: MannequinManager
+) : CommandBase("mannequin") {
+
+    override fun handle(stack: CommandSourceStack, args: Array<out String>) {
+		val player = stack.sender as? Player ?: run {
+			stack.sender.sendMessage("You must be a player to use this command")
+			return
 		}
 		
 		try {
-			// Get player's location
 			val location = player.location.clone()
-			
-			// Create MannequinData first (with a temporary entity reference)
-			val mannequinData = MannequinData(
-				location = location
-			)
-			
-			player.sendMessage(TextUtility.convertToComponent("&aMannequin created and skin applied!"))
+            val mannequin = mannequinManager.create(location)
+            val pixelCount = mannequinManager.render(mannequin, listOf(player))
+            player.sendMessage(TextUtility.convertToComponent("&aMannequin created at (${location.blockX}, ${location.blockY}, ${location.blockZ}) with id ${mannequin.id} &7[$pixelCount pixels]"))
 			
 		} catch (e: Exception) {
-			player.sendMessage(TextUtility.convertToComponent("&cFailed to create mannequin: ${e.message}"))
+			stack.sender.sendMessage(TextUtility.convertToComponent("&cFailed to create mannequin: ${e.message}"))
 			e.printStackTrace()
 		}
-		
-        return true
     }
 
 }

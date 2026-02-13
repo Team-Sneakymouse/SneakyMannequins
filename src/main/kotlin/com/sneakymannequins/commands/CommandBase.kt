@@ -1,18 +1,27 @@
 package com.sneakymannequins.commands
 
 import com.sneakymannequins.SneakyMannequins
-import org.bukkit.command.Command
+import io.papermc.paper.command.brigadier.BasicCommand
+import io.papermc.paper.command.brigadier.CommandSourceStack
 
 /**
- * Base class for all plugin commands.
- * Provides common setup and permission handling.
- *
- * @property name The name of the command
+ * Base class for Paper Brigadier-style commands registered via JavaPlugin#registerCommand.
  */
-abstract class CommandBase(name: String) : Command(name) {
+abstract class CommandBase(
+    private val name: String
+) : BasicCommand {
 
-    init {
-        this.permission = "${SneakyMannequins.IDENTIFIER}.command.$name"
+    private val permissionNode = "${SneakyMannequins.IDENTIFIER}.command.$name"
+
+    override fun permission(): String = permissionNode
+
+    override fun canUse(sender: org.bukkit.command.CommandSender): Boolean {
+        return sender.hasPermission(permissionNode)
     }
 
+    final override fun execute(stack: CommandSourceStack, args: Array<out String>) {
+        handle(stack, args)
+    }
+
+    protected abstract fun handle(stack: CommandSourceStack, args: Array<out String>)
 }
