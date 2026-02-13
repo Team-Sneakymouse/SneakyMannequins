@@ -45,6 +45,9 @@ class VolatileHandler1214(
         val pixels = perMannequin.computeIfAbsent(mannequinId) { mutableMapOf() }
 
         val pixelSize = 1.0 / 16.0 // 1 pixel = 1/16 block (vanilla pixel size)
+        val yawRad = Math.toRadians(origin.yaw.toDouble())
+        val sin = kotlin.math.sin(yawRad)
+        val cos = kotlin.math.cos(yawRad)
 
         if (plugin.config.getBoolean("plugin.debug", false)) {
             val visibleCount = changes.count { it.visible }
@@ -70,11 +73,14 @@ class VolatileHandler1214(
             existing?.let { connection.send(ClientboundRemoveEntitiesPacket(*intArrayOf(it))) }
 
             val display = TextDisplay(EntityType.TEXT_DISPLAY, level)
-            val xPos = origin.x + pose.x
+            // rotate around Y by origin yaw
+            val rotX = pose.x * cos - pose.z * sin
+            val rotZ = pose.x * sin + pose.z * cos
+            val xPos = origin.x + rotX
             val yPos = origin.y + pose.y
-            val zPos = origin.z + pose.z
+            val zPos = origin.z + rotZ
             display.setPos(xPos, yPos, zPos)
-            display.setYRot(pose.yaw)
+            display.setYRot(pose.yaw + origin.yaw)
             display.setXRot(pose.pitch)
             display.setBillboardConstraints(Display.BillboardConstraints.FIXED)
             display.setShadowRadius(0f)
