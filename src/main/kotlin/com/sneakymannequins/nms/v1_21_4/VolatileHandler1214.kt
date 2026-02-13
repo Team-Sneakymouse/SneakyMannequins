@@ -3,6 +3,8 @@ package com.sneakymannequins.nms.v1_21_4
 import com.sneakymannequins.SneakyMannequins
 import com.sneakymannequins.model.PixelChange
 import com.sneakymannequins.nms.VolatileHandler
+import com.sneakymannequins.render.PixelProjector
+import com.sneakymannequins.render.ProjectedPixel
 import net.minecraft.network.protocol.game.ClientboundAddEntityPacket
 import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket
 import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket
@@ -44,49 +46,36 @@ class VolatileHandler1214(
         val perMannequin = viewerEntities.computeIfAbsent(viewer.uniqueId) { mutableMapOf() }
         val pixels = perMannequin.computeIfAbsent(mannequinId) { mutableMapOf() }
 
-        val pixelSize = 1.0 / 16.0 // 1 pixel = 1/16 block (vanilla pixel size)
-        val yawRad = Math.toRadians(origin.yaw.toDouble())
-        val sin = kotlin.math.sin(yawRad)
-        val cos = kotlin.math.cos(yawRad)
+        val projected = PixelProjector.project(
+            origin = origin,
+            changes = changes,
+            pixelScale = 1.0 / 16.0,
+            scaleMultiplier = pixelScaleMultiplier
+        )
 
         if (plugin.config.getBoolean("plugin.debug", false)) {
-            val visibleCount = changes.count { it.visible }
-            plugin.logger.info("[NMS] applyPixelChanges viewer=${viewer.name} mannequin=$mannequinId total=${changes.size} visible=$visibleCount")
-            changes.take(3).forEach {
-                plugin.logger.info("[NMS]   change x=${it.x} y=${it.y} visible=${it.visible} argb=${it.argb?.toString(16)}")
+            val visibleCount = projected.size
+            plugin.logger.info("[NMS] applyPixelChanges viewer=${viewer.name} mannequin=$mannequinId total=${changes.size} projected=$visibleCount")
+            projected.take(3).forEach {
+                plugin.logger.info("[NMS]   proj idx=${it.index} pos=(${it.x},${it.y},${it.z}) yaw=${it.yaw} argb=${it.argb.toString(16)}")
             }
         }
 
-        changes.forEach { change ->
-            val key = change.y * 64 + change.x
-            val pose = mapSkinPixelToModel(change.x, change.y, pixelSize) ?: return@forEach
+        projected.forEach { proj ->
+            val key = proj.index
             val existing = pixels[key]
-            if (!change.visible) {
-                existing?.let {
-                    connection.send(ClientboundRemoveEntitiesPacket(*intArrayOf(it)))
-                    pixels.remove(key)
-                }
-                return@forEach
-            }
-
             // Remove old entity if present (simpler than updating metadata)
             existing?.let { connection.send(ClientboundRemoveEntitiesPacket(*intArrayOf(it))) }
 
             val display = TextDisplay(EntityType.TEXT_DISPLAY, level)
-            // rotate around Y by origin yaw
-            val rotX = pose.x * cos - pose.z * sin
-            val rotZ = pose.x * sin + pose.z * cos
-            val xPos = origin.x + rotX
-            val yPos = origin.y + pose.y
-            val zPos = origin.z + rotZ
-            display.setPos(xPos, yPos, zPos)
-            display.setYRot(pose.yaw + origin.yaw)
-            display.setXRot(pose.pitch)
+            display.setPos(proj.x, proj.y, proj.z)
+            display.setYRot(proj.yaw)
+            display.setXRot(proj.pitch)
             display.setBillboardConstraints(Display.BillboardConstraints.FIXED)
             display.setShadowRadius(0f)
             display.setShadowStrength(0f)
             display.setViewRange(32f)
-            val scale = (pixelSize * pixelScaleMultiplier).toFloat()
+            val scale = proj.scale
             display.setTransformation(
                 com.mojang.math.Transformation(
                     Vector3f(0f, 0f, 0f),
@@ -96,7 +85,7 @@ class VolatileHandler1214(
                 )
             )
 
-            val argb = change.argb ?: 0
+            val argb = proj.argb
             val argbOpaque = argb or (0xFF shl 24)
             val alpha = 255 // force visible for now
             val rgb = argbOpaque and 0x00FFFFFF
@@ -128,159 +117,9 @@ class VolatileHandler1214(
             connection.send(ClientboundSetEntityDataPacket(entityId, display.entityData.packAll()))
             pixels[key] = entityId
             if (plugin.config.getBoolean("plugin.debug", false) && key == 0) {
-                plugin.logger.info("[NMS] spawned first pixel entityId=$entityId pos=($xPos,$yPos,$zPos) rgb=${rgb.toString(16)} alpha=$alpha")
+                plugin.logger.info("[NMS] spawned first pixel entityId=$entityId pos=(${proj.x},${proj.y},${proj.z}) rgb=${rgb.toString(16)} alpha=$alpha")
             }
         }
-    }
-
-    /**
-     * Maps a 64x64 skin pixel (x,y) to a mannequin model position (relative to feet origin).
-     * Currently renders only the front faces of head/body/arms/legs for visibility.
-     */
-    private data class PixelPose(val x: Double, val y: Double, val z: Double, val yaw: Float, val pitch: Float)
-
-    private fun mapSkinPixelToModel(x: Int, y: Int, s: Double): PixelPose? {
-        // Helper to map a face of a cuboid
-        fun faceFront(x0: Int, y0: Int, w: Int, h: Int, cx: Double, by: Double, z: Double) =
-            if (x in x0 until x0 + w && y in y0 until y0 + h) {
-                val lx = x - x0
-                val ly = (y0 + h - 1) - y
-                PixelPose(cx + (lx - (w - 1) / 2.0) * s, by + ly * s, z, 0f, 0f)
-            } else null
-
-        fun faceBack(x0: Int, y0: Int, w: Int, h: Int, cx: Double, by: Double, z: Double) =
-            if (x in x0 until x0 + w && y in y0 until y0 + h) {
-                val lx = x - x0
-                val ly = (y0 + h - 1) - y
-                PixelPose(cx - (lx - (w - 1) / 2.0) * s, by + ly * s, z, 180f, 0f)
-            } else null
-
-        fun faceLeft(x0: Int, y0: Int, w: Int, h: Int, planeX: Double, by: Double, depth: Double) =
-            if (x in x0 until x0 + w && y in y0 until y0 + h) {
-                val lz = x - x0
-                val ly = (y0 + h - 1) - y
-                PixelPose(planeX, by + ly * s, depth - (lz - (w - 1) / 2.0) * s, 90f, 0f)
-            } else null
-
-        fun faceRight(x0: Int, y0: Int, w: Int, h: Int, planeX: Double, by: Double, depth: Double) =
-            if (x in x0 until x0 + w && y in y0 until y0 + h) {
-                val lz = x - x0
-                val ly = (y0 + h - 1) - y
-                PixelPose(planeX, by + ly * s, depth + (lz - (w - 1) / 2.0) * s, -90f, 0f)
-            } else null
-
-        fun faceTop(x0: Int, y0: Int, w: Int, h: Int, cx: Double, topY: Double, depth: Double) =
-            if (x in x0 until x0 + w && y in y0 until y0 + h) {
-                val lx = x - x0
-                val lz = (y0 + h - 1) - y
-                val shift = s * 0.5
-                PixelPose(cx + (lx - (w - 1) / 2.0) * s, topY, depth - (lz - (h - 1) / 2.0) * s + shift, 0f, -90f)
-            } else null
-
-        fun faceBottom(x0: Int, y0: Int, w: Int, h: Int, cx: Double, bottomY: Double, depth: Double) =
-            if (x in x0 until x0 + w && y in y0 until y0 + h) {
-                val lx = x - x0
-                val lz = y - y0
-                val shift = s * 0.5
-                PixelPose(cx + (lx - (w - 1) / 2.0) * s, bottomY, depth + (lz - (h - 1) / 2.0) * s - shift, 0f, 90f)
-            } else null
-
-        // Model dimensions
-        val headY = 24.0 * s
-        val bodyY = 12.0 * s
-        val legY = 0.0
-
-        // Head (8x8x8)
-        faceFront(8, 8, 8, 8, 0.0, headY, 4.0 * s)?.let { return it }
-        faceBack(24, 8, 8, 8, 0.0, headY, -4.0 * s)?.let { return it }
-        faceLeft(0, 8, 8, 8, -4.0 * s, headY, 0.0)?.let { return it }
-        faceRight(16, 8, 8, 8, 4.0 * s, headY, 0.0)?.let { return it }
-        faceTop(8, 0, 8, 8, 0.0, headY + 8.0 * s, 0.0)?.let { return it }
-        faceBottom(16, 0, 8, 8, 0.0, headY, 0.0)?.let { return it }
-        // Hat overlay
-        faceFront(40, 8, 8, 8, 0.0, headY, 4.0 * s + 0.001)?.let { return it }
-        faceBack(56, 8, 8, 8, 0.0, headY, -4.0 * s - 0.001)?.let { return it }
-        faceLeft(32, 8, 8, 8, -4.0 * s - 0.001, headY, 0.0)?.let { return it }
-        faceRight(48, 8, 8, 8, 4.0 * s + 0.001, headY, 0.0)?.let { return it }
-        faceTop(40, 0, 8, 8, 0.0, headY + 8.0 * s + 0.001, 0.0)?.let { return it }
-        faceBottom(48, 0, 8, 8, 0.0, headY - 0.001, 0.0)?.let { return it }
-
-        // Body (8x12x4)
-        faceFront(20, 20, 8, 12, 0.0, bodyY, 2.0 * s)?.let { return it }
-        faceBack(32, 20, 8, 12, 0.0, bodyY, -2.0 * s)?.let { return it }
-        faceLeft(16, 20, 4, 12, -4.0 * s, bodyY, 0.0)?.let { return it }
-        faceRight(28, 20, 4, 12, 4.0 * s, bodyY, 0.0)?.let { return it }
-        faceTop(20, 16, 8, 4, 0.0, bodyY + 12.0 * s, 0.0)?.let { return it }
-        faceBottom(28, 16, 8, 4, 0.0, bodyY, 0.0)?.let { return it }
-        // Jacket overlay
-        faceFront(20, 36, 8, 12, 0.0, bodyY, 2.0 * s + 0.001)?.let { return it }
-        faceBack(32, 36, 8, 12, 0.0, bodyY, -2.0 * s - 0.001)?.let { return it }
-        faceLeft(16, 36, 4, 12, -4.0 * s - 0.001, bodyY, 0.0)?.let { return it }
-        faceRight(28, 36, 4, 12, 4.0 * s + 0.001, bodyY, 0.0)?.let { return it }
-        faceTop(20, 32, 8, 4, 0.0, bodyY + 12.0 * s + 0.001, 0.0)?.let { return it }
-        faceBottom(28, 32, 8, 4, 0.0, bodyY - 0.001, 0.0)?.let { return it }
-
-        // Right arm (4x12x4)
-        faceFront(44, 20, 4, 12, -6.0 * s, bodyY, 2.0 * s)?.let { return it }
-        faceBack(52, 20, 4, 12, -6.0 * s, bodyY, -2.0 * s)?.let { return it }
-        faceLeft(40, 20, 4, 12, -8.0 * s, bodyY, 0.0)?.let { return it }
-        faceRight(48, 20, 4, 12, -4.0 * s, bodyY, 0.0)?.let { return it }
-        faceTop(44, 16, 4, 4, -6.0 * s, bodyY + 12.0 * s, 0.0)?.let { return it }
-        faceBottom(48, 16, 4, 4, -6.0 * s, bodyY, 0.0)?.let { return it }
-        // Right arm overlay
-        faceFront(44, 36, 4, 12, -6.0 * s, bodyY, 2.0 * s + 0.001)?.let { return it }
-        faceBack(52, 36, 4, 12, -6.0 * s, bodyY, -2.0 * s - 0.001)?.let { return it }
-        faceLeft(40, 36, 4, 12, -8.0 * s - 0.001, bodyY, 0.0)?.let { return it }
-        faceRight(48, 36, 4, 12, -4.0 * s + 0.001, bodyY, 0.0)?.let { return it }
-        faceTop(44, 32, 4, 4, -6.0 * s, bodyY + 12.0 * s + 0.001, 0.0)?.let { return it }
-        faceBottom(48, 32, 4, 4, -6.0 * s, bodyY - 0.001, 0.0)?.let { return it }
-
-        // Left arm (4x12x4) using second layer areas
-        faceFront(36, 52, 4, 12, 6.0 * s, bodyY, 2.0 * s)?.let { return it }
-        faceBack(44, 52, 4, 12, 6.0 * s, bodyY, -2.0 * s)?.let { return it }
-        faceLeft(32, 52, 4, 12, 4.0 * s, bodyY, 0.0)?.let { return it }
-        faceRight(40, 52, 4, 12, 8.0 * s, bodyY, 0.0)?.let { return it }
-        faceTop(36, 48, 4, 4, 6.0 * s, bodyY + 12.0 * s, 0.0)?.let { return it }
-        faceBottom(40, 48, 4, 4, 6.0 * s, bodyY, 0.0)?.let { return it }
-        // Left arm overlay
-        faceFront(52, 52, 4, 12, 6.0 * s, bodyY, 2.0 * s + 0.001)?.let { return it }
-        faceBack(60, 52, 4, 12, 6.0 * s, bodyY, -2.0 * s - 0.001)?.let { return it }
-        faceLeft(48, 52, 4, 12, 4.0 * s - 0.001, bodyY, 0.0)?.let { return it }
-        faceRight(56, 52, 4, 12, 8.0 * s + 0.001, bodyY, 0.0)?.let { return it }
-        faceTop(52, 48, 4, 4, 6.0 * s, bodyY + 12.0 * s + 0.001, 0.0)?.let { return it }
-        faceBottom(56, 48, 4, 4, 6.0 * s, bodyY - 0.001, 0.0)?.let { return it }
-
-        // Right leg (4x12x4)
-        faceFront(4, 20, 4, 12, -2.0 * s, legY, 2.0 * s)?.let { return it }
-        faceBack(12, 20, 4, 12, -2.0 * s, legY, -2.0 * s)?.let { return it }
-        faceLeft(0, 20, 4, 12, -4.0 * s, legY, 0.0)?.let { return it }
-        faceRight(8, 20, 4, 12, 0.0, legY, 0.0)?.let { return it }
-        faceTop(4, 16, 4, 4, -2.0 * s, legY + 12.0 * s, 0.0)?.let { return it }
-        faceBottom(8, 16, 4, 4, -2.0 * s, legY, 0.0)?.let { return it }
-        // Right leg overlay
-        faceFront(4, 36, 4, 12, -2.0 * s, legY, 2.0 * s + 0.001)?.let { return it }
-        faceBack(12, 36, 4, 12, -2.0 * s, legY, -2.0 * s - 0.001)?.let { return it }
-        faceLeft(0, 36, 4, 12, -4.0 * s - 0.001, legY, 0.0)?.let { return it }
-        faceRight(8, 36, 4, 12, 0.0 + 0.001, legY, 0.0)?.let { return it }
-        faceTop(4, 32, 4, 4, -2.0 * s, legY + 12.0 * s + 0.001, 0.0)?.let { return it }
-        faceBottom(8, 32, 4, 4, -2.0 * s, legY - 0.001, 0.0)?.let { return it }
-
-        // Left leg (4x12x4) using second layer region
-        faceFront(20, 52, 4, 12, 2.0 * s, legY, 2.0 * s)?.let { return it }
-        faceBack(28, 52, 4, 12, 2.0 * s, legY, -2.0 * s)?.let { return it }
-        faceLeft(16, 52, 4, 12, 0.0, legY, 0.0)?.let { return it }
-        faceRight(24, 52, 4, 12, 4.0 * s, legY, 0.0)?.let { return it }
-        faceTop(20, 48, 4, 4, 2.0 * s, legY + 12.0 * s, 0.0)?.let { return it }
-        faceBottom(24, 48, 4, 4, 2.0 * s, legY, 0.0)?.let { return it }
-        // Left leg overlay
-        faceFront(4, 52, 4, 12, 2.0 * s, legY, 2.0 * s + 0.001)?.let { return it }
-        faceBack(12, 52, 4, 12, 2.0 * s, legY, -2.0 * s - 0.001)?.let { return it }
-        faceLeft(0, 52, 4, 12, 0.0 - 0.001, legY, 0.0)?.let { return it }
-        faceRight(8, 52, 4, 12, 4.0 * s + 0.001, legY, 0.0)?.let { return it }
-        faceTop(4, 48, 4, 4, 2.0 * s, legY + 12.0 * s + 0.001, 0.0)?.let { return it }
-        faceBottom(8, 48, 4, 4, 2.0 * s, legY - 0.001, 0.0)?.let { return it }
-
-        return null // skip unused regions
     }
 
     override fun destroyMannequin(viewer: Player, mannequinId: UUID) {
