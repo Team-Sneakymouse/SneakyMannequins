@@ -29,6 +29,7 @@ class VolatileHandler1214(
     override val targetMinecraftVersion: String = "1.21.4"
     private val entityIdCounter = AtomicInteger(1_000_000)
     private val pixelScaleMultiplier = 4f
+    override fun pixelScaleMultiplier(): Float = pixelScaleMultiplier
 
     // viewerId -> mannequinId -> pixelIndex -> entityId
     private val viewerEntities = mutableMapOf<UUID, MutableMap<UUID, MutableMap<Int, Int>>>()
@@ -39,23 +40,30 @@ class VolatileHandler1214(
         origin: Location,
         changes: Collection<PixelChange>
     ) {
-        if (changes.isEmpty()) return
-        val handle = (viewer as CraftPlayer).handle as ServerPlayer
-        val level = handle.serverLevel()
-        val connection = handle.connection
-        val perMannequin = viewerEntities.computeIfAbsent(viewer.uniqueId) { mutableMapOf() }
-        val pixels = perMannequin.computeIfAbsent(mannequinId) { mutableMapOf() }
-
         val projected = PixelProjector.project(
             origin = origin,
             changes = changes,
             pixelScale = 1.0 / 16.0,
             scaleMultiplier = pixelScaleMultiplier
         )
+        applyProjectedPixels(viewer, mannequinId, projected)
+    }
+
+    override fun applyProjectedPixels(
+        viewer: Player,
+        mannequinId: UUID,
+        projected: Collection<ProjectedPixel>
+    ) {
+        if (projected.isEmpty()) return
+        val handle = (viewer as CraftPlayer).handle as ServerPlayer
+        val level = handle.serverLevel()
+        val connection = handle.connection
+        val perMannequin = viewerEntities.computeIfAbsent(viewer.uniqueId) { mutableMapOf() }
+        val pixels = perMannequin.computeIfAbsent(mannequinId) { mutableMapOf() }
 
         if (plugin.config.getBoolean("plugin.debug", false)) {
             val visibleCount = projected.size
-            plugin.logger.info("[NMS] applyPixelChanges viewer=${viewer.name} mannequin=$mannequinId total=${changes.size} projected=$visibleCount")
+            plugin.logger.info("[NMS] applyPixelChanges viewer=${viewer.name} mannequin=$mannequinId projected=$visibleCount")
             projected.take(3).forEach {
                 plugin.logger.info("[NMS]   proj idx=${it.index} pos=(${it.x},${it.y},${it.z}) yaw=${it.yaw} argb=${it.argb.toString(16)}")
             }
