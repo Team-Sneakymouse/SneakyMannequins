@@ -10,9 +10,13 @@ import java.util.UUID
  * Contract for version-specific NMS packet handling.
  */
 interface VolatileHandler {
+    companion object {
+        const val DEFAULT_PIXEL_SCALE_MULTIPLIER = 4f
+    }
+
     val targetMinecraftVersion: String
 
-    fun pixelScaleMultiplier(): Float = 1f
+    fun pixelScaleMultiplier(): Float = DEFAULT_PIXEL_SCALE_MULTIPLIER
 
     fun applyPixelChanges(
         viewer: Player,
