@@ -95,23 +95,18 @@ class VolatileHandler1214(
                 com.mojang.math.Transformation(
                     Vector3f(0f, 0f, 0f),
                     Quaternionf(),
-                    Vector3f(scale, scale, scale),
+                    Vector3f(scale * 2.1f, scale, scale), // widen X to match Y visual size
                     Quaternionf()
                 )
             )
 
             val argb = proj.argb
-            val argbOpaque = argb or (0xFF shl 24)
-            val alpha = 255 // force visible for now
-            val rgb = argbOpaque and 0x00FFFFFF
-            val textComponent = Component.literal("\u2588").withStyle { style ->
-                style.withColor(rgb)
-            }
-            display.setText(textComponent)
-            display.setTextOpacity(alpha.toByte())
+            // Copy Bungos approach: render color via background only, glyph is a single space.
+            display.setText(Component.literal(" "))
+            display.setTextOpacity(0.toByte()) // hide glyph; rely on background color
             display.setWidth(1f)
             display.setHeight(1f)
-            display.entityData.set(TextDisplay.DATA_BACKGROUND_COLOR_ID, argbOpaque)
+            display.entityData.set(TextDisplay.DATA_BACKGROUND_COLOR_ID, argb)
 
             val entityId = entityIdCounter.getAndIncrement()
 
@@ -132,7 +127,7 @@ class VolatileHandler1214(
             connection.send(ClientboundSetEntityDataPacket(entityId, display.entityData.packAll()))
             pixels[key] = entityId
             if (plugin.config.getBoolean("plugin.debug", false) && key == 0) {
-                plugin.logger.info("[NMS] spawned first pixel entityId=$entityId pos=(${proj.x},${proj.y},${proj.z}) rgb=${rgb.toString(16)} alpha=$alpha")
+                plugin.logger.info("[NMS] spawned first pixel entityId=$entityId pos=(${proj.x},${proj.y},${proj.z}) argb=${argb.toString(16)}")
             }
         }
     }
