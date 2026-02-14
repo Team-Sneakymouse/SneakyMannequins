@@ -22,11 +22,11 @@ plugin:
     # If true, sanitize/mask new layer PNGs on load (creates *_mask_*.png)
     enabled: true
     # Max number of color clusters (masks) to keep per image
-    max-clusters: 3
+    max-clusters: 4
     # Euclidean RGB distance threshold for grouping pixels into a cluster
     color-distance-threshold: 50
     # Minimum pixels required for a cluster to become a mask
-    min-cluster-size: 3
+    min-cluster-size: 1
 
 # Layer configuration
 layers:

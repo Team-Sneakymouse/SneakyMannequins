@@ -156,6 +156,7 @@ class LayerManager(
         val pngs = Files.list(directory).use { stream ->
             stream.iterator().asSequence()
                 .filter { Files.isRegularFile(it) && it.fileName.toString().lowercase().endsWith(".png") }
+                .filterNot { it.fileName.toString().lowercase().matches(Regex(".*_mask_\\d+\\.png")) }
                 .toList()
         }
 
@@ -331,6 +332,7 @@ class LayerManager(
     private fun maybePreprocess(path: Path) {
         if (!plugin.config.getBoolean("plugin.preprocessing.enabled", true)) return
         val fileName = path.nameWithoutExtension
+        if (path.fileName.toString().lowercase().matches(Regex(".*_mask_\\d+\\.png"))) return
         val mask1 = path.parent.resolve("${fileName}_mask_1.png")
         if (Files.exists(mask1)) return
 
@@ -412,6 +414,25 @@ class LayerManager(
         minClusterSize: Int,
         maxClusters: Int
     ): List<Cluster> {
+        var thr = threshold.coerceAtLeast(1)
+        var result: List<Cluster> = emptyList()
+        repeat(40) { _ ->
+            val clusters = clusterOnce(image, thr)
+                .filter { it.count >= minClusterSize }
+            if (clusters.size <= maxClusters) {
+                result = clusters
+                return@repeat
+            } else {
+                result = clusters
+                thr += 8
+            }
+        }
+        return result
+            .sortedByDescending { it.count }
+            .take(maxClusters)
+    }
+
+    private fun clusterOnce(image: java.awt.image.BufferedImage, threshold: Int): List<Cluster> {
         val clusters = mutableListOf<Cluster>()
         for (x in 0 until image.width) {
             for (y in 0 until image.height) {
@@ -428,15 +449,12 @@ class LayerManager(
                     match.b += b
                     match.count += 1
                     match.pixels += x to y
-                } else if (clusters.size < maxClusters) {
+                } else {
                     clusters += Cluster(r.toLong(), g.toLong(), b.toLong(), 1, mutableListOf(x to y))
                 }
             }
         }
         return clusters
-            .filter { it.count >= minClusterSize }
-            .sortedByDescending { it.count }
-            .take(maxClusters)
     }
 
     private fun Cluster.centroidR() = (r / count).toInt()
