@@ -60,6 +60,7 @@ class MannequinManager(
             // Clean any stray control entities for this mannequin, then spawn what we expect
             cleanupControls(id)
             spawnControlsIfMissing(id)
+            spawnAreaInteraction(id)
         }
     }
 
@@ -73,6 +74,7 @@ class MannequinManager(
         val mannequin = Mannequin(location = location.clone(), selection = selection)
         mannequins[mannequin.id] = mannequin
         controlState[mannequin.id] = ControlState()
+        spawnAreaInteraction(mannequin.id)
         persist()
         return mannequin
     }
@@ -148,10 +150,15 @@ class MannequinManager(
     }
 
     fun remove(mannequinId: UUID, viewers: Collection<Player>) {
-        mannequins.remove(mannequinId)
         viewers.forEach { viewer -> handler.destroyMannequin(viewer, mannequinId) }
+        // Cleanup control & area entities while the mannequin location is still known
         cleanupControls(mannequinId)
+        removeAreaInteraction(mannequinId)
+        mannequins.remove(mannequinId)
         controlLocations.remove(mannequinId)
+        controlState.remove(mannequinId)
+        statusText.remove(mannequinId)
+        poseState.remove(mannequinId)
         persist()
     }
 
@@ -258,6 +265,44 @@ class MannequinManager(
         }
         persist()
         return true
+    }
+
+    /** Ensure a single Interaction entity exists centred on the mannequin.
+     *  If one already exists (found by tags) it is kept; otherwise a new one is spawned. */
+    private fun spawnAreaInteraction(mannequinId: UUID) {
+        val man = mannequins[mannequinId] ?: return
+        val world = man.location.world ?: return
+        val existing = world.getNearbyEntities(man.location, 8.0, 8.0, 8.0).any {
+            it is org.bukkit.entity.Interaction
+                    && it.scoreboardTags.contains("sneakymannequin_control")
+                    && it.scoreboardTags.contains("mannequin:$mannequinId")
+                    && it.scoreboardTags.contains("button:area")
+        }
+        if (existing) return
+        world.spawn(man.location.clone(), org.bukkit.entity.Interaction::class.java) { inter ->
+            inter.interactionWidth = 2.0f   // 1-block radius
+            inter.interactionHeight = 2.0f
+            inter.isResponsive = true
+            inter.scoreboardTags.add("sneakymannequin_control")
+            inter.scoreboardTags.add("mannequin:$mannequinId")
+            inter.scoreboardTags.add("control:area")
+            inter.scoreboardTags.add("button:area")
+        }
+    }
+
+    /** Remove the area Interaction entity for a mannequin. */
+    private fun removeAreaInteraction(mannequinId: UUID) {
+        val man = mannequins[mannequinId] ?: return
+        val world = man.location.world ?: return
+        world.getNearbyEntities(man.location, 8.0, 8.0, 8.0).forEach {
+            if (it is org.bukkit.entity.Interaction
+                && it.scoreboardTags.contains("sneakymannequin_control")
+                && it.scoreboardTags.contains("mannequin:$mannequinId")
+                && it.scoreboardTags.contains("button:area")
+            ) {
+                it.remove()
+            }
+        }
     }
 
     private fun spawnControlsIfMissing(mannequinId: UUID) {
@@ -513,6 +558,14 @@ class MannequinManager(
                         layer
                     )
                     updateStatus("Mode: Color")
+                }
+            }
+            "area" -> {
+                // Big surrounding interaction – behaves like an air-click for the active mode
+                when (state.mode) {
+                    ControlMode.PART -> cyclePart(layer, mannequin, state, backwards)?.let { updateStatus(it) }
+                    ControlMode.COLOR -> cycleColor(layer, mannequin, state, backwards)?.let { updateStatus(it) }
+                    else -> {} // no active mode, ignore
                 }
             }
         }

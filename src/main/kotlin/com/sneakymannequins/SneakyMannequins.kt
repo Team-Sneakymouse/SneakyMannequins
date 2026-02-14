@@ -9,6 +9,7 @@ import com.sneakymannequins.nms.VolatileHandler
 import com.sneakymannequins.nms.VolatileHandlerRegistry
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
+import org.bukkit.event.block.Action
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.player.PlayerInteractAtEntityEvent
 import org.bukkit.event.player.PlayerInteractEntityEvent
@@ -102,18 +103,12 @@ class SneakyMannequins : JavaPlugin(), Listener {
         event.isCancelled = true
     }
 
+    // Left-click air: cycle forward in active mode (right-click is handled by the big Interaction entity)
     @EventHandler
     fun onAirInteract(event: PlayerInteractEvent) {
-        // Temporary debug: log all air clicks to verify firing/hand/action/cancel state
-        logger.info("[AirInteract] action=${event.action} hand=${event.hand} cancelled=${event.isCancelled}")
-        val action = event.action
-        if (action != org.bukkit.event.block.Action.LEFT_CLICK_AIR
-            && action != org.bukkit.event.block.Action.RIGHT_CLICK_AIR
-            && action != org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK
-        ) return
+        if (event.action != Action.LEFT_CLICK_AIR) return
         if (event.hand != EquipmentSlot.HAND) return
-        val backwards = action == org.bukkit.event.block.Action.RIGHT_CLICK_AIR || action == org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK
-        mannequinManager.handleEmptyClick(event.player, backwards)
+        mannequinManager.handleEmptyClick(event.player, backwards = false)
     }
 
     @EventHandler
