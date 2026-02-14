@@ -174,7 +174,7 @@ class MannequinManager(
             def.id to LayerSelection(
                 layerId = def.id,
                 option = chosen,
-                colorMask = def.defaultColorMask
+                colorMask = null
             )
         }
         return SkinSelection(selections)
@@ -421,13 +421,22 @@ class MannequinManager(
                             current?.copy(colorMask = null) ?: LayerSelection(layer.id, option, null)
                         } else {
                             val palId = optionsList[idx]
-                            val color = layerManager.palette(palId)?.colors?.firstOrNull()
-                            current?.copy(colorMask = color) ?: LayerSelection(layer.id, option, color)
+                            val namedColor = layerManager.palette(palId)?.colors?.firstOrNull()
+                            current?.copy(colorMask = namedColor?.color) ?: LayerSelection(layer.id, option, namedColor?.color)
                         }
                         mannequin.selection = mannequin.selection.copy(
                             selections = mannequin.selection.selections + (layer.id to selection)
                         )
-                        updateStatus(if (idx == 0) "Color: Default" else "Color: ${optionsList[idx]}")
+                        updateStatus(
+                            when (idx) {
+                                0 -> "Color: Default"
+                                else -> {
+                                    val palId = optionsList[idx]
+                                    val colorName = layerManager.palette(palId)?.colors?.firstOrNull()?.name
+                                    if (colorName != null) "Color: $colorName" else "Color: $palId"
+                                }
+                            }
+                        )
                     }
                 }
             }

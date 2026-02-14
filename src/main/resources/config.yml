@@ -22,36 +22,42 @@ plugin:
 layers:
   palettes:
     earth:
-      - "5E503F"
-      - "7A5C42"
-      - "A67C52"
-      - "C2A47B"
-      - "E0C9A6"
+      stone: "5E503F"
+      bark: "7A5C42"
+      sand: "A67C52"
+      dune: "C2A47B"
+      clay: "E0C9A6"
     neon:
-      - "FF4D6D"
-      - "4DFFFF"
-      - "7CFF4D"
-      - "FFD24D"
-      - "AA4DFF"
+      hot_pink: "FF4D6D"
+      cyan: "4DFFFF"
+      lime: "7CFF4D"
+      amber: "FFD24D"
+      violet: "AA4DFF"
+    skin:
+      ivory: "F6E2CE"
+      porcelain: "F2D6C5"
+      sand: "E8C5AE"
+      almond: "D9B08C"
+      beige: "CFA07A"
+      honey: "C28B67"
+      caramel: "B3775A"
+      chestnut: "9C6147"
+      bronze: "8B503C"
+      espresso: "6B3B2A"
+      umber: "553023"
 
   # Rendering order for layers (top to bottom)
   order:
-    - base
-    - hat
+    - hair
+    - shirt
+    - pants
+    - body
 
   definitions:
-    base:
-      display-name: "Base Skin"
-      directory: "layers/Base"
-      allow-color-mask: false
-      default-palettes: []
-
-    hat:
-      display-name: "Hats"
-      directory: "layers/Hats"
+    hair:
+      display-name: "Hair"
+      directory: "layers/Hair"
       allow-color-mask: true
-      # Hex color applied to the hat layer when color masking is used
-      default-color-mask: "FFFFFF"
       default-palettes:
         - earth
         - neon
@@ -60,3 +66,25 @@ layers:
       #   fedora:
       #     palettes:
       #       - earth
+    
+    shirt:
+      display-name: "Shirt"
+      directory: "layers/Shirt"
+      allow-color-mask: true
+      default-palettes:
+        - earth
+        - neon
+    
+    pants:
+      display-name: "Pants"
+      directory: "layers/Pants"
+      allow-color-mask: true
+      default-palettes:
+        - earth
+        - neon
+    
+    body:
+      display-name: "Body"
+      directory: "layers/Body"
+      allow-color-mask: true
+      default-palettes: [skin]

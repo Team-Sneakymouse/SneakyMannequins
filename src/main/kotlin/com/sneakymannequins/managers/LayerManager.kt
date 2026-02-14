@@ -2,6 +2,7 @@ package com.sneakymannequins.managers
 
 import com.sneakymannequins.SneakyMannequins
 import com.sneakymannequins.model.ColorPalette
+import com.sneakymannequins.model.NamedColor
 import com.sneakymannequins.model.LayerDefinition
 import com.sneakymannequins.model.LayerOption
 import org.bukkit.configuration.ConfigurationSection
@@ -60,7 +61,6 @@ class LayerManager(
             // Read defaults directly from the plugin data root (default.png / default_slim.png)
             directory = plugin.dataFolder.toPath(),
             allowColorMask = false,
-            defaultColorMask = null,
             defaultPalettes = emptyList()
         )
         val options = loadOptions(baseDef, null)
@@ -81,20 +81,39 @@ class LayerManager(
     private fun loadPalettes(section: ConfigurationSection?) {
         section ?: return
         section.getKeys(false).forEach { paletteId ->
-            val colors = section.getStringList(paletteId)
-                .mapNotNull { hex ->
-                    try {
-                        Color.decode("#${hex.trim('#')}")
-                    } catch (ex: Exception) {
-                        plugin.logger.warning("Invalid color '$hex' in palette '$paletteId'")
-                        null
-                    }
+            val paletteSection = section.getConfigurationSection(paletteId)
+            val namedColors = if (paletteSection != null) {
+                paletteSection.getKeys(false).mapNotNull { name ->
+                    val hex = paletteSection.getString(name) ?: return@mapNotNull null
+                    decodeColor(hex)?.let { color -> NamedColor(name, color) }
+                        ?: run {
+                            plugin.logger.warning("Invalid color '$hex' in palette '$paletteId' entry '$name'")
+                            null
+                        }
                 }
-            if (colors.isNotEmpty()) {
-                palettes[paletteId] = ColorPalette(paletteId, colors)
+            } else {
+                // Fallback: allow legacy list format without names
+                section.getStringList(paletteId).mapIndexedNotNull { idx, hex ->
+                    decodeColor(hex)?.let { color -> NamedColor("color$idx", color) }
+                        ?: run {
+                            plugin.logger.warning("Invalid color '$hex' in palette '$paletteId'")
+                            null
+                        }
+                }
+            }
+            if (namedColors.isNotEmpty()) {
+                palettes[paletteId] = ColorPalette(paletteId, namedColors)
             } else {
                 plugin.logger.warning("Palette '$paletteId' has no valid colors; skipping.")
             }
+        }
+    }
+
+    private fun decodeColor(hex: String): Color? {
+        return try {
+            Color.decode("#${hex.trim('#')}")
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -102,6 +121,11 @@ class LayerManager(
         val directory = definition.directory
         if (!Files.exists(directory)) {
             Files.createDirectories(directory)
+        }
+
+        // For the base layer, make sure the bundled defaults exist before we try to read them
+        if (definition.id.equals("base", ignoreCase = true)) {
+            ensureDefaultSkinVariants()
         }
 
         var options = loadPngOptions(directory, definition, optionConfig)
@@ -113,14 +137,6 @@ class LayerManager(
                 .mapNotNull { loadOption(plugin.dataFolder.toPath().resolve(it), definition, optionConfig) }
                 .filterNot { existingIds.contains(it.id.lowercase()) }
             options = options + rootDefaults
-
-            // If still empty, ensure the root defaults exist (but do not copy into the layer dir)
-            if (options.isEmpty()) {
-                ensureDefaultSkinVariants()
-                val seeded = listOf("default.png", "default_slim.png")
-                    .mapNotNull { loadOption(plugin.dataFolder.toPath().resolve(it), definition, optionConfig) }
-                options = options + seeded
-            }
         }
 
         return options
@@ -195,12 +211,6 @@ class LayerManager(
         val id = this.name
         val displayName = getString("display-name", id) ?: id
         val allowMask = getBoolean("allow-color-mask", false)
-        val defaultMask = getString("default-color-mask")
-            ?.takeIf { it.isNotBlank() }
-            ?.let {
-                val hex = it.trim().removePrefix("#")
-                Color.decode("#$hex")
-            }
         val defaultPalettes = getStringList("default-palettes")
         val directory = dataFolder.resolve(getString("directory", "layers/$id") ?: "layers/$id").normalize()
         return LayerDefinition(
@@ -208,7 +218,6 @@ class LayerManager(
             displayName = displayName,
             directory = directory,
             allowColorMask = allowMask,
-            defaultColorMask = defaultMask,
             defaultPalettes = defaultPalettes
         )
     }

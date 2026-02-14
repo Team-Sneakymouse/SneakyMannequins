@@ -12,7 +12,6 @@ data class LayerDefinition(
     val displayName: String,
     val directory: Path,
     val allowColorMask: Boolean,
-    val defaultColorMask: Color?,
     val defaultPalettes: List<String>
 )
 
