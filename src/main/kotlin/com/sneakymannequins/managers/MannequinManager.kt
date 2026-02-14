@@ -266,7 +266,16 @@ class MannequinManager(
         val man = mannequins[mannequinId] ?: return
         val yaw = computeControlYaw(loc, man.location)
 
-        fun spawnButton(text: String, offsetY: Double, offsetX: Double, offsetZ: Double, buttonTag: String): Entity? {
+        fun spawnButton(
+            text: String,
+            offsetY: Double,
+            offsetX: Double,
+            offsetZ: Double,
+            buttonTag: String,
+            width: Double = 1.2,
+            height: Double = 0.6,
+            lineWidth: Int = 200
+        ): Entity? {
             val yawRad = Math.toRadians(yaw.toDouble())
             val cos = kotlin.math.cos(yawRad)
             val sin = kotlin.math.sin(yawRad)
@@ -293,9 +302,9 @@ class MannequinManager(
                 td.isShadowed = false
                 td.viewRange = 32f
                 td.textOpacity = 255.toByte()
-                td.lineWidth = 200
-                td.displayWidth = 1.2f
-                td.displayHeight = 0.6f
+                td.lineWidth = lineWidth
+                td.displayWidth = width.toFloat()
+                td.displayHeight = height.toFloat()
                 td.isPersistent = false
                 td.scoreboardTags.add("sneakymannequin_control")
                 td.scoreboardTags.add("mannequin:$mannequinId")
@@ -306,7 +315,7 @@ class MannequinManager(
 
         val status = statusText[mannequinId] ?: "Controls"
         // Layout window: status on top, left column model/pose, right column layer/part/color
-        spawnButton(status, 2.3, 0.0, 0.2, "status")
+        spawnButton(status, 2.3, 0.0, 0.2, "status", width = 2.8, height = 0.8, lineWidth = 256)
         spawnButton("Model", 1.7, -1.0, 0.2, "model")
         spawnButton("Pose", 1.4, -1.0, 0.2, "pose")
         spawnButton("Layer", 1.7, 1.0, 0.2, "layer")
@@ -369,7 +378,7 @@ class MannequinManager(
             // Update status displays for all controls
             controlLocations[manId]?.forEach { ref ->
                 val world = ref.location.world ?: return@forEach
-                world.getNearbyEntities(ref.location, 2.0, 2.0, 2.0).forEach {
+                world.getNearbyEntities(ref.location, 3.5, 3.5, 3.5).forEach {
                     if (it is TextDisplay && it.scoreboardTags.contains("button:status") && it.scoreboardTags.contains("control:${ref.id}")) {
                         it.text(Component.text(msg))
                     }
@@ -398,7 +407,12 @@ class MannequinManager(
                 // Force full rerender to avoid remnants from previous model
                 mannequin.lastFrame = PixelFrame.blank()
                 state.colorIndex[baseLayerId] = 0
-                updateStatus("Model: ${next?.id ?: "default"}")
+                val modelLabel = when (next?.id?.lowercase()) {
+                    "default_slim" -> "Slim"
+                    "default" -> "Default"
+                    else -> next?.displayName ?: next?.id ?: "Default"
+                }
+                updateStatus("Model: $modelLabel")
                 val viewers = plugin.server.onlinePlayers.filter {
                     it.world == mannequin.location.world && it.location.distanceSquared(mannequin.location) <= VISIBLE_RANGE_SQ
                 }
@@ -430,7 +444,7 @@ class MannequinManager(
                         selections = mannequin.selection.selections + (layer.id to LayerSelection(layer.id, chosen, null))
                     )
                     state.colorIndex[layer.id] = 0 // reset color to default
-                    updateStatus("Part: ${chosen.id}")
+                    updateStatus("Part: ${chosen.displayName}")
                 }
             }
             "color" -> {
@@ -453,16 +467,15 @@ class MannequinManager(
                         mannequin.selection = mannequin.selection.copy(
                             selections = mannequin.selection.selections + (layer.id to selection)
                         )
-                        updateStatus(
-                            when (idx) {
-                                0 -> "Color: Default"
-                                else -> {
-                                    val palId = optionsList[idx]
-                                    val colorName = layerManager.palette(palId)?.colors?.firstOrNull()?.name
-                                    if (colorName != null) "Color: $colorName" else "Color: $palId"
-                                }
+                        val statusMsg = when (idx) {
+                            0 -> "Color: Default"
+                            else -> {
+                                val palId = optionsList[idx]
+                                val colorName = layerManager.palette(palId)?.colors?.firstOrNull()?.name ?: palId
+                                "Color: $colorName"
                             }
-                        )
+                        }
+                        updateStatus(statusMsg)
                     }
                 }
             }
