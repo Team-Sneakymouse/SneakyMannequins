@@ -25,7 +25,8 @@ data class LayerOption(
     val fileSlim: Path?,
     val imageDefault: BufferedImage?,
     val imageSlim: BufferedImage?,
-    val allowedPalettes: List<String>
+    val allowedPalettes: List<String>,
+    val masks: Map<Int, Path> = emptyMap() // mask index -> file path (generated)
 )
 
 /**

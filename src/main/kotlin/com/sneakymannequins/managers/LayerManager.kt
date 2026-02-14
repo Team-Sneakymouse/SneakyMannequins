@@ -11,6 +11,9 @@ import java.nio.file.Files
 import java.nio.file.Path
 import javax.imageio.ImageIO
 import kotlin.io.path.nameWithoutExtension
+import kotlin.io.path.name
+import kotlin.math.pow
+import kotlin.math.sqrt
 
 class LayerManager(
     private val plugin: SneakyMannequins
@@ -156,6 +159,7 @@ class LayerManager(
 
         val grouped = mutableMapOf<String, OptionAggregate>()
         pngs.forEach { path ->
+            maybePreprocess(path)
             val rawName = path.nameWithoutExtension
             val base: String
             val variant: Variant
@@ -198,6 +202,8 @@ class LayerManager(
                 return@mapNotNull null
             }
 
+            val masks = buildMaskMap(directory, agg)
+
             LayerOption(
                 id = agg.id,
                 displayName = agg.displayName,
@@ -205,7 +211,8 @@ class LayerManager(
                 fileSlim = slimPath,
                 imageDefault = defaultImage,
                 imageSlim = slimImage,
-                allowedPalettes = allowedPalettes
+                allowedPalettes = allowedPalettes,
+                masks = masks
             )
         }
     }
@@ -228,6 +235,25 @@ class LayerManager(
             imageSlim = image,
             allowedPalettes = allowedPalettes
         )
+    }
+
+    private fun buildMaskMap(directory: Path, agg: OptionAggregate): Map<Int, Path> {
+        val baseNames = listOfNotNull(agg.defaultPath, agg.slimPath, agg.sharedPath).map { it.nameWithoutExtension }.toSet()
+        val maskFiles = Files.list(directory).use { stream ->
+            stream.iterator().asSequence()
+                .filter { Files.isRegularFile(it) && it.fileName.toString().lowercase().endsWith(".png") }
+                .filter { path ->
+                    val name = path.nameWithoutExtension.lowercase()
+                    baseNames.any { base -> name.startsWith("${base.lowercase()}_mask_") }
+                }
+                .toList()
+        }
+        return maskFiles.mapNotNull { path ->
+            val name = path.nameWithoutExtension
+            val idxPart = name.substringAfterLast("_mask_", missingDelimiterValue = "")
+            val idx = idxPart.toIntOrNull() ?: return@mapNotNull null
+            idx to path
+        }.toMap()
     }
 
     private fun loadImage(path: Path, layerId: String): java.awt.image.BufferedImage? {
@@ -265,6 +291,141 @@ class LayerManager(
         raw.trim().split(Regex("[_\\-\\s]+")).filter { it.isNotBlank() }.joinToString(" ") { part ->
             part.lowercase().replaceFirstChar { ch -> ch.titlecase() }
         }.ifEmpty { "Option" }
+
+    private fun maybePreprocess(path: Path) {
+        if (!plugin.config.getBoolean("plugin.preprocessing.enabled", true)) return
+        val fileName = path.nameWithoutExtension
+        val mask1 = path.parent.resolve("${fileName}_mask_1.png")
+        if (Files.exists(mask1)) return
+
+        preprocessImage(path)
+    }
+
+    private fun preprocessImage(sourcePath: Path) {
+        val image = ImageIO.read(sourcePath.toFile()) ?: return
+        val sanitized = sanitizeUv(image)
+
+        val config = plugin.config
+        val maxClusters = config.getInt("plugin.preprocessing.max-clusters", 8).coerceAtLeast(1)
+        val colorThreshold = config.getInt("plugin.preprocessing.color-distance-threshold", 24).coerceAtLeast(1)
+        val minClusterSize = config.getInt("plugin.preprocessing.min-cluster-size", 3).coerceAtLeast(1)
+
+        val clusters = clusterColors(sanitized, colorThreshold, minClusterSize, maxClusters)
+        writeMasks(sourcePath, sanitized, clusters)
+        // overwrite source with sanitized (remove UV junk)
+        ImageIO.write(sanitized, "png", sourcePath.toFile())
+    }
+
+    private fun sanitizeUv(image: java.awt.image.BufferedImage): java.awt.image.BufferedImage {
+        val out = java.awt.image.BufferedImage(image.width, image.height, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+        for (x in 0 until image.width) {
+            for (y in 0 until image.height) {
+                val argb = image.getRGB(x, y)
+                if ((argb ushr 24) == 0) continue
+                if (isInUv(x, y)) {
+                    out.setRGB(x, y, argb)
+                }
+            }
+        }
+        return out
+    }
+
+    private fun isInUv(x: Int, y: Int): Boolean {
+        // Vanilla 64x64 skin layout (both layers)
+        // Head: base 0..31 x 0..15, overlay 32..63 x 0..15
+        // Body: base 16..39 x 16..31, overlay 16..55 x 32..47
+        // Right arm: base 40..55 x 16..31, overlay 40..55 x 32..47
+        // Left arm:  same as right arm but 48..63 x 48..63 overlay (for legacy) omitted; use 32..47 x 48..63? (vanilla uses mirrored)
+        // Legs: base 0..15 x 16..31 and 0..15 x 32..47 overlay; left leg at 16..31 x 48..63 overlay region
+        // We’ll accept all standard second-layer regions:
+        val regions = listOf(
+            // Head base
+            Rect(0, 0, 32, 16),
+            // Head overlay
+            Rect(32, 0, 64, 16),
+            // Body base
+            Rect(16, 16, 40, 32),
+            // Body overlay
+            Rect(16, 32, 56, 48),
+            // Right arm base
+            Rect(40, 16, 56, 32),
+            // Right arm overlay
+            Rect(40, 32, 56, 48),
+            // Left arm base/overlay area (mirrored; accept both)
+            Rect(32, 48, 48, 64),
+            Rect(48, 48, 64, 64),
+            // Right leg base
+            Rect(0, 16, 16, 32),
+            // Right leg overlay
+            Rect(0, 32, 16, 48),
+            // Left leg base/overlay area
+            Rect(16, 48, 32, 64)
+        )
+        return regions.any { it.contains(x, y) }
+    }
+
+    private data class Rect(val x0: Int, val y0: Int, val x1: Int, val y1: Int) {
+        fun contains(x: Int, y: Int): Boolean = x in x0 until x1 && y in y0 until y1
+    }
+
+    private data class Cluster(var r: Long, var g: Long, var b: Long, var count: Int, val pixels: MutableList<Pair<Int, Int>>)
+
+    private fun clusterColors(
+        image: java.awt.image.BufferedImage,
+        threshold: Int,
+        minClusterSize: Int,
+        maxClusters: Int
+    ): List<Cluster> {
+        val clusters = mutableListOf<Cluster>()
+        for (x in 0 until image.width) {
+            for (y in 0 until image.height) {
+                val argb = image.getRGB(x, y)
+                val a = argb ushr 24 and 0xFF
+                if (a == 0) continue
+                val r = argb ushr 16 and 0xFF
+                val g = argb ushr 8 and 0xFF
+                val b = argb and 0xFF
+                val match = clusters.firstOrNull { dist(it.centroidR(), it.centroidG(), it.centroidB(), r, g, b) <= threshold }
+                if (match != null) {
+                    match.r += r
+                    match.g += g
+                    match.b += b
+                    match.count += 1
+                    match.pixels += x to y
+                } else if (clusters.size < maxClusters) {
+                    clusters += Cluster(r.toLong(), g.toLong(), b.toLong(), 1, mutableListOf(x to y))
+                }
+            }
+        }
+        return clusters
+            .filter { it.count >= minClusterSize }
+            .sortedByDescending { it.count }
+            .take(maxClusters)
+    }
+
+    private fun Cluster.centroidR() = (r / count).toInt()
+    private fun Cluster.centroidG() = (g / count).toInt()
+    private fun Cluster.centroidB() = (b / count).toInt()
+
+    private fun dist(r1: Int, g1: Int, b1: Int, r2: Int, g2: Int, b2: Int): Double {
+        val dr = (r1 - r2).toDouble()
+        val dg = (g1 - g2).toDouble()
+        val db = (b1 - b2).toDouble()
+        return sqrt(dr.pow(2) + dg.pow(2) + db.pow(2))
+    }
+
+    private fun writeMasks(sourcePath: Path, sanitized: java.awt.image.BufferedImage, clusters: List<Cluster>) {
+        clusters.forEachIndexed { idx, cluster ->
+            val mask = java.awt.image.BufferedImage(sanitized.width, sanitized.height, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+            cluster.pixels.forEach { (x, y) ->
+                val alpha = sanitized.getRGB(x, y) ushr 24 and 0xFF
+                val value = (alpha shl 24) or 0x00FFFFFF
+                mask.setRGB(x, y, value)
+            }
+            val outPath = sourcePath.parent.resolve("${sourcePath.nameWithoutExtension}_mask_${idx + 1}.png")
+            ImageIO.write(mask, "png", outPath.toFile())
+        }
+    }
 
     private fun imageHasNonTransparentPixels(image: java.awt.image.BufferedImage): Boolean {
         val data = IntArray(image.width * image.height)
