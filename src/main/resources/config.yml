@@ -23,7 +23,7 @@ plugin:
     enabled: true
     # Pixels below this saturation (0.0-1.0) are considered neutral and excluded from masks
     # (catches greys, whites, near-whites whose hue is meaningless)
-    neutral-saturation: 0.12
+    neutral-saturation: 0.02
     # Pixels below this brightness (0.0-1.0) are considered too dark and excluded from masks
     # (catches blacks, near-blacks whose hue is unreliable)
     neutral-brightness-low: 0.10
