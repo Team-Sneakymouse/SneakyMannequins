@@ -217,8 +217,7 @@ class MannequinManager(
             }
             def.id to LayerSelection(
                 layerId = def.id,
-                option = chosen,
-                colorMask = null
+                option = chosen
             )
         }
         return SkinSelection(selections)
@@ -473,8 +472,8 @@ class MannequinManager(
                 }
                 plugin.logger.info("Model toggle: current=${current?.id} -> next=${next?.id}")
                 mannequin.selection = mannequin.selection.copy(
-                    selections = mannequin.selection.selections + (baseLayerId to (mannequin.selection.selections[baseLayerId]?.copy(option = next, colorMask = null)
-                        ?: LayerSelection(baseLayerId, next, null)))
+                    selections = mannequin.selection.selections + (baseLayerId to (mannequin.selection.selections[baseLayerId]?.copy(option = next, channelColors = emptyMap())
+                        ?: LayerSelection(baseLayerId, next)))
                 )
                 // Force full rerender to avoid remnants from previous model
                 mannequin.lastFrame = PixelFrame.blank()
@@ -535,12 +534,6 @@ class MannequinManager(
                     val idx = (state.channelIndex.getOrDefault(layer.id, 0) + delta + channels.size) % channels.size
                     state.channelIndex[layer.id] = idx
                     val selectedChannel = channels[idx]
-                    val currentSel = mannequin.selection.selections[layer.id]
-                    if (currentSel != null) {
-                        mannequin.selection = mannequin.selection.copy(
-                            selections = mannequin.selection.selections + (layer.id to currentSel.copy(maskIndex = selectedChannel))
-                        )
-                    }
                     updateStatus("Channel: $selectedChannel")
                 } else {
                     updateStatus("Channel: Locked")
@@ -678,7 +671,7 @@ class MannequinManager(
         state.partIndex[layer.id] = idx
         val chosen = opts[idx]
         mannequin.selection = mannequin.selection.copy(
-            selections = mannequin.selection.selections + (layer.id to LayerSelection(layer.id, chosen, null, maskIndex = null))
+            selections = mannequin.selection.selections + (layer.id to LayerSelection(layer.id, chosen))
         )
         // reset per-part indices
         state.channelIndex[layer.id] = 0
@@ -700,14 +693,20 @@ class MannequinManager(
         val channelIdx = state.channelIndex.getOrDefault(layer.id, 0)
         val selectedChannel = option.masks.keys.sorted().getOrNull(channelIdx)
 
-        val selection = if (idx == 0) {
-            current?.copy(colorMask = null, maskIndex = null)
-                ?: LayerSelection(layer.id, option, null, maskIndex = null)
-        } else {
+        // Build the updated per-channel color map, preserving other channels
+        val prevColors = current?.channelColors ?: emptyMap()
+        val newColors = if (idx == 0 && selectedChannel != null) {
+            // "Default" → remove the color for this channel only
+            prevColors - selectedChannel
+        } else if (idx > 0 && selectedChannel != null) {
             val color = colors.getOrNull(idx - 1)?.color
-            current?.copy(colorMask = color, maskIndex = selectedChannel)
-                ?: LayerSelection(layer.id, option, color, maskIndex = selectedChannel)
+            if (color != null) prevColors + (selectedChannel to color) else prevColors
+        } else {
+            prevColors
         }
+
+        val selection = current?.copy(channelColors = newColors)
+            ?: LayerSelection(layer.id, option, channelColors = newColors)
         mannequin.selection = mannequin.selection.copy(
             selections = mannequin.selection.selections + (layer.id to selection)
         )

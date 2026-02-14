@@ -31,12 +31,12 @@ data class LayerOption(
 
 /**
  * Current selection for a layer.
+ * [channelColors] maps channel index → Color for each independently tinted channel.
  */
 data class LayerSelection(
     val layerId: String,
     val option: LayerOption?,
-    val colorMask: Color?,
-    val maskIndex: Int? = null // null = no mask, otherwise key of LayerOption.masks
+    val channelColors: Map<Int, Color> = emptyMap()
 )
 
 /**
@@ -47,7 +47,7 @@ data class SkinSelection(
 ) {
     companion object {
         fun empty(layerIds: List<String>): SkinSelection {
-            val defaults = layerIds.associateWith { LayerSelection(it, option = null, colorMask = null) }
+            val defaults = layerIds.associateWith { LayerSelection(it, option = null) }
             return SkinSelection(defaults)
         }
     }
