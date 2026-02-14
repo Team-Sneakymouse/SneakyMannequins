@@ -24,7 +24,7 @@ plugin:
     # Max number of color clusters (masks) to keep per image
     max-clusters: 8
     # Euclidean RGB distance threshold for grouping pixels into a cluster
-    color-distance-threshold: 24
+    color-distance-threshold: 75
     # Minimum pixels required for a cluster to become a mask
     min-cluster-size: 3
 

@@ -159,6 +159,29 @@ class MannequinManager(
         mannequins.clear()
     }
 
+    fun reloadAll() {
+        // Destroy existing displays for all viewers
+        val viewers = plugin.server.onlinePlayers
+        mannequins.keys.forEach { id ->
+            viewers.forEach { viewer -> handler.destroyMannequin(viewer, id) }
+        }
+
+        mannequins.clear()
+        controlLocations.clear()
+        sentTo.clear()
+        statusText.clear()
+        poseState.clear()
+        controlState.clear()
+        interactionDebounce.clear()
+
+        loadFromDisk()
+
+        // Re-render for all online players to mimic fresh login
+        plugin.server.onlinePlayers.forEach { viewer ->
+            renderVisibleTo(viewer)
+        }
+    }
+
     private fun bootstrapSelection(): SkinSelection {
         val definitions = layerManager.definitionsInOrder()
         val preferredModel = plugin.config.getString("plugin.default-skin-model", "CLASSIC")?.uppercase() ?: "CLASSIC"

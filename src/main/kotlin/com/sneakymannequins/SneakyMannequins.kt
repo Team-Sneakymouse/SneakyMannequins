@@ -50,7 +50,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
         mannequinManager = MannequinManager(this, layerManager, handler, persistence).also { it.loadFromDisk() }
 
 		// Register commands
-        registerCommand("mannequin", CommandMannequin(mannequinManager))
+        registerCommand("mannequin", CommandMannequin(this, mannequinManager))
         server.pluginManager.registerEvents(this, this)
     }
     
@@ -105,5 +105,10 @@ class SneakyMannequins : JavaPlugin(), Listener {
     fun onQuit(event: PlayerQuitEvent) {
         mannequinManager.forgetViewer(event.player.uniqueId)
     }
-    
+
+    fun reloadPlugin() {
+        reloadConfig()
+        layerManager.reload()
+        mannequinManager.reloadAll()
+    }
 }
