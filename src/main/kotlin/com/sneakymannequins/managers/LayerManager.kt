@@ -26,6 +26,8 @@ class LayerManager(
         loadedLayers.clear()
         layerOrder.clear()
         palettes.clear()
+        // Always ensure bundled defaults exist in the data folder
+        ensureDefaultSkinVariants()
         val root = plugin.config.getConfigurationSection("layers")
             ?: return seedDefaultBaseLayer()
 
