@@ -77,12 +77,13 @@ class VolatileHandler1214(
                 display.setShadowRadius(0f)
                 display.setShadowStrength(0f)
                 display.setViewRange(32f)
-                val scale = proj.scale
+                val sw = proj.scaleW   // horizontal pixel size
+                val sh = proj.scaleH   // vertical pixel size
                 display.setTransformation(
                     com.mojang.math.Transformation(
                         Vector3f(0f, 0f, 0f),
                         Quaternionf(),
-                        Vector3f(scale * 2.1f, scale, scale), // widen X to match Y visual size
+                        Vector3f(sw * 2.1f, sh, sh), // widen X to match Y visual size
                         Quaternionf()
                     )
                 )
