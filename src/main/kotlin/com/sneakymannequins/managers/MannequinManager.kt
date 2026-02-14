@@ -535,6 +535,33 @@ class MannequinManager(
                     state.channelIndex[layer.id] = idx
                     val selectedChannel = channels[idx]
                     updateStatus("Channel: $selectedChannel")
+
+                    // Flash the selected channel white for half a second so the player can see it
+                    val savedColors = mannequin.selection.selections[layer.id]?.channelColors ?: emptyMap()
+                    val flashColors = savedColors + (selectedChannel to java.awt.Color.WHITE)
+                    val flashSel = mannequin.selection.selections[layer.id]?.copy(channelColors = flashColors)
+                        ?: LayerSelection(layer.id, option, channelColors = flashColors)
+                    mannequin.selection = mannequin.selection.copy(
+                        selections = mannequin.selection.selections + (layer.id to flashSel)
+                    )
+                    val flashViewers = plugin.server.onlinePlayers.filter {
+                        it.world == mannequin.location.world && it.location.distanceSquared(mannequin.location) <= VISIBLE_RANGE_SQ
+                    }
+                    render(mannequin, flashViewers)
+
+                    // Restore original colors after 10 ticks (500ms)
+                    val restoreSel = flashSel.copy(channelColors = savedColors)
+                    plugin.server.scheduler.runTaskLater(plugin, Runnable {
+                        mannequin.selection = mannequin.selection.copy(
+                            selections = mannequin.selection.selections + (layer.id to restoreSel)
+                        )
+                        val restoreViewers = plugin.server.onlinePlayers.filter {
+                            it.world == mannequin.location.world && it.location.distanceSquared(mannequin.location) <= VISIBLE_RANGE_SQ
+                        }
+                        render(mannequin, restoreViewers)
+                    }, 10L)
+                    refreshChannelColorLabels(manId, option, layer)
+                    return // already rendered, skip the render at the bottom
                 } else {
                     updateStatus("Channel: Locked")
                 }
