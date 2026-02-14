@@ -13,17 +13,21 @@ private const val SKIN_SIZE = 64
  */
 object SkinComposer {
 
-    fun compose(layers: List<LayerDefinition>, selection: SkinSelection): BufferedImage {
+    fun compose(layers: List<LayerDefinition>, selection: SkinSelection, useSlimModel: Boolean): BufferedImage {
         val output = BufferedImage(SKIN_SIZE, SKIN_SIZE, BufferedImage.TYPE_INT_ARGB)
         val graphics = output.createGraphics()
 
         layers.forEach { layer ->
             val chosen = selection.selections[layer.id]?.option ?: return@forEach
             val colorMask = selection.selections[layer.id]?.colorMask
+            val sourceImage = when {
+                useSlimModel && chosen.imageSlim != null -> chosen.imageSlim
+                else -> chosen.imageDefault ?: chosen.imageSlim
+            } ?: return@forEach
             val source = if (colorMask != null && layer.allowColorMask) {
-                applyColorMask(chosen.image, colorMask)
+                applyColorMask(sourceImage, colorMask)
             } else {
-                chosen.image
+                sourceImage
             }
             graphics.drawImage(source, 0, 0, null)
         }

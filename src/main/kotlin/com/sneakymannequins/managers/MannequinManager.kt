@@ -87,7 +87,7 @@ class MannequinManager(
 
     fun render(mannequin: Mannequin, viewers: Collection<Player>): Int {
         val definitions = layerManager.definitionsInOrder()
-        val composed = SkinComposer.compose(definitions, mannequin.selection)
+        val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin))
         val nextFrame = PixelFrame.fromImage(composed)
         val diff = mannequin.lastFrame.diff(nextFrame)
         mannequin.lastFrame = nextFrame
@@ -111,7 +111,7 @@ class MannequinManager(
 
     private fun renderFull(mannequin: Mannequin, viewers: Collection<Player>) {
         val definitions = layerManager.definitionsInOrder()
-        val composed = SkinComposer.compose(definitions, mannequin.selection)
+        val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin))
         // Snapshot as last frame so future diffs are against this render
         mannequin.lastFrame = PixelFrame.fromImage(composed)
         val changes = mutableListOf<PixelChange>()

@@ -20,8 +20,11 @@ data class LayerDefinition(
  */
 data class LayerOption(
     val id: String,
-    val file: Path,
-    val image: BufferedImage,
+    val displayName: String,
+    val fileDefault: Path?,
+    val fileSlim: Path?,
+    val imageDefault: BufferedImage?,
+    val imageSlim: BufferedImage?,
     val allowedPalettes: List<String>
 )
 
