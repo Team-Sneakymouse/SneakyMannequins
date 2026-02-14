@@ -341,12 +341,7 @@ class LayerManager(
         val image = ImageIO.read(sourcePath.toFile()) ?: return
         val sanitized = sanitizeUv(image)
 
-        val config = plugin.config
-        val maxClusters = config.getInt("plugin.preprocessing.max-clusters", 8).coerceAtLeast(1)
-        val colorThreshold = config.getInt("plugin.preprocessing.color-distance-threshold", 24).coerceAtLeast(1)
-        val minClusterSize = config.getInt("plugin.preprocessing.min-cluster-size", 3).coerceAtLeast(1)
-
-        val clusters = clusterColors(sanitized, colorThreshold, minClusterSize, maxClusters)
+        val clusters = clusterColors(sanitized)
         writeMasks(sourcePath, sanitized, clusters)
         // overwrite source with sanitized (remove UV junk)
         ImageIO.write(sanitized, "png", sourcePath.toFile())
@@ -407,102 +402,71 @@ class LayerManager(
     /**
      * Hue-based cluster. Tracks circular hue sum (via sin/cos), saturation sum,
      * and brightness sum for centroid computation. Pixels with very low saturation
-     * or very low brightness have unreliable hues and are grouped into a dedicated
-     * "neutral" cluster instead.
+     * Pixels that are too desaturated, too dark, or too bright are considered
+     * "neutral" and excluded from masking entirely.
+     *
+     * The remaining chromatic pixels are split into exactly 2 groups by
+     * finding the largest hue gap on the colour wheel and cutting there.
      */
     private data class Cluster(
-        var sinSum: Double, var cosSum: Double,
-        var satSum: Double, var briSum: Double,
-        var count: Int,
-        val pixels: MutableList<Pair<Int, Int>>,
-        val neutral: Boolean = false // true = grey/dark catch-all cluster
-    ) {
-        fun centroidHue(): Float {
-            val avg = Math.atan2(sinSum, cosSum) / (2.0 * Math.PI)
-            return ((avg.toFloat() + 1f) % 1f)
-        }
-    }
+        val pixels: MutableList<Pair<Int, Int>>
+    )
 
-    /** Minimum saturation and brightness for a pixel's hue to be considered reliable. */
-    private val NEUTRAL_SAT_THRESHOLD = 0.12f
-    private val NEUTRAL_BRI_THRESHOLD = 0.10f
+    private fun clusterColors(image: java.awt.image.BufferedImage): List<Cluster> {
+        val config = plugin.config
+        val neutralSat    = config.getDouble("plugin.preprocessing.neutral-saturation", 0.12).toFloat()
+        val neutralBriLow = config.getDouble("plugin.preprocessing.neutral-brightness-low", 0.10).toFloat()
 
-    private fun clusterColors(
-        image: java.awt.image.BufferedImage,
-        threshold: Int,
-        minClusterSize: Int,
-        maxClusters: Int
-    ): List<Cluster> {
-        // threshold is now treated as degrees of hue difference (0-180)
-        var thr = threshold.coerceIn(1, 180)
-        var result: List<Cluster> = emptyList()
-        repeat(40) { _ ->
-            val clusters = clusterOnce(image, thr)
-                .filter { it.count >= minClusterSize }
-            if (clusters.size <= maxClusters) {
-                result = clusters
-                return@repeat
-            } else {
-                result = clusters
-                thr += 8
-            }
-        }
-        return result
-            .sortedByDescending { it.count }
-            .take(maxClusters)
-    }
+        // Step 1: collect chromatic (non-neutral) pixels with their hue
+        // Neutral = too desaturated (hue meaningless) or too dark (hue unreliable)
+        data class HuePixel(val hue: Float, val x: Int, val y: Int)
 
-    private fun clusterOnce(image: java.awt.image.BufferedImage, thresholdDegrees: Int): List<Cluster> {
-        val clusters = mutableListOf<Cluster>()
-        val thresholdFrac = thresholdDegrees / 360f // convert degrees to 0..1 hue fraction
-
+        val chromatic = mutableListOf<HuePixel>()
         for (x in 0 until image.width) {
             for (y in 0 until image.height) {
                 val argb = image.getRGB(x, y)
-                val a = argb ushr 24 and 0xFF
-                if (a == 0) continue
+                if ((argb ushr 24 and 0xFF) == 0) continue
                 val r = argb ushr 16 and 0xFF
                 val g = argb ushr 8 and 0xFF
                 val b = argb and 0xFF
                 val hsb = java.awt.Color.RGBtoHSB(r, g, b, null)
-                val hue = hsb[0]
-                val sat = hsb[1]
-                val bri = hsb[2]
-
-                val isNeutral = sat < NEUTRAL_SAT_THRESHOLD || bri < NEUTRAL_BRI_THRESHOLD
-
-                if (isNeutral) {
-                    // Group all near-grey / near-black pixels together
-                    val neutralCluster = clusters.firstOrNull { it.neutral }
-                    if (neutralCluster != null) {
-                        neutralCluster.count += 1
-                        neutralCluster.pixels += x to y
-                    } else {
-                        clusters += Cluster(0.0, 0.0, 0.0, 0.0, 1, mutableListOf(x to y), neutral = true)
-                    }
-                } else {
-                    val angle = hue * 2.0 * Math.PI
-                    val match = clusters.firstOrNull { !it.neutral && hueDist(it.centroidHue(), hue) <= thresholdFrac }
-                    if (match != null) {
-                        match.sinSum += Math.sin(angle)
-                        match.cosSum += Math.cos(angle)
-                        match.satSum += sat
-                        match.briSum += bri
-                        match.count += 1
-                        match.pixels += x to y
-                    } else {
-                        clusters += Cluster(Math.sin(angle), Math.cos(angle), sat.toDouble(), bri.toDouble(), 1, mutableListOf(x to y))
-                    }
-                }
+                val sat = hsb[1]; val bri = hsb[2]
+                if (sat < neutralSat || bri < neutralBriLow) continue
+                chromatic += HuePixel(hsb[0], x, y)
             }
         }
-        return clusters
-    }
 
-    /** Circular hue distance in the range 0..0.5 (both inputs in 0..1). */
-    private fun hueDist(h1: Float, h2: Float): Float {
-        val d = Math.abs(h1 - h2)
-        return if (d > 0.5f) 1f - d else d
+        if (chromatic.isEmpty()) return emptyList()
+
+        // Step 2: sort by hue and find the largest gap on the colour wheel
+        chromatic.sortBy { it.hue }
+        var maxGap = 0f
+        var splitAfter = -1
+        for (i in 0 until chromatic.size - 1) {
+            val gap = chromatic[i + 1].hue - chromatic[i].hue
+            if (gap > maxGap) { maxGap = gap; splitAfter = i }
+        }
+        // Also consider the wrap-around gap (last → first across 0/1 boundary)
+        val wrapGap = 1f - chromatic.last().hue + chromatic.first().hue
+        if (wrapGap > maxGap) {
+            // All hues are contiguous — split at the midpoint so we still get 2 groups
+            splitAfter = (chromatic.size / 2) - 1
+        }
+
+        // Step 3: split into 2 groups at the largest gap
+        val groupA = Cluster(mutableListOf())
+        val groupB = Cluster(mutableListOf())
+        for (i in chromatic.indices) {
+            val px = chromatic[i]
+            if (i <= splitAfter) groupA.pixels += px.x to px.y
+            else groupB.pixels += px.x to px.y
+        }
+
+        // Always return 2 groups (fall back to midpoint split if needed)
+        return listOfNotNull(
+            groupA.takeIf { it.pixels.isNotEmpty() },
+            groupB.takeIf { it.pixels.isNotEmpty() }
+        )
     }
 
     private fun writeMasks(sourcePath: Path, sanitized: java.awt.image.BufferedImage, clusters: List<Cluster>) {

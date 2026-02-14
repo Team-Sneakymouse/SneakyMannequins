@@ -21,12 +21,12 @@ plugin:
   preprocessing:
     # If true, sanitize/mask new layer PNGs on load (creates *_mask_*.png)
     enabled: true
-    # Max number of color clusters (masks) to keep per image
-    max-clusters: 4
-    # Euclidean RGB distance threshold for grouping pixels into a cluster
-    color-distance-threshold: 50
-    # Minimum pixels required for a cluster to become a mask
-    min-cluster-size: 1
+    # Pixels below this saturation (0.0-1.0) are considered neutral and excluded from masks
+    # (catches greys, whites, near-whites whose hue is meaningless)
+    neutral-saturation: 0.12
+    # Pixels below this brightness (0.0-1.0) are considered too dark and excluded from masks
+    # (catches blacks, near-blacks whose hue is unreliable)
+    neutral-brightness-low: 0.10
 
 # Layer configuration
 layers:
