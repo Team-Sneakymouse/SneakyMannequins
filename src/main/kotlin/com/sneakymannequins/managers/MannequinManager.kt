@@ -134,8 +134,8 @@ class MannequinManager(
     }
 
     private fun isSlimModel(mannequin: Mannequin): Boolean {
-        val baseId = mannequin.selection.selections["base"]?.option?.id ?: return false
-        return baseId.contains("slim", ignoreCase = true)
+        val bodyId = mannequin.selection.selections["body"]?.option?.id ?: return false
+        return bodyId.contains("slim", ignoreCase = true)
     }
 
     fun remove(mannequinId: UUID, viewers: Collection<Player>) {
@@ -186,11 +186,13 @@ class MannequinManager(
         val definitions = layerManager.definitionsInOrder()
         val preferredModel = plugin.config.getString("plugin.default-skin-model", "CLASSIC")?.uppercase() ?: "CLASSIC"
         val selections = definitions.associate { def ->
-            val options = layerManager.optionsFor(def.id)
+            val options = layerManager.optionsFor(def.id).ifEmpty {
+                if (def.id.equals("body", ignoreCase = true)) layerManager.defaultSkinOptions() else emptyList()
+            }
             val chosen = when {
-                def.id.equals("base", ignoreCase = true) && preferredModel == "SLIM" ->
+                def.id.equals("body", ignoreCase = true) && preferredModel == "SLIM" ->
                     options.firstOrNull { it.id.equals("default_slim", ignoreCase = true) } ?: options.firstOrNull()
-                def.id.equals("base", ignoreCase = true) ->
+                def.id.equals("body", ignoreCase = true) ->
                     options.firstOrNull { it.id.equals("default", ignoreCase = true) } ?: options.firstOrNull()
                 else -> options.firstOrNull()
             }
@@ -376,12 +378,13 @@ class MannequinManager(
         }
         when (button) {
             "model" -> {
-                val options = layerManager.optionsFor("base")
+                val baseLayerId = "body"
+                val options = layerManager.optionsFor(baseLayerId).ifEmpty { layerManager.defaultSkinOptions() }
                 if (options.isEmpty()) {
-                    plugin.logger.warning("Model toggle requested but no base options found")
+                    plugin.logger.warning("Model toggle requested but no body/default options found")
                     return
                 }
-                val current = mannequin.selection.selections["base"]?.option
+                val current = mannequin.selection.selections[baseLayerId]?.option
                 val next = if (current?.id.equals("default", true)) {
                     options.firstOrNull { it.id.equals("default_slim", true) } ?: options.firstOrNull()
                 } else {
@@ -389,12 +392,12 @@ class MannequinManager(
                 }
                 plugin.logger.info("Model toggle: current=${current?.id} -> next=${next?.id}")
                 mannequin.selection = mannequin.selection.copy(
-                    selections = mannequin.selection.selections + ("base" to (mannequin.selection.selections["base"]?.copy(option = next, colorMask = null)
-                        ?: LayerSelection("base", next, null)))
+                    selections = mannequin.selection.selections + (baseLayerId to (mannequin.selection.selections[baseLayerId]?.copy(option = next, colorMask = null)
+                        ?: LayerSelection(baseLayerId, next, null)))
                 )
                 // Force full rerender to avoid remnants from previous model
                 mannequin.lastFrame = PixelFrame.blank()
-                state.colorIndex["base"] = 0
+                state.colorIndex[baseLayerId] = 0
                 updateStatus("Model: ${next?.id ?: "default"}")
                 val viewers = plugin.server.onlinePlayers.filter {
                     it.world == mannequin.location.world && it.location.distanceSquared(mannequin.location) <= VISIBLE_RANGE_SQ

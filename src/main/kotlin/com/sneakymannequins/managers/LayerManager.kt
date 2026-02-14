@@ -129,15 +129,15 @@ class LayerManager(
             Files.createDirectories(directory)
         }
 
-        // For the base layer, make sure the bundled defaults exist before we try to read them
-        if (definition.id.equals("base", ignoreCase = true)) {
+        // For the base/body layer, make sure the bundled defaults exist before we try to read them
+        if (definition.id.equals("base", ignoreCase = true) || definition.id.equals("body", ignoreCase = true)) {
             ensureDefaultSkinVariants()
         }
 
         var options = loadLayerOptions(directory, definition, optionConfig)
 
-        // For the base layer, also load defaults that live in the plugin data root
-        if (definition.id.equals("base", ignoreCase = true)) {
+        // For the base/body layer, also load defaults that live in the plugin data root
+        if (definition.id.equals("base", ignoreCase = true) || definition.id.equals("body", ignoreCase = true)) {
             val existingIds = options.map { it.id.lowercase() }.toSet()
             val rootDefaults = listOf("default.png", "default_slim.png")
                 .mapNotNull { loadOptionPair(plugin.dataFolder.toPath().resolve(it), definition, optionConfig) }
@@ -293,6 +293,40 @@ class LayerManager(
         raw.trim().split(Regex("[_\\-\\s]+")).filter { it.isNotBlank() }.joinToString(" ") { part ->
             part.lowercase().replaceFirstChar { ch -> ch.titlecase() }
         }.ifEmpty { "Option" }
+
+    fun defaultSkinOptions(): List<LayerOption> {
+        ensureDefaultSkinVariants()
+        val defPath = plugin.dataFolder.toPath().resolve("default.png")
+        val slimPath = plugin.dataFolder.toPath().resolve("default_slim.png")
+        val defImg = loadImage(defPath, "default")
+        val slimImg = loadImage(slimPath, "default")
+        val opts = mutableListOf<LayerOption>()
+        if (defImg != null) {
+            opts += LayerOption(
+                id = "default",
+                displayName = "Default",
+                fileDefault = defPath,
+                fileSlim = defPath,
+                imageDefault = defImg,
+                imageSlim = defImg,
+                allowedPalettes = emptyList(),
+                masks = emptyMap()
+            )
+        }
+        if (slimImg != null) {
+            opts += LayerOption(
+                id = "default_slim",
+                displayName = "Default Slim",
+                fileDefault = slimPath,
+                fileSlim = slimPath,
+                imageDefault = slimImg,
+                imageSlim = slimImg,
+                allowedPalettes = emptyList(),
+                masks = emptyMap()
+            )
+        }
+        return opts
+    }
 
     private fun maybePreprocess(path: Path) {
         if (!plugin.config.getBoolean("plugin.preprocessing.enabled", true)) return
