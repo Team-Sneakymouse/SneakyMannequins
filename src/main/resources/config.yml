@@ -56,12 +56,12 @@ layers:
       espresso: "6B3B2A"
       umber: "553023"
 
-  # Rendering order for layers (top to bottom)
+  # Rendering order for layers (bottom to top)
   order:
-    - hair
-    - shirt
-    - pants
     - body
+    - pants
+    - shirt
+    - hair
 
   definitions:
     hair:

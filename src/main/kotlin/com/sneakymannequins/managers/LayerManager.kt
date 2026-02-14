@@ -12,8 +12,6 @@ import java.nio.file.Path
 import javax.imageio.ImageIO
 import kotlin.io.path.nameWithoutExtension
 import kotlin.io.path.name
-import kotlin.math.pow
-import kotlin.math.sqrt
 
 class LayerManager(
     private val plugin: SneakyMannequins
@@ -406,7 +404,28 @@ class LayerManager(
         fun contains(x: Int, y: Int): Boolean = x in x0 until x1 && y in y0 until y1
     }
 
-    private data class Cluster(var r: Long, var g: Long, var b: Long, var count: Int, val pixels: MutableList<Pair<Int, Int>>)
+    /**
+     * Hue-based cluster. Tracks circular hue sum (via sin/cos), saturation sum,
+     * and brightness sum for centroid computation. Pixels with very low saturation
+     * or very low brightness have unreliable hues and are grouped into a dedicated
+     * "neutral" cluster instead.
+     */
+    private data class Cluster(
+        var sinSum: Double, var cosSum: Double,
+        var satSum: Double, var briSum: Double,
+        var count: Int,
+        val pixels: MutableList<Pair<Int, Int>>,
+        val neutral: Boolean = false // true = grey/dark catch-all cluster
+    ) {
+        fun centroidHue(): Float {
+            val avg = Math.atan2(sinSum, cosSum) / (2.0 * Math.PI)
+            return ((avg.toFloat() + 1f) % 1f)
+        }
+    }
+
+    /** Minimum saturation and brightness for a pixel's hue to be considered reliable. */
+    private val NEUTRAL_SAT_THRESHOLD = 0.12f
+    private val NEUTRAL_BRI_THRESHOLD = 0.10f
 
     private fun clusterColors(
         image: java.awt.image.BufferedImage,
@@ -414,7 +433,8 @@ class LayerManager(
         minClusterSize: Int,
         maxClusters: Int
     ): List<Cluster> {
-        var thr = threshold.coerceAtLeast(1)
+        // threshold is now treated as degrees of hue difference (0-180)
+        var thr = threshold.coerceIn(1, 180)
         var result: List<Cluster> = emptyList()
         repeat(40) { _ ->
             val clusters = clusterOnce(image, thr)
@@ -432,8 +452,10 @@ class LayerManager(
             .take(maxClusters)
     }
 
-    private fun clusterOnce(image: java.awt.image.BufferedImage, threshold: Int): List<Cluster> {
+    private fun clusterOnce(image: java.awt.image.BufferedImage, thresholdDegrees: Int): List<Cluster> {
         val clusters = mutableListOf<Cluster>()
+        val thresholdFrac = thresholdDegrees / 360f // convert degrees to 0..1 hue fraction
+
         for (x in 0 until image.width) {
             for (y in 0 until image.height) {
                 val argb = image.getRGB(x, y)
@@ -442,30 +464,45 @@ class LayerManager(
                 val r = argb ushr 16 and 0xFF
                 val g = argb ushr 8 and 0xFF
                 val b = argb and 0xFF
-                val match = clusters.firstOrNull { dist(it.centroidR(), it.centroidG(), it.centroidB(), r, g, b) <= threshold }
-                if (match != null) {
-                    match.r += r
-                    match.g += g
-                    match.b += b
-                    match.count += 1
-                    match.pixels += x to y
+                val hsb = java.awt.Color.RGBtoHSB(r, g, b, null)
+                val hue = hsb[0]
+                val sat = hsb[1]
+                val bri = hsb[2]
+
+                val isNeutral = sat < NEUTRAL_SAT_THRESHOLD || bri < NEUTRAL_BRI_THRESHOLD
+
+                if (isNeutral) {
+                    // Group all near-grey / near-black pixels together
+                    val neutralCluster = clusters.firstOrNull { it.neutral }
+                    if (neutralCluster != null) {
+                        neutralCluster.count += 1
+                        neutralCluster.pixels += x to y
+                    } else {
+                        clusters += Cluster(0.0, 0.0, 0.0, 0.0, 1, mutableListOf(x to y), neutral = true)
+                    }
                 } else {
-                    clusters += Cluster(r.toLong(), g.toLong(), b.toLong(), 1, mutableListOf(x to y))
+                    val angle = hue * 2.0 * Math.PI
+                    val match = clusters.firstOrNull { !it.neutral && hueDist(it.centroidHue(), hue) <= thresholdFrac }
+                    if (match != null) {
+                        match.sinSum += Math.sin(angle)
+                        match.cosSum += Math.cos(angle)
+                        match.satSum += sat
+                        match.briSum += bri
+                        match.count += 1
+                        match.pixels += x to y
+                    } else {
+                        clusters += Cluster(Math.sin(angle), Math.cos(angle), sat.toDouble(), bri.toDouble(), 1, mutableListOf(x to y))
+                    }
                 }
             }
         }
         return clusters
     }
 
-    private fun Cluster.centroidR() = (r / count).toInt()
-    private fun Cluster.centroidG() = (g / count).toInt()
-    private fun Cluster.centroidB() = (b / count).toInt()
-
-    private fun dist(r1: Int, g1: Int, b1: Int, r2: Int, g2: Int, b2: Int): Double {
-        val dr = (r1 - r2).toDouble()
-        val dg = (g1 - g2).toDouble()
-        val db = (b1 - b2).toDouble()
-        return sqrt(dr.pow(2) + dg.pow(2) + db.pow(2))
+    /** Circular hue distance in the range 0..0.5 (both inputs in 0..1). */
+    private fun hueDist(h1: Float, h2: Float): Float {
+        val d = Math.abs(h1 - h2)
+        return if (d > 0.5f) 1f - d else d
     }
 
     private fun writeMasks(sourcePath: Path, sanitized: java.awt.image.BufferedImage, clusters: List<Cluster>) {
