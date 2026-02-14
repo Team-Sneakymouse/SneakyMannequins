@@ -2,6 +2,8 @@ package com.sneakymannequins.managers
 
 import com.sneakymannequins.SneakyMannequins
 import com.sneakymannequins.model.LayerSelection
+import com.sneakymannequins.model.LayerOption
+import com.sneakymannequins.model.LayerDefinition
 import com.sneakymannequins.model.Mannequin
 import com.sneakymannequins.model.PixelChange
 import com.sneakymannequins.model.PixelFrame
@@ -10,6 +12,7 @@ import com.sneakymannequins.nms.VolatileHandler
 import com.sneakymannequins.render.PixelProjector
 import com.sneakymannequins.util.SkinComposer
 import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.Color
 import org.bukkit.Location
 import org.bukkit.entity.Display
@@ -23,8 +26,12 @@ private data class ControlRef(val id: UUID, val location: Location)
 private data class ControlState(
     var layerIndex: Int = 0,
     val partIndex: MutableMap<String, Int> = mutableMapOf(),
-    val colorIndex: MutableMap<String, Int> = mutableMapOf()
+    val colorIndex: MutableMap<String, Int> = mutableMapOf(),
+    val channelIndex: MutableMap<String, Int> = mutableMapOf(),
+    var mode: ControlMode = ControlMode.NONE
 )
+
+private enum class ControlMode { NONE, PART, COLOR }
 
 class MannequinManager(
     private val plugin: SneakyMannequins,
@@ -50,6 +57,8 @@ class MannequinManager(
             val selection = bootstrapSelection()
             mannequins[id] = Mannequin(id = id, location = loc.clone(), selection = selection)
             controlState[id] = ControlState()
+            // Clean any stray control entities for this mannequin, then spawn what we expect
+            cleanupControls(id)
             spawnControlsIfMissing(id)
         }
     }
@@ -166,6 +175,9 @@ class MannequinManager(
             viewers.forEach { viewer -> handler.destroyMannequin(viewer, id) }
         }
 
+        // Remove all control entities
+        mannequins.keys.forEach { id -> cleanupControls(id) }
+
         mannequins.clear()
         controlLocations.clear()
         sentTo.clear()
@@ -216,6 +228,8 @@ class MannequinManager(
         loc.yaw = computeControlYaw(loc, mannequin.location)
         val ref = ControlRef(UUID.randomUUID(), loc)
         controlLocations.computeIfAbsent(mannequin.id) { mutableListOf() }.add(ref)
+        // Clean any stray controls around the new location before spawning
+        cleanupControls(mannequin.id, loc, ref.id)
         spawnControls(mannequin.id, ref)
         persist()
     }
@@ -251,6 +265,8 @@ class MannequinManager(
         list.forEach { ref ->
             val loc = ref.location
             val world = loc.world ?: return@forEach
+            // Clean any leftover controls for this controlId near this location
+            cleanupControls(mannequinId, loc, ref.id)
             val existing = world.getNearbyEntities(loc, 1.0, 1.0, 1.0).firstOrNull {
                 it.scoreboardTags.contains("sneakymannequin_control")
                         && it.scoreboardTags.contains("mannequin:$mannequinId")
@@ -285,10 +301,10 @@ class MannequinManager(
                 this.yaw = yaw
                 this.pitch = 0f
             }
-            // Interaction hitbox
+            // Interaction hitbox (small footprint to reduce overlap)
             world.spawn(p, org.bukkit.entity.Interaction::class.java) { inter ->
-                inter.interactionWidth = 1.2f
-                inter.interactionHeight = 0.6f
+                inter.interactionWidth = (width * 0.4).toFloat()
+                inter.interactionHeight = (height * 0.35).toFloat()
                 inter.isResponsive = true
                 inter.scoreboardTags.add("sneakymannequin_control")
                 inter.scoreboardTags.add("mannequin:$mannequinId")
@@ -314,13 +330,24 @@ class MannequinManager(
         }
 
         val status = statusText[mannequinId] ?: "Controls"
-        // Layout window: status on top, left column model/pose, right column layer/part/color
-        spawnButton(status, 2.3, 0.0, 0.2, "status", width = 2.8, height = 0.8, lineWidth = 256)
-        spawnButton("Model", 1.7, -1.0, 0.2, "model")
-        spawnButton("Pose", 1.4, -1.0, 0.2, "pose")
-        spawnButton("Layer", 1.7, 1.0, 0.2, "layer")
-        spawnButton("Part", 1.4, 1.0, 0.2, "part")
-        spawnButton("Color", 1.1, 1.0, 0.2, "color")
+        // Layout window: status on top, left column model/pose/layer, right column part/channel/palette/color
+        spawnButton(status, 2.4, 0.0, 0.2, "status", width = 2.8, height = 0.8, lineWidth = 256)
+        spawnButton("Model", 1.8, -1.0, 0.2, "model", height = 0.6)
+        spawnButton("Pose", 1.3, -1.0, 0.2, "pose", height = 0.6)
+        spawnButton("Layer", 0.8, -1.0, 0.2, "layer", height = 0.6)
+
+        spawnButton("Part", 1.8, 1.0, 0.2, "part", height = 0.6)
+        spawnButton("Channel", 1.3, 1.0, 0.2, "channel", height = 0.6)
+        spawnButton("Color", 0.8, 1.0, 0.2, "color", height = 0.6)
+
+        // Initial label state for channel/palette depending on current selection
+        val state = controlState.getOrPut(mannequinId) { ControlState() }
+        val definitions = layerManager.definitionsInOrder()
+        val layer = definitions.getOrNull(state.layerIndex % definitions.size) ?: definitions.firstOrNull()
+        val option = layer?.let {
+            mannequins[mannequinId]?.selection?.selections?.get(it.id)?.option ?: layerManager.optionsFor(it.id).firstOrNull()
+        }
+        refreshChannelColorLabels(mannequinId, option, layer)
     }
 
     private fun cleanupControls(mannequinId: UUID) {
@@ -338,7 +365,7 @@ class MannequinManager(
 
     private fun cleanupControls(mannequinId: UUID, loc: Location, controlId: UUID? = null) {
         val world = loc.world ?: return
-        world.getNearbyEntities(loc, 5.0, 5.0, 5.0).forEach {
+        world.getNearbyEntities(loc, 8.0, 8.0, 8.0).forEach {
             if (it.scoreboardTags.contains("sneakymannequin_control")
                 && it.scoreboardTags.contains("mannequin:$mannequinId")
                 && (controlId == null || it.scoreboardTags.contains("control:$controlId"))
@@ -431,52 +458,61 @@ class MannequinManager(
                 state.layerIndex = (state.layerIndex + delta + definitions.size) % definitions.size
                 val newLayer = definitions[state.layerIndex]
                 updateStatus("Layer: ${newLayer.displayName}")
+                // reset per-layer indices when switching layers
+                state.partIndex[newLayer.id] = 0
+                state.channelIndex[newLayer.id] = 0
+                state.colorIndex[newLayer.id] = 0
+                state.mode = ControlMode.NONE
+                val option = mannequin.selection.selections[newLayer.id]?.option ?: layerManager.optionsFor(newLayer.id).firstOrNull()
+                refreshChannelColorLabels(manId, option, newLayer)
             }
             "part" -> {
-                val opts = layerManager.optionsFor(layer.id)
-                if (opts.isNotEmpty()) {
-                    val delta = if (backwards) -1 else 1
-                    val idx = (state.partIndex.getOrDefault(layer.id, 0) + delta + opts.size) % opts.size
-                    state.partIndex[layer.id] = idx
-                    val chosen = opts[idx]
-                    val current = mannequin.selection.selections[layer.id]
-                    mannequin.selection = mannequin.selection.copy(
-                        selections = mannequin.selection.selections + (layer.id to LayerSelection(layer.id, chosen, null))
+                if (state.mode == ControlMode.PART) {
+                    cyclePart(layer, mannequin, state, backwards)?.let { updateStatus(it) }
+                } else {
+                    state.mode = ControlMode.PART
+                    refreshChannelColorLabels(
+                        manId,
+                        mannequin.selection.selections[layer.id]?.option ?: layerManager.optionsFor(layer.id).firstOrNull(),
+                        layer
                     )
-                    state.colorIndex[layer.id] = 0 // reset color to default
-                    updateStatus("Part: ${chosen.displayName}")
+                    updateStatus("Mode: Part")
                 }
             }
-            "color" -> {
-                val current = mannequin.selection.selections[layer.id]
-                val option = current?.option ?: layerManager.optionsFor(layer.id).firstOrNull()
-                if (option != null) {
-                    val palettes = option.allowedPalettes.ifEmpty { layer.defaultPalettes }
-                    val optionsList = listOf("Default") + palettes
-                    if (optionsList.isNotEmpty()) {
-                        val delta = if (backwards) -1 else 1
-                        val idx = (state.colorIndex.getOrDefault(layer.id, 0) + delta + optionsList.size) % optionsList.size
-                        state.colorIndex[layer.id] = idx
-                        val selection = if (idx == 0) {
-                            current?.copy(colorMask = null) ?: LayerSelection(layer.id, option, null)
-                        } else {
-                            val palId = optionsList[idx]
-                            val namedColor = layerManager.palette(palId)?.colors?.firstOrNull()
-                            current?.copy(colorMask = namedColor?.color) ?: LayerSelection(layer.id, option, namedColor?.color)
-                        }
+            "channel" -> {
+                val option = mannequin.selection.selections[layer.id]?.option ?: layerManager.optionsFor(layer.id).firstOrNull()
+                val channels = option?.masks?.keys?.sorted() ?: emptyList()
+                val channelDisabled = channels.size <= 1
+                if (channels.isEmpty()) {
+                    updateStatus("Channel: N/A")
+                } else if (!channelDisabled) {
+                    val delta = if (backwards) -1 else 1
+                    val idx = (state.channelIndex.getOrDefault(layer.id, 0) + delta + channels.size) % channels.size
+                    state.channelIndex[layer.id] = idx
+                    val selectedChannel = channels[idx]
+                    val currentSel = mannequin.selection.selections[layer.id]
+                    if (currentSel != null) {
                         mannequin.selection = mannequin.selection.copy(
-                            selections = mannequin.selection.selections + (layer.id to selection)
+                            selections = mannequin.selection.selections + (layer.id to currentSel.copy(maskIndex = selectedChannel))
                         )
-                        val statusMsg = when (idx) {
-                            0 -> "Color: Default"
-                            else -> {
-                                val palId = optionsList[idx]
-                                val colorName = layerManager.palette(palId)?.colors?.firstOrNull()?.name ?: palId
-                                "Color: $colorName"
-                            }
-                        }
-                        updateStatus(statusMsg)
                     }
+                    updateStatus("Channel: $selectedChannel")
+                } else {
+                    updateStatus("Channel: Locked")
+                }
+                refreshChannelColorLabels(manId, option, layer)
+            }
+            "color" -> {
+                if (state.mode == ControlMode.COLOR) {
+                    cycleColor(layer, mannequin, state, backwards)?.let { updateStatus(it) }
+                } else {
+                    state.mode = ControlMode.COLOR
+                    refreshChannelColorLabels(
+                        manId,
+                        mannequin.selection.selections[layer.id]?.option ?: layerManager.optionsFor(layer.id).firstOrNull(),
+                        layer
+                    )
+                    updateStatus("Mode: Color")
                 }
             }
         }
@@ -485,6 +521,36 @@ class MannequinManager(
             it.world == mannequin.location.world && it.location.distanceSquared(mannequin.location) <= VISIBLE_RANGE_SQ
         }
         render(mannequin, viewers)
+    }
+
+    fun handleEmptyClick(player: Player, backwards: Boolean) {
+        val loc = player.location
+        var nearestId: UUID? = null
+        var nearestDist = Double.MAX_VALUE
+        controlLocations.forEach { (manId, refs) ->
+            refs.forEach { ref ->
+                if (ref.location.world == loc.world) {
+                    val d = ref.location.distanceSquared(loc)
+                    if (d < nearestDist) {
+                        nearestDist = d
+                        nearestId = manId
+                    }
+                }
+            }
+        }
+        val mannequinId = nearestId ?: return
+        if (nearestDist > 25.0) return // >5 blocks
+        val state = controlState[mannequinId] ?: return
+        val mannequin = mannequins[mannequinId] ?: return
+        val definitions = layerManager.definitionsInOrder()
+        if (definitions.isEmpty()) return
+        val layer = definitions.getOrNull(state.layerIndex % definitions.size) ?: definitions.first()
+
+        when (state.mode) {
+            ControlMode.PART -> cyclePart(layer, mannequin, state, backwards)?.let { statusText[mannequinId] = it; refreshStatusDisplays(mannequinId) }
+            ControlMode.COLOR -> cycleColor(layer, mannequin, state, backwards)?.let { statusText[mannequinId] = it; refreshStatusDisplays(mannequinId) }
+            else -> {}
+        }
     }
 
     private fun logSampleColors(image: java.awt.image.BufferedImage) {
@@ -512,6 +578,100 @@ class MannequinManager(
             plugin.logger.warning("Failed to write debug composed image: ${ex.message}")
         }
     }
+
+    private fun refreshChannelColorLabels(mannequinId: UUID, option: LayerOption?, layer: LayerDefinition?) {
+        val channels = option?.masks?.keys?.sorted() ?: emptyList()
+        val channelDisabled = channels.size <= 1
+        val channelText = "Channel"
+
+        controlLocations[mannequinId]?.forEach { ref ->
+            val world = ref.location.world ?: return@forEach
+            world.getNearbyEntities(ref.location, 3.5, 3.5, 3.5).forEach {
+                if (it is TextDisplay && it.scoreboardTags.contains("control:${ref.id}")) {
+                    val mode = controlState[mannequinId]?.mode
+                    if (it.scoreboardTags.contains("button:channel")) {
+                        it.text(Component.text(channelText, if (channelDisabled) NamedTextColor.GRAY else NamedTextColor.WHITE))
+                    }
+                    if (it.scoreboardTags.contains("button:part")) {
+                        val isActive = mode == ControlMode.PART
+                        it.text(Component.text("Part", if (isActive) NamedTextColor.YELLOW else NamedTextColor.WHITE))
+                    }
+                    if (it.scoreboardTags.contains("button:color")) {
+                        val isActive = mode == ControlMode.COLOR
+                        it.text(Component.text("Color", if (isActive) NamedTextColor.YELLOW else NamedTextColor.WHITE))
+                    }
+                }
+            }
+        }
+    }
+
+    private fun refreshStatusDisplays(mannequinId: UUID) {
+        val msg = statusText[mannequinId] ?: return
+        controlLocations[mannequinId]?.forEach { ref ->
+            val world = ref.location.world ?: return@forEach
+            world.getNearbyEntities(ref.location, 3.5, 3.5, 3.5).forEach {
+                if (it is TextDisplay && it.scoreboardTags.contains("button:status") && it.scoreboardTags.contains("control:${ref.id}")) {
+                    it.text(Component.text(msg))
+                }
+            }
+        }
+    }
+
+    private fun cyclePart(layer: LayerDefinition, mannequin: Mannequin, state: ControlState, backwards: Boolean): String? {
+        val opts = layerManager.optionsFor(layer.id)
+        if (opts.isEmpty()) return null
+        val delta = if (backwards) -1 else 1
+        val idx = (state.partIndex.getOrDefault(layer.id, 0) + delta + opts.size) % opts.size
+        state.partIndex[layer.id] = idx
+        val chosen = opts[idx]
+        mannequin.selection = mannequin.selection.copy(
+            selections = mannequin.selection.selections + (layer.id to LayerSelection(layer.id, chosen, null, maskIndex = null))
+        )
+        // reset per-part indices
+        state.channelIndex[layer.id] = 0
+        state.colorIndex[layer.id] = 0
+        refreshChannelColorLabels(mannequin.id, chosen, layer)
+        return "Part: ${chosen.displayName}"
+    }
+
+    private fun cycleColor(layer: LayerDefinition, mannequin: Mannequin, state: ControlState, backwards: Boolean): String? {
+        val current = mannequin.selection.selections[layer.id]
+        val option = current?.option ?: layerManager.optionsFor(layer.id).firstOrNull() ?: return "Color: N/A"
+        val palettes = option.allowedPalettes.ifEmpty { layer.defaultPalettes }
+        val colors = palettes.flatMap { palId -> layerManager.palette(palId)?.colors.orEmpty() }
+        val optionsList = listOf("Default") + colors.map { prettyName(it.name) }
+        if (optionsList.isEmpty()) return "Color: N/A"
+        val delta = if (backwards) -1 else 1
+        val idx = (state.colorIndex.getOrDefault(layer.id, 0) + delta + optionsList.size) % optionsList.size
+        state.colorIndex[layer.id] = idx
+        val channelIdx = state.channelIndex.getOrDefault(layer.id, 0)
+        val selectedChannel = option.masks.keys.sorted().getOrNull(channelIdx)
+
+        val selection = if (idx == 0) {
+            current?.copy(colorMask = null, maskIndex = null)
+                ?: LayerSelection(layer.id, option, null, maskIndex = null)
+        } else {
+            val color = colors.getOrNull(idx - 1)?.color
+            current?.copy(colorMask = color, maskIndex = selectedChannel)
+                ?: LayerSelection(layer.id, option, color, maskIndex = selectedChannel)
+        }
+        mannequin.selection = mannequin.selection.copy(
+            selections = mannequin.selection.selections + (layer.id to selection)
+        )
+        return when (idx) {
+            0 -> "Color: Default"
+            else -> "Color: ${optionsList[idx]}"
+        }
+    }
+
+    private fun prettyName(raw: String): String =
+        raw.trim()
+            .split(Regex("[_\\-\\s]+"))
+            .filter { it.isNotBlank() }
+            .joinToString(" ") { part ->
+                part.lowercase().replaceFirstChar { ch -> ch.titlecase() }
+            }
+            .ifEmpty { raw }
 
     companion object {
         private const val VISIBLE_RANGE_SQ = 32.0 * 32.0

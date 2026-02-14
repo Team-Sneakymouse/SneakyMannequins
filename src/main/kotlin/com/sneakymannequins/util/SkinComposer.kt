@@ -20,12 +20,14 @@ object SkinComposer {
         layers.forEach { layer ->
             val chosen = selection.selections[layer.id]?.option ?: return@forEach
             val colorMask = selection.selections[layer.id]?.colorMask
+            val maskIndex = selection.selections[layer.id]?.maskIndex
+            val maskImage = maskIndex?.let { chosen.masks[it] }?.let { javax.imageio.ImageIO.read(it.toFile()) }
             val sourceImage = when {
                 useSlimModel && chosen.imageSlim != null -> chosen.imageSlim
                 else -> chosen.imageDefault ?: chosen.imageSlim
             } ?: return@forEach
             val source = if (colorMask != null && layer.allowColorMask) {
-                applyColorMask(sourceImage, colorMask)
+                applyColorMask(sourceImage, colorMask, maskImage)
             } else {
                 sourceImage
             }
@@ -36,7 +38,7 @@ object SkinComposer {
         return output
     }
 
-    private fun applyColorMask(image: BufferedImage, mask: Color): BufferedImage {
+    private fun applyColorMask(image: BufferedImage, mask: Color, channelMask: BufferedImage?): BufferedImage {
         val tinted = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
         val maskRgb = mask.rgb and 0x00FFFFFF
 
@@ -48,8 +50,18 @@ object SkinComposer {
                     tinted.setRGB(x, y, 0)
                     continue
                 }
-                val tintedArgb = (alpha shl 24) or maskRgb
-                tinted.setRGB(x, y, tintedArgb)
+                if (channelMask != null) {
+                    val maskAlpha = channelMask.getRGB(x, y) ushr 24 and 0xFF
+                    if (maskAlpha == 0) {
+                        tinted.setRGB(x, y, 0)
+                        continue
+                    }
+                    val tintedArgb = (alpha shl 24) or maskRgb
+                    tinted.setRGB(x, y, tintedArgb)
+                } else {
+                    val tintedArgb = (alpha shl 24) or maskRgb
+                    tinted.setRGB(x, y, tintedArgb)
+                }
             }
         }
 

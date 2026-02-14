@@ -12,6 +12,7 @@ import org.bukkit.event.Listener
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.player.PlayerInteractAtEntityEvent
 import org.bukkit.event.player.PlayerInteractEntityEvent
+import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.event.player.PlayerMoveEvent
 import org.bukkit.event.player.PlayerQuitEvent
@@ -82,7 +83,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
     @EventHandler
     fun onInteractControl(event: PlayerInteractAtEntityEvent) {
         if (event.hand != EquipmentSlot.HAND) return
-        mannequinManager.handleControlInteract(event.rightClicked, event.player, backwards = false)
+        mannequinManager.handleControlInteract(event.rightClicked, event.player, backwards = true)
         event.isCancelled = true
     }
 
@@ -90,15 +91,29 @@ class SneakyMannequins : JavaPlugin(), Listener {
     fun onInteractControlGeneric(event: PlayerInteractEntityEvent) {
         if (event.hand != EquipmentSlot.HAND) return
         if (event.isCancelled) return
-        mannequinManager.handleControlInteract(event.rightClicked, event.player, backwards = false)
+        mannequinManager.handleControlInteract(event.rightClicked, event.player, backwards = true)
         event.isCancelled = true
     }
 
     @EventHandler
     fun onDamageControl(event: EntityDamageByEntityEvent) {
         val player = event.damager as? org.bukkit.entity.Player ?: return
-        mannequinManager.handleControlInteract(event.entity, player, backwards = true)
+        mannequinManager.handleControlInteract(event.entity, player, backwards = false)
         event.isCancelled = true
+    }
+
+    @EventHandler
+    fun onAirInteract(event: PlayerInteractEvent) {
+        // Temporary debug: log all air clicks to verify firing/hand/action/cancel state
+        logger.info("[AirInteract] action=${event.action} hand=${event.hand} cancelled=${event.isCancelled}")
+        val action = event.action
+        if (action != org.bukkit.event.block.Action.LEFT_CLICK_AIR
+            && action != org.bukkit.event.block.Action.RIGHT_CLICK_AIR
+            && action != org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK
+        ) return
+        if (event.hand != EquipmentSlot.HAND) return
+        val backwards = action == org.bukkit.event.block.Action.RIGHT_CLICK_AIR || action == org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK
+        mannequinManager.handleEmptyClick(event.player, backwards)
     }
 
     @EventHandler

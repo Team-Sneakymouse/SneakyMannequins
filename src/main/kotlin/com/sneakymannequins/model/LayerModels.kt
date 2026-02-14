@@ -35,7 +35,8 @@ data class LayerOption(
 data class LayerSelection(
     val layerId: String,
     val option: LayerOption?,
-    val colorMask: Color?
+    val colorMask: Color?,
+    val maskIndex: Int? = null // null = no mask, otherwise key of LayerOption.masks
 )
 
 /**
