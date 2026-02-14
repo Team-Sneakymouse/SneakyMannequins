@@ -53,11 +53,12 @@ class LayerManager(
     }
 
     private fun seedDefaultBaseLayer() {
-        plugin.logger.warning("No layers configured; seeding default base layer with bundled default.png")
+        plugin.logger.warning("No layers configured; seeding default base layer with bundled defaults")
         val baseDef = LayerDefinition(
             id = "base",
             displayName = "Base",
-            directory = plugin.dataFolder.toPath().resolve("layers/base"),
+            // Read defaults directly from the plugin data root (default.png / default_slim.png)
+            directory = plugin.dataFolder.toPath(),
             allowColorMask = false,
             defaultColorMask = null,
             defaultPalettes = emptyList()
@@ -103,21 +104,26 @@ class LayerManager(
             Files.createDirectories(directory)
         }
 
-        val options = loadPngOptions(directory, definition, optionConfig)
-        if (options.isNotEmpty()) return options
+        var options = loadPngOptions(directory, definition, optionConfig)
 
-        // Only seed the base layer; overlays (e.g., hats) should stay empty if not provided
+        // For the base layer, also load defaults that live in the plugin data root
         if (definition.id.equals("base", ignoreCase = true)) {
-            ensureDefaultSkinVariants().forEach { (name, path) ->
-                val target = directory.resolve("$name.png")
-                if (!Files.exists(target)) {
-                    Files.copy(path, target)
-                    plugin.logger.info("Seeded default base option '$name' at $target")
-                }
+            val existingIds = options.map { it.id.lowercase() }.toSet()
+            val rootDefaults = listOf("default.png", "default_slim.png")
+                .mapNotNull { loadOption(plugin.dataFolder.toPath().resolve(it), definition, optionConfig) }
+                .filterNot { existingIds.contains(it.id.lowercase()) }
+            options = options + rootDefaults
+
+            // If still empty, ensure the root defaults exist (but do not copy into the layer dir)
+            if (options.isEmpty()) {
+                ensureDefaultSkinVariants()
+                val seeded = listOf("default.png", "default_slim.png")
+                    .mapNotNull { loadOption(plugin.dataFolder.toPath().resolve(it), definition, optionConfig) }
+                options = options + seeded
             }
         }
 
-        return loadPngOptions(directory, definition, optionConfig)
+        return options
     }
 
     private fun loadPngOptions(
@@ -128,29 +134,30 @@ class LayerManager(
         return Files.list(directory).use { stream ->
             stream.iterator().asSequence()
                 .filter { Files.isRegularFile(it) && it.fileName.toString().lowercase().endsWith(".png") }
-                .mapNotNull { path ->
-                    try {
-                        val image = ImageIO.read(path.toFile()) ?: return@mapNotNull null
-                        if (image.width != 64 || image.height != 64) {
-                            plugin.logger.severe("Layer ${definition.id} option ${path.fileName} is not 64x64. Skipping.")
-                            return@mapNotNull null
-                        }
-                        val hasNonTransparent = imageHasNonTransparentPixels(image)
-                        if (!hasNonTransparent) {
-                            plugin.logger.warning("Layer ${definition.id} option ${path.fileName} is fully transparent; skipping.")
-                            return@mapNotNull null
-                        }
-                        val id = path.fileName.toString().substringBeforeLast(".")
-                        val allowedPalettes = optionConfig?.getStringList("$id.palettes")
-                            ?.takeIf { it.isNotEmpty() }
-                            ?: definition.defaultPalettes
-                        LayerOption(id = id, file = path, image = image, allowedPalettes = allowedPalettes)
-                    } catch (ex: Exception) {
-                        plugin.logger.severe("Failed to load layer option from $path: ${ex.message}")
-                        null
-                    }
-                }
+                .mapNotNull { path -> loadOption(path, definition, optionConfig) }
                 .toList()
+        }
+    }
+
+    private fun loadOption(path: Path, definition: LayerDefinition, optionConfig: ConfigurationSection?): LayerOption? {
+        return try {
+            val image = ImageIO.read(path.toFile()) ?: return null
+            if (image.width != 64 || image.height != 64) {
+                plugin.logger.severe("Layer ${definition.id} option ${path.fileName} is not 64x64. Skipping.")
+                return null
+            }
+            if (!imageHasNonTransparentPixels(image)) {
+                plugin.logger.warning("Layer ${definition.id} option ${path.fileName} is fully transparent; skipping.")
+                return null
+            }
+            val id = path.fileName.toString().substringBeforeLast(".")
+            val allowedPalettes = optionConfig?.getStringList("$id.palettes")
+                ?.takeIf { it.isNotEmpty() }
+                ?: definition.defaultPalettes
+            LayerOption(id = id, file = path, image = image, allowedPalettes = allowedPalettes)
+        } catch (ex: Exception) {
+            plugin.logger.severe("Failed to load layer option from $path: ${ex.message}")
+            null
         }
     }
 
@@ -162,8 +169,8 @@ class LayerManager(
 
     private fun ensureDefaultSkinVariants(): Map<String, Path> {
         val seeds = mutableMapOf<String, Path>()
-        copyResourceIfMissing("steve.png")?.let { seeds["steve"] = it }
-        copyResourceIfMissing("alex_slim.png")?.let { seeds["alex_slim"] = it }
+        copyResourceIfMissing("default.png")?.let { seeds["default"] = it }
+        copyResourceIfMissing("default_slim.png")?.let { seeds["default_slim"] = it }
         return seeds
     }
 

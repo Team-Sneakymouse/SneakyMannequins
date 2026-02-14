@@ -135,7 +135,7 @@ class MannequinManager(
 
     private fun isSlimModel(mannequin: Mannequin): Boolean {
         val baseId = mannequin.selection.selections["base"]?.option?.id ?: return false
-        return baseId.contains("alex", ignoreCase = true) || baseId.contains("slim", ignoreCase = true)
+        return baseId.contains("slim", ignoreCase = true)
     }
 
     fun remove(mannequinId: UUID, viewers: Collection<Player>) {
@@ -166,9 +166,9 @@ class MannequinManager(
             val options = layerManager.optionsFor(def.id)
             val chosen = when {
                 def.id.equals("base", ignoreCase = true) && preferredModel == "SLIM" ->
-                    options.firstOrNull { it.id.equals("alex_slim", ignoreCase = true) } ?: options.firstOrNull()
+                    options.firstOrNull { it.id.equals("default_slim", ignoreCase = true) } ?: options.firstOrNull()
                 def.id.equals("base", ignoreCase = true) ->
-                    options.firstOrNull { it.id.equals("steve", ignoreCase = true) } ?: options.firstOrNull()
+                    options.firstOrNull { it.id.equals("default", ignoreCase = true) } ?: options.firstOrNull()
                 else -> options.firstOrNull()
             }
             def.id to LayerSelection(
@@ -359,10 +359,10 @@ class MannequinManager(
                     return
                 }
                 val current = mannequin.selection.selections["base"]?.option
-                val next = if (current?.id.equals("steve", true)) {
-                    options.firstOrNull { it.id.equals("alex_slim", true) } ?: options.firstOrNull()
+                val next = if (current?.id.equals("default", true)) {
+                    options.firstOrNull { it.id.equals("default_slim", true) } ?: options.firstOrNull()
                 } else {
-                    options.firstOrNull { it.id.equals("steve", true) } ?: options.firstOrNull()
+                    options.firstOrNull { it.id.equals("default", true) } ?: options.firstOrNull()
                 }
                 plugin.logger.info("Model toggle: current=${current?.id} -> next=${next?.id}")
                 mannequin.selection = mannequin.selection.copy(
