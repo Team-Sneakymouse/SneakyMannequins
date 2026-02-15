@@ -791,10 +791,10 @@ class MannequinManager(
                 state.partIndex[newLayer.id] = 0
                 state.channelIndex[newLayer.id] = 0
                 state.colorIndex[newLayer.id] = 0
-                state.mode = ControlMode.NONE
+                state.mode = ControlMode.PART
                 val option = mannequin.selection.selections[newLayer.id]?.option
                     ?: layerManager.optionsFor(newLayer.id).firstOrNull()
-                refreshDynamicLabels(manId, option, layer)
+                refreshDynamicLabels(manId, option, newLayer)
             }
             "part" -> {
                 if (state.mode == ControlMode.PART) {
@@ -821,6 +821,7 @@ class MannequinManager(
                     val delta = if (backwards) -1 else 1
                     val idx = (state.channelIndex.getOrDefault(layer.id, 0) + delta + channels.size) % channels.size
                     state.channelIndex[layer.id] = idx
+                    state.mode = ControlMode.COLOR
                     val selectedChannel = channels[idx]
                     updateStatus(manId, "Channel: $selectedChannel")
 
