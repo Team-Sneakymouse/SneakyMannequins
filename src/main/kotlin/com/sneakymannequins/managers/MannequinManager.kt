@@ -103,6 +103,10 @@ class MannequinManager(
         private const val BUTTON_TOLERANCE = 0.35
         private const val ROTATION_INTERP_TICKS = 3
         private const val YAW_THRESHOLD = 0.02f                     // radians (~1°)
+        /** Y offset applied to the frame ItemDisplay spawn position so its
+         *  AABB sits well above the Interaction entity and can't intercept
+         *  client-side ray-casts.  Compensated in the translation ty. */
+        private const val FRAME_Y_OFFSET = 10.0
 
         private val HUD_LAYOUT = listOf(
             HudButton("status", "Controls", 0.0f, 2.8f, -2.0f, lineWidth = 256),
@@ -425,11 +429,13 @@ class MannequinManager(
         val sy = plugin.config.getDouble("hud-frame.scale.y", 3.0).toFloat()
         val sz = plugin.config.getDouble("hud-frame.scale.z", 0.05).toFloat()
         val entityId = handler.allocateEntityId()
+        // Spawn with a Y offset so the entity AABB can't intercept client ray-casts;
+        // compensate in the translation so the visual position is unchanged.
         handler.spawnHudItemDisplay(
             viewer = player, entityId = entityId,
-            x = loc.x, y = loc.y, z = loc.z,
+            x = loc.x, y = loc.y + FRAME_Y_OFFSET, z = loc.z,
             item = item, displayContext = displayCtx,
-            tx = tx, ty = ty, tz = tz,
+            tx = tx, ty = ty - FRAME_Y_OFFSET.toFloat(), tz = tz,
             sx = sx, sy = sy, sz = sz,
             yaw = yaw
         )
@@ -448,10 +454,11 @@ class MannequinManager(
         val sx = plugin.config.getDouble("hud-frame.scale.x", 3.0).toFloat()
         val sy = plugin.config.getDouble("hud-frame.scale.y", 3.0).toFloat()
         val sz = plugin.config.getDouble("hud-frame.scale.z", 0.05).toFloat()
+        // Entity lives at Y + FRAME_Y_OFFSET; compensate in translation
         handler.updateHudItemDisplay(
             viewer = player, entityId = frameId,
             item = item, displayContext = displayCtx,
-            tx = tx, ty = ty, tz = tz,
+            tx = tx, ty = ty - FRAME_Y_OFFSET.toFloat(), tz = tz,
             sx = sx, sy = sy, sz = sz,
             yaw = yaw,
             interpolationTicks = ROTATION_INTERP_TICKS
