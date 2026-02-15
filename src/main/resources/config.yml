@@ -34,6 +34,34 @@ plugin:
     # (catches blacks, near-blacks whose hue is unreliable)
     neutral-brightness-low: 0.10
 
+# Command triggers – console commands executed when certain mannequin events occur.
+# Available placeholders (replaced before dispatch):
+#   {player}  – player name          {x} {y} {z} – mannequin location
+#   {button}  – HUD button name      {layer}      – current layer key
+#   {part}    – selected part name   {color}      – selected colour name
+#   {channel} – selected channel #
+# Leave a list empty or remove it to disable that trigger.
+triggers:
+  # Player's crosshair moves onto a HUD button
+  hover:
+    - "playsound minecraft:ui.button.click ambient {player} {x} {y} {z} 0.15 1.8"
+
+  # Player clicks any HUD button
+  click:
+    - "playsound minecraft:ui.button.click ambient {player} {x} {y} {z} 0.15 1.8"
+
+  # A new part is selected. Use the layer key for per-layer commands,
+  # or "default" as a catch-all fallback.
+  part-change:
+    default:
+    - "playsound minecraft:ui.button.click ambient {player} {x} {y} {z} 0.15 1.8"
+    # hair:
+    #   - "particle dust 1.0 0.8 0.6 1 {x} {y} {z} 0.3 0.5 0.3 0 5"
+
+  # A colour is applied to a channel
+  color-change:
+    - "playsound minecraft:ui.button.click ambient {player} {x} {y} {z} 0.15 1.8"
+
 # Layer configuration
 layers:
   palettes:

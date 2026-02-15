@@ -15,7 +15,6 @@ import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.Color
 import org.bukkit.Location
-import org.bukkit.Sound
 import org.bukkit.entity.Display
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
@@ -480,7 +479,8 @@ class MannequinManager(
                 // Highlight new
                 if (hovered != null) {
                     sendButtonBg(player, hudState, nearest.id, hovered, HUD_BG_HIGHLIGHT)
-                    player.playSound(player.location, Sound.UI_BUTTON_CLICK, 0.15f, 1.8f)
+                    val ph = basePlaceholders(player, nearest).apply { put("button", hovered) }
+                    fireTrigger("hover", ph)
                 }
                 hudState.hoveredButton = hovered
             }
@@ -587,7 +587,7 @@ class MannequinManager(
         if (hoveredButton != null && hoveredButton in CLICKABLE_BUTTONS) {
             executeButton(hoveredButton, manId, mannequin, state, player, backwards)
         } else {
-            executeModeAction(manId, mannequin, state, backwards)
+            executeModeAction(manId, mannequin, state, player, backwards)
         }
     }
 
@@ -601,6 +601,12 @@ class MannequinManager(
         player: Player,
         backwards: Boolean
     ) {
+        // Fire click trigger
+        val clickPh = basePlaceholders(player, mannequin).apply {
+            put("button", button)
+        }
+        fireTrigger("click", clickPh)
+
         val layers = layerManager.definitionsInOrder()
         if (layers.isEmpty()) return
         val layer = layers.getOrNull(state.layerIndex % layers.size) ?: layers.first()
@@ -660,7 +666,7 @@ class MannequinManager(
             }
             "part" -> {
                 if (state.mode == ControlMode.PART) {
-                    cyclePart(layer, mannequin, state, backwards)?.let { updateStatus(manId, it) }
+                    cyclePart(layer, mannequin, state, player, backwards)?.let { updateStatus(manId, it) }
                 } else {
                     state.mode = ControlMode.PART
                     refreshDynamicLabels(
@@ -713,7 +719,7 @@ class MannequinManager(
             }
             "color" -> {
                 if (state.mode == ControlMode.COLOR) {
-                    cycleColor(layer, mannequin, state, backwards)?.let { updateStatus(manId, it) }
+                    cycleColor(layer, mannequin, state, player, backwards)?.let { updateStatus(manId, it) }
                 } else {
                     state.mode = ControlMode.COLOR
                     refreshDynamicLabels(
@@ -731,17 +737,17 @@ class MannequinManager(
         render(mannequin, viewers)
     }
 
-    private fun executeModeAction(manId: UUID, mannequin: Mannequin, state: ControlState, backwards: Boolean) {
+    private fun executeModeAction(manId: UUID, mannequin: Mannequin, state: ControlState, player: Player, backwards: Boolean) {
         val layers = layerManager.definitionsInOrder()
         if (layers.isEmpty()) return
         val layer = layers.getOrNull(state.layerIndex % layers.size) ?: layers.first()
 
         when (state.mode) {
-            ControlMode.PART -> cyclePart(layer, mannequin, state, backwards)?.let {
+            ControlMode.PART -> cyclePart(layer, mannequin, state, player, backwards)?.let {
                 updateStatus(manId, it)
                 render(mannequin, nearbyViewers(mannequin))
             }
-            ControlMode.COLOR -> cycleColor(layer, mannequin, state, backwards)?.let {
+            ControlMode.COLOR -> cycleColor(layer, mannequin, state, player, backwards)?.let {
                 updateStatus(manId, it)
                 render(mannequin, nearbyViewers(mannequin))
             }
@@ -784,7 +790,7 @@ class MannequinManager(
 
     // ── Part / Colour cycling ───────────────────────────────────────────────────
 
-    private fun cyclePart(layer: LayerDefinition, mannequin: Mannequin, state: ControlState, backwards: Boolean): String? {
+    private fun cyclePart(layer: LayerDefinition, mannequin: Mannequin, state: ControlState, player: Player, backwards: Boolean): String? {
         val opts = layerManager.optionsFor(layer.id)
         if (opts.isEmpty()) return null
         val delta = if (backwards) -1 else 1
@@ -797,10 +803,18 @@ class MannequinManager(
         state.channelIndex[layer.id] = 0
         state.colorIndex[layer.id] = 0
         refreshDynamicLabels(mannequin.id, chosen, layer)
+
+        // Fire per-layer part-change trigger
+        val ph = basePlaceholders(player, mannequin).apply {
+            put("layer", layer.id)
+            put("part", chosen.displayName)
+        }
+        fireLayerTrigger("part-change", layer.id, ph)
+
         return "Part: ${chosen.displayName}"
     }
 
-    private fun cycleColor(layer: LayerDefinition, mannequin: Mannequin, state: ControlState, backwards: Boolean): String? {
+    private fun cycleColor(layer: LayerDefinition, mannequin: Mannequin, state: ControlState, player: Player, backwards: Boolean): String? {
         val current = mannequin.selection.selections[layer.id]
         val option = current?.option ?: layerManager.optionsFor(layer.id).firstOrNull() ?: return "Color: N/A"
         val palettes = option.allowedPalettes.ifEmpty { layer.defaultPalettes }
@@ -828,10 +842,18 @@ class MannequinManager(
         mannequin.selection = mannequin.selection.copy(
             selections = mannequin.selection.selections + (layer.id to selection)
         )
-        return when (idx) {
-            0 -> "Color: Default"
-            else -> "Color: ${optionsList[idx]}"
+
+        val colorLabel = if (idx == 0) "Default" else optionsList[idx]
+
+        // Fire color-change trigger
+        val ph = basePlaceholders(player, mannequin).apply {
+            put("layer", layer.id)
+            put("color", colorLabel)
+            put("channel", (selectedChannel ?: 0).toString())
         }
+        fireTrigger("color-change", ph)
+
+        return "Color: $colorLabel"
     }
 
     // ── Utilities ───────────────────────────────────────────────────────────────
@@ -861,6 +883,53 @@ class MannequinManager(
             )
         }
         return SkinSelection(selections)
+    }
+
+    // ── Trigger helpers ───────────────────────────────────────────────────────
+
+    /**
+     * Fire a list of console commands from a config path, substituting placeholders.
+     * @param configPath  path under `triggers`, e.g. "hover" or "click"
+     * @param placeholders  map of placeholder names (without braces) to values
+     */
+    private fun fireTrigger(configPath: String, placeholders: Map<String, String>) {
+        val commands = plugin.config.getStringList("triggers.$configPath")
+        dispatchCommands(commands, placeholders)
+    }
+
+    /**
+     * Fire a per-layer trigger. Looks for `triggers.<base>.<layerKey>` first,
+     * falling back to `triggers.<base>.default`.
+     */
+    private fun fireLayerTrigger(base: String, layerKey: String, placeholders: Map<String, String>) {
+        val perLayer = plugin.config.getStringList("triggers.$base.$layerKey")
+        val commands = perLayer.ifEmpty { plugin.config.getStringList("triggers.$base.default") }
+        dispatchCommands(commands, placeholders)
+    }
+
+    private fun dispatchCommands(commands: List<String>, placeholders: Map<String, String>) {
+        if (commands.isEmpty()) return
+        val consoleSender = plugin.server.consoleSender
+        for (template in commands) {
+            var cmd = template
+            for ((key, value) in placeholders) {
+                cmd = cmd.replace("{$key}", value)
+            }
+            if (cmd.isNotBlank()) {
+                plugin.server.dispatchCommand(consoleSender, cmd)
+            }
+        }
+    }
+
+    /** Build the base set of placeholders that every trigger gets. */
+    private fun basePlaceholders(player: Player, mannequin: Mannequin): MutableMap<String, String> {
+        val loc = mannequin.location
+        return mutableMapOf(
+            "player" to player.name,
+            "x" to String.format("%.2f", loc.x),
+            "y" to String.format("%.2f", loc.y),
+            "z" to String.format("%.2f", loc.z)
+        )
     }
 
     private fun prettyName(raw: String): String =
