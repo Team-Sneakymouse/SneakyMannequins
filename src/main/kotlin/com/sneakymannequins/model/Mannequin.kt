@@ -7,6 +7,7 @@ data class Mannequin(
     val id: UUID = UUID.randomUUID(),
     val location: Location,
     var selection: SkinSelection,
+    var slimModel: Boolean = false,
     var lastFrame: PixelFrame = PixelFrame.blank()
 )
 

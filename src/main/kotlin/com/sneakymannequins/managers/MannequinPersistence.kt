@@ -13,13 +13,13 @@ class MannequinPersistence(private val plugin: SneakyMannequins) {
     private val file: File = File(plugin.dataFolder, "mannequins.yml")
     private val config = YamlConfiguration()
 
-    fun load(): List<Pair<UUID, Location>> {
+    fun load(): List<Triple<UUID, Location, Boolean>> {
         if (!file.exists()) {
             plugin.dataFolder.mkdirs()
             file.createNewFile()
         }
         config.load(file)
-        val mannequins = mutableListOf<Pair<UUID, Location>>()
+        val mannequins = mutableListOf<Triple<UUID, Location, Boolean>>()
 
         val manSection = config.getConfigurationSection("mannequins")
         manSection?.getKeys(false)?.forEach { key ->
@@ -30,8 +30,9 @@ class MannequinPersistence(private val plugin: SneakyMannequins) {
                 val y = manSection.getDouble("$key.y")
                 val z = manSection.getDouble("$key.z")
                 val yaw = manSection.getDouble("$key.yaw", 0.0).toFloat()
+                val slim = manSection.getBoolean("$key.slim", false)
                 if (world != null) {
-                    mannequins += id to Location(world, x, y, z, yaw, 0f)
+                    mannequins += Triple(id, Location(world, x, y, z, yaw, 0f), slim)
                 }
             }
         }
@@ -54,6 +55,7 @@ class MannequinPersistence(private val plugin: SneakyMannequins) {
             config.set("$path.y", man.location.y)
             config.set("$path.z", man.location.z)
             config.set("$path.yaw", man.location.yaw.toDouble())
+            config.set("$path.slim", man.slimModel)
         }
         config.save(file)
     }

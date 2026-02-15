@@ -24,15 +24,17 @@ class LayerManager(
         loadedLayers.clear()
         layerOrder.clear()
         palettes.clear()
-        // Always ensure bundled defaults exist in the data folder
-        ensureDefaultSkinVariants()
-        val root = plugin.config.getConfigurationSection("layers")
-            ?: return seedDefaultBaseLayer()
+        val root = plugin.config.getConfigurationSection("layers") ?: run {
+            plugin.logger.warning("No 'layers' section found in config.")
+            return
+        }
 
         loadPalettes(root.getConfigurationSection("palettes"))
 
-        val definitions = root.getConfigurationSection("definitions")
-            ?: return seedDefaultBaseLayer()
+        val definitions = root.getConfigurationSection("definitions") ?: run {
+            plugin.logger.warning("No layer definitions found in config.")
+            return
+        }
         val configuredOrder = root.getStringList("order")
         if (configuredOrder.isNotEmpty()) {
             layerOrder.addAll(configuredOrder)
@@ -51,27 +53,6 @@ class LayerManager(
             val options = loadOptions(definition, definitionSection.getConfigurationSection("options"))
             loadedLayers[layerId] = definition to options
         }
-
-        if (loadedLayers.isEmpty()) {
-            seedDefaultBaseLayer()
-        }
-    }
-
-    private fun seedDefaultBaseLayer() {
-        plugin.logger.warning("No layers configured; seeding default base layer with bundled defaults")
-        val baseDef = LayerDefinition(
-            id = "base",
-            displayName = "Base",
-            // Read defaults directly from the plugin data root (default.png / default_slim.png)
-            directory = plugin.dataFolder.toPath(),
-            allowColorMask = false,
-            defaultPalettes = emptyList()
-        )
-        val options = loadOptions(baseDef, null)
-        layerOrder.clear()
-        layerOrder.add(baseDef.id)
-        loadedLayers.clear()
-        loadedLayers[baseDef.id] = baseDef to options
     }
 
     fun definitionsInOrder(): List<LayerDefinition> =
@@ -127,23 +108,7 @@ class LayerManager(
             Files.createDirectories(directory)
         }
 
-        // For the base/body layer, make sure the bundled defaults exist before we try to read them
-        if (definition.id.equals("base", ignoreCase = true) || definition.id.equals("body", ignoreCase = true)) {
-            ensureDefaultSkinVariants()
-        }
-
-        var options = loadLayerOptions(directory, definition, optionConfig)
-
-        // For the base/body layer, also load defaults that live in the plugin data root
-        if (definition.id.equals("base", ignoreCase = true) || definition.id.equals("body", ignoreCase = true)) {
-            val existingIds = options.map { it.id.lowercase() }.toSet()
-            val rootDefaults = listOf("default.png", "default_slim.png")
-                .mapNotNull { loadOptionPair(plugin.dataFolder.toPath().resolve(it), definition, optionConfig) }
-                .filterNot { existingIds.contains(it.id.lowercase()) }
-            options = options + rootDefaults
-        }
-
-        return options
+        return loadLayerOptions(directory, definition, optionConfig)
     }
 
     private fun loadLayerOptions(
@@ -294,39 +259,6 @@ class LayerManager(
             part.lowercase().replaceFirstChar { ch -> ch.titlecase() }
         }.ifEmpty { "Option" }
 
-    fun defaultSkinOptions(): List<LayerOption> {
-        ensureDefaultSkinVariants()
-        val defPath = plugin.dataFolder.toPath().resolve("default.png")
-        val slimPath = plugin.dataFolder.toPath().resolve("default_slim.png")
-        val defImg = loadImage(defPath, "default")
-        val slimImg = loadImage(slimPath, "default")
-        val opts = mutableListOf<LayerOption>()
-        if (defImg != null) {
-            opts += LayerOption(
-                id = "default",
-                displayName = "Default",
-                fileDefault = defPath,
-                fileSlim = defPath,
-                imageDefault = defImg,
-                imageSlim = defImg,
-                allowedPalettes = emptyList(),
-                masks = emptyMap()
-            )
-        }
-        if (slimImg != null) {
-            opts += LayerOption(
-                id = "default_slim",
-                displayName = "Default Slim",
-                fileDefault = slimPath,
-                fileSlim = slimPath,
-                imageDefault = slimImg,
-                imageSlim = slimImg,
-                allowedPalettes = emptyList(),
-                masks = emptyMap()
-            )
-        }
-        return opts
-    }
 
     private fun maybePreprocess(path: Path) {
         if (!plugin.config.getBoolean("plugin.preprocessing.enabled", true)) return
@@ -793,29 +725,6 @@ class LayerManager(
         return data.any { (it ushr 24) != 0 }
     }
 
-    private fun ensureDefaultSkinVariants(): Map<String, Path> {
-        val seeds = mutableMapOf<String, Path>()
-        copyResourceIfMissing("default.png")?.let { seeds["default"] = it }
-        copyResourceIfMissing("default_slim.png")?.let { seeds["default_slim"] = it }
-        return seeds
-    }
-
-    private fun copyResourceIfMissing(resourceName: String): Path? {
-        val target = plugin.dataFolder.toPath().resolve(resourceName)
-        if (!java.nio.file.Files.exists(target)) {
-            val stream = plugin.getResource(resourceName)
-            if (stream == null) {
-                plugin.logger.warning("$resourceName not found in resources; cannot seed default skin variant")
-                return null
-            }
-            stream.use { input ->
-                java.nio.file.Files.createDirectories(target.parent)
-                java.nio.file.Files.copy(input, target)
-                plugin.logger.info("Seeded $resourceName at $target")
-            }
-        }
-        return target
-    }
 
     private fun ConfigurationSection.toDefinition(dataFolder: Path): LayerDefinition {
         val id = this.name

@@ -192,9 +192,10 @@ class MannequinManager(
 
     fun loadFromDisk() {
         val loaded = persistence.load()
-        loaded.forEach { (id, loc) ->
+        loaded.forEach { (id, loc, slim) ->
+            val preferSlim = slim || (plugin.config.getString("plugin.default-skin-model", "CLASSIC")?.uppercase() == "SLIM")
             val selection = bootstrapSelection()
-            mannequins[id] = Mannequin(id = id, location = loc.clone(), selection = selection)
+            mannequins[id] = Mannequin(id = id, location = loc.clone(), selection = selection, slimModel = preferSlim)
             controlState[id] = ControlState()
             initButtonVisuals(id)
             cleanupControlEntities(id)
@@ -208,7 +209,8 @@ class MannequinManager(
 
     fun create(location: Location): Mannequin {
         val selection = bootstrapSelection()
-        val mannequin = Mannequin(location = location.clone(), selection = selection)
+        val preferSlim = plugin.config.getString("plugin.default-skin-model", "CLASSIC")?.uppercase() == "SLIM"
+        val mannequin = Mannequin(location = location.clone(), selection = selection, slimModel = preferSlim)
         mannequins[mannequin.id] = mannequin
         controlState[mannequin.id] = ControlState()
         initButtonVisuals(mannequin.id)
@@ -340,10 +342,7 @@ class MannequinManager(
         viewers.forEach { viewer -> handler.applyProjectedPixels(viewer, mannequin.id, projected) }
     }
 
-    private fun isSlimModel(mannequin: Mannequin): Boolean {
-        val bodyId = mannequin.selection.selections["body"]?.option?.id ?: return false
-        return bodyId.contains("slim", ignoreCase = true)
-    }
+    private fun isSlimModel(mannequin: Mannequin): Boolean = mannequin.slimModel
 
     fun nearestMannequin(location: Location, radius: Double = 10.0): Mannequin? {
         return mannequins.values.minByOrNull { man ->
@@ -766,29 +765,9 @@ class MannequinManager(
 
         when (button) {
             "model" -> {
-                val baseLayerId = "body"
-                val options = layerManager.optionsFor(baseLayerId).ifEmpty { layerManager.defaultSkinOptions() }
-                if (options.isEmpty()) {
-                    plugin.logger.warning("Model toggle requested but no body/default options found")
-                    return
-                }
-                val current = mannequin.selection.selections[baseLayerId]?.option
-                val next = if (current?.id.equals("default", true)) {
-                    options.firstOrNull { it.id.equals("default_slim", true) } ?: options.firstOrNull()
-                } else {
-                    options.firstOrNull { it.id.equals("default", true) } ?: options.firstOrNull()
-                }
-                mannequin.selection = mannequin.selection.copy(
-                    selections = mannequin.selection.selections + (baseLayerId to (mannequin.selection.selections[baseLayerId]?.copy(option = next, channelColors = emptyMap())
-                        ?: LayerSelection(baseLayerId, next)))
-                )
+                mannequin.slimModel = !mannequin.slimModel
                 mannequin.lastFrame = PixelFrame.blank()
-                state.colorIndex[baseLayerId] = 0
-                val modelLabel = when (next?.id?.lowercase()) {
-                    "default_slim" -> "Slim"
-                    "default" -> "Default"
-                    else -> next?.displayName ?: next?.id ?: "Default"
-                }
+                val modelLabel = if (mannequin.slimModel) "Slim" else "Default"
                 updateStatus(manId, "Model: $modelLabel")
                 val viewers = nearbyViewers(mannequin)
                 viewers.forEach { viewer -> handler.destroyMannequin(viewer, mannequin.id) }
@@ -1039,18 +1018,8 @@ class MannequinManager(
 
     private fun bootstrapSelection(): SkinSelection {
         val definitions = layerManager.definitionsInOrder()
-        val preferredModel = plugin.config.getString("plugin.default-skin-model", "CLASSIC")?.uppercase() ?: "CLASSIC"
         val selections = definitions.associate { def ->
-            val options = layerManager.optionsFor(def.id).ifEmpty {
-                if (def.id.equals("body", ignoreCase = true)) layerManager.defaultSkinOptions() else emptyList()
-            }
-            val chosen = when {
-                def.id.equals("body", ignoreCase = true) && preferredModel == "SLIM" ->
-                    options.firstOrNull { it.id.equals("default_slim", ignoreCase = true) } ?: options.firstOrNull()
-                def.id.equals("body", ignoreCase = true) ->
-                    options.firstOrNull { it.id.equals("default", ignoreCase = true) } ?: options.firstOrNull()
-                else -> options.firstOrNull()
-            }
+            val chosen = layerManager.optionsFor(def.id).firstOrNull()
             def.id to LayerSelection(
                 layerId = def.id,
                 option = chosen
