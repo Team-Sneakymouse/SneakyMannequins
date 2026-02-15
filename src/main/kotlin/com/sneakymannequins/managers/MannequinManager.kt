@@ -316,7 +316,8 @@ class MannequinManager(
             changes = diff,
             pixelScale = 1.0 / 16.0,
             scaleMultiplier = handler.pixelScaleMultiplier(),
-            slimArms = isSlimModel(mannequin)
+            slimArms = isSlimModel(mannequin),
+            tPose = poseState[mannequin.id] == true
         )
         viewers.forEach { viewer -> handler.applyProjectedPixels(viewer, mannequin.id, projected) }
         return diff.size
@@ -340,7 +341,8 @@ class MannequinManager(
             changes = changes,
             pixelScale = 1.0 / 16.0,
             scaleMultiplier = handler.pixelScaleMultiplier(),
-            slimArms = isSlimModel(mannequin)
+            slimArms = isSlimModel(mannequin),
+            tPose = poseState[mannequin.id] == true
         )
         viewers.forEach { viewer -> handler.applyProjectedPixels(viewer, mannequin.id, projected) }
     }
@@ -781,6 +783,11 @@ class MannequinManager(
                 val newPose = !(poseState[manId] ?: false)
                 poseState[manId] = newPose
                 updateStatus(manId, if (newPose) "Pose: T-Pose" else "Pose: Default")
+                mannequin.lastFrame = PixelFrame.blank()
+                val viewers = nearbyViewers(mannequin)
+                viewers.forEach { v -> handler.destroyMannequin(v, mannequin.id) }
+                renderFull(mannequin, viewers)
+                return
             }
             "random" -> {
                 val now = System.currentTimeMillis()

@@ -2,6 +2,9 @@ package com.sneakymannequins.render
 
 import com.sneakymannequins.model.PixelChange
 import org.bukkit.Location
+import kotlin.math.abs
+import kotlin.math.asin
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -33,14 +36,15 @@ object PixelProjector {
         changes: Collection<PixelChange>,
         pixelScale: Double = 1.0 / 16.0,
         scaleMultiplier: Float = 1f,
-        slimArms: Boolean = false
+        slimArms: Boolean = false,
+        tPose: Boolean = false
     ): List<ProjectedPixel> {
         val yawRad = Math.toRadians(origin.yaw.toDouble())
         val sin = sin(yawRad)
         val cos = cos(yawRad)
 
         return changes.mapNotNull { change ->
-            val pose = mapSkinPixelToModel(change.x, change.y, pixelScale, slimArms) ?: return@mapNotNull null
+            val pose = mapSkinPixelToModel(change.x, change.y, pixelScale, slimArms, tPose) ?: return@mapNotNull null
             val isVisible = change.visible
 
             val rotX = pose.x * cos - pose.z * sin
@@ -66,7 +70,7 @@ object PixelProjector {
         val scaleW: Double, val scaleH: Double
     )
 
-    private fun mapSkinPixelToModel(x: Int, y: Int, s: Double, slimArms: Boolean): PixelPose? {
+    private fun mapSkinPixelToModel(x: Int, y: Int, s: Double, slimArms: Boolean, tPose: Boolean = false): PixelPose? {
         // Overlay gap: vanilla adds 0.5 pixels on each side (uniform across all parts)
         val og = 0.5 * s
 
@@ -242,8 +246,25 @@ object PixelProjector {
                 ?: faceBottom(56, 48, spec.topWidth, 4, spec.centerX, bodyY - og, 0.0, overlay = true)
         }
 
-        renderRightArm(rightArm)?.let { return it }
-        renderLeftArm(leftArm)?.let { return it }
+        if (tPose) {
+            // Vanilla arm pivot: 1 pixel into the arm from the body edge, 2 pixels below arm top
+            val shoulderY = bodyY + 10.0 * s
+            val rPivotX = rightArm.innerX - 1.0 * s   // -5*s for default
+            val lPivotX = leftArm.innerX + 1.0 * s     //  5*s for default
+
+            // Right arm: -90° CW in XY → extends outward to negative X
+            renderRightArm(rightArm)?.let { pose ->
+                return rotateArmPose(pose, rPivotX, shoulderY, clockwise = true)
+            }
+
+            // Left arm: +90° CCW in XY → extends outward to positive X
+            renderLeftArm(leftArm)?.let { pose ->
+                return rotateArmPose(pose, lPivotX, shoulderY, clockwise = false)
+            }
+        } else {
+            renderRightArm(rightArm)?.let { return it }
+            renderLeftArm(leftArm)?.let { return it }
+        }
 
         // ── Right leg (4x12x4) ──
         faceFront(4, 20, 4, 12, -2.0 * s, legY, 2.0 * s)?.let { return it }
@@ -276,5 +297,72 @@ object PixelProjector {
         faceBottom(8, 48, 4, 4, 2.0 * s, legY - og, 0.0, overlay = true)?.let { return it }
 
         return null
+    }
+
+    /**
+     * Rotate an arm [PixelPose] 90° in the XY plane around a shoulder pivot.
+     *
+     * This properly transforms position, face normal (yaw/pitch), and scales:
+     *   - Position is rotated around (pivotX, pivotY); Z is unchanged.
+     *   - The face normal vector is rotated by the same angle so every face
+     *     (front, back, side, top, bottom) ends up pointing in the correct
+     *     direction after the arm is T-posed.
+     *   - scaleW / scaleH are swapped when a face flips between vertical and
+     *     horizontal orientation.
+     *
+     * @param clockwise  true = −90° CW (right arm, extends to −X);
+     *                   false = +90° CCW (left arm, extends to +X).
+     */
+    private fun rotateArmPose(
+        pose: PixelPose,
+        pivotX: Double,
+        pivotY: Double,
+        clockwise: Boolean
+    ): PixelPose {
+        val dx = pose.x - pivotX
+        val dy = pose.y - pivotY
+
+        // Rotate position
+        val newX: Double
+        val newY: Double
+        if (clockwise) {
+            // -90° CW: (dx, dy) → (dy, -dx)
+            newX = pivotX + dy
+            newY = pivotY - dx
+        } else {
+            // +90° CCW: (dx, dy) → (-dy, dx)
+            newX = pivotX - dy
+            newY = pivotY + dx
+        }
+
+        // Rotate face normal vector by the same angle
+        val yawRad = Math.toRadians(pose.yaw.toDouble())
+        val pitchRad = Math.toRadians(pose.pitch.toDouble())
+        val nx = -sin(yawRad) * cos(pitchRad)
+        val ny = -sin(pitchRad)
+        val nz = cos(yawRad) * cos(pitchRad)
+
+        val nx2: Double
+        val ny2: Double
+        if (clockwise) {
+            // -90° CW: (nx, ny) → (ny, -nx)
+            nx2 = ny
+            ny2 = -nx
+        } else {
+            // +90° CCW: (nx, ny) → (-ny, nx)
+            nx2 = -ny
+            ny2 = nx
+        }
+
+        val newPitch = Math.toDegrees(asin((-ny2).coerceIn(-1.0, 1.0))).toFloat()
+        val newYaw = Math.toDegrees(atan2(-nx2, nz)).toFloat()
+
+        // Swap scales when face orientation flips between vertical and horizontal
+        val wasVertical = abs(pose.pitch) < 45f
+        val isVertical = abs(newPitch) < 45f
+        val sw = if (wasVertical != isVertical) pose.scaleH else pose.scaleW
+        val sh = if (wasVertical != isVertical) pose.scaleW else pose.scaleH
+
+        return PixelPose(newX, newY, pose.z, newYaw, newPitch, sw, sh)
     }
 }
