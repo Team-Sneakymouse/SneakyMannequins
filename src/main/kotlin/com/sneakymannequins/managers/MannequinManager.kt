@@ -386,8 +386,8 @@ class MannequinManager(
 
         // Initial label state for channel/palette depending on current selection
         val state = controlState.getOrPut(mannequinId) { ControlState() }
-        val definitions = layerManager.definitionsInOrder()
-        val layer = definitions.getOrNull(state.layerIndex % definitions.size) ?: definitions.firstOrNull()
+        val layers = layerManager.definitionsInOrder()
+        val layer = layers.getOrNull(state.layerIndex % layers.size) ?: layers.firstOrNull()
         val option = layer?.let {
             mannequins[mannequinId]?.selection?.selections?.get(it.id)?.option ?: layerManager.optionsFor(it.id).firstOrNull()
         }
@@ -441,9 +441,9 @@ class MannequinManager(
         interactionDebounce[debounceKey] = now
         val mannequin = mannequins[manId] ?: return
         val state = controlState.getOrPut(manId) { ControlState() }
-        val definitions = layerManager.definitionsInOrder()
-        if (definitions.isEmpty()) return
-        val layer = definitions.getOrNull(state.layerIndex % definitions.size) ?: definitions.first()
+        val layers = layerManager.definitionsInOrder()
+        if (layers.isEmpty()) return
+        val layer = layers.getOrNull(state.layerIndex % layers.size) ?: layers.first()
         fun updateStatus(msg: String) {
             statusText[manId] = msg
             // Update status displays for all controls
@@ -499,8 +499,8 @@ class MannequinManager(
             }
             "layer" -> {
                 val delta = if (backwards) -1 else 1
-                state.layerIndex = (state.layerIndex + delta + definitions.size) % definitions.size
-                val newLayer = definitions[state.layerIndex]
+                state.layerIndex = (state.layerIndex + delta + layers.size) % layers.size
+                val newLayer = layers[state.layerIndex]
                 updateStatus("Layer: ${newLayer.displayName}")
                 // reset per-layer indices when switching layers
                 state.partIndex[newLayer.id] = 0
@@ -615,9 +615,9 @@ class MannequinManager(
         if (nearestDist > 25.0) return // >5 blocks
         val state = controlState[mannequinId] ?: return
         val mannequin = mannequins[mannequinId] ?: return
-        val definitions = layerManager.definitionsInOrder()
-        if (definitions.isEmpty()) return
-        val layer = definitions.getOrNull(state.layerIndex % definitions.size) ?: definitions.first()
+        val layers = layerManager.definitionsInOrder()
+        if (layers.isEmpty()) return
+        val layer = layers.getOrNull(state.layerIndex % layers.size) ?: layers.first()
 
         when (state.mode) {
             ControlMode.PART -> cyclePart(layer, mannequin, state, backwards)?.let { statusText[mannequinId] = it; refreshStatusDisplays(mannequinId) }
