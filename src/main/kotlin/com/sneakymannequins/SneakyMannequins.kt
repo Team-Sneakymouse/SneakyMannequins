@@ -52,7 +52,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
 		// Register commands
         registerCommand("mannequin", CommandMannequin(this, mannequinManager, layerManager))
         server.pluginManager.registerEvents(this, this)
-
+        
         // Start the per-tick hover detection task
         mannequinManager.startHoverTask()
     }
@@ -63,7 +63,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
         }
         logger.info("SneakyMannequins plugin has been disabled!")
     }
-
+    
     @EventHandler
     fun onJoin(event: PlayerJoinEvent) {
         mannequinManager.renderVisibleTo(event.player)

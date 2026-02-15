@@ -268,6 +268,7 @@ class LayerManager(
                 plugin.logger.warning("Layer $layerId option ${path.fileName} is fully transparent; skipping.")
                 return null
             }
+            if (!isSlimAsset(path)) fixSlimArmGaps(image)
             image
         } catch (ex: Exception) {
             plugin.logger.severe("Failed to load layer option from $path: ${ex.message}")
@@ -340,6 +341,7 @@ class LayerManager(
     private fun preprocessImage(sourcePath: Path, strategy: MaskStrategy = defaultStrategy()) {
         val image = ImageIO.read(sourcePath.toFile()) ?: return
         val sanitized = sanitizeUv(image)
+        if (!isSlimAsset(sourcePath)) fixSlimArmGaps(sanitized)
 
         val clusters = clusterColors(sanitized, strategy)
         writeMasks(sourcePath, sanitized, clusters)
@@ -454,6 +456,159 @@ class LayerManager(
     private data class Rect(val x0: Int, val y0: Int, val x1: Int, val y1: Int) {
         fun contains(x: Int, y: Int): Boolean = x in x0 until x1 && y in y0 until y1
     }
+
+    // ── Slim → default arm-column fix ─────────────────────────────────────
+
+    /**
+     * Describes one arm's UV region.  All four arm textures (right/left ×
+     * base/overlay) share the same internal layout, offset by [frontX].
+     *
+     * Relative to [frontX] (abbreviated `fx`):
+     * ```
+     * Top row (topY):   [Top fx..fx+2] [Bottom fx+3..fx+5]   (slim, 3px wide)
+     *                   [Top fx..fx+3] [Bottom fx+4..fx+7]   (default, 4px wide)
+     *
+     * Main row (mainY): [Front fx..fx+2] [Side fx+3..fx+6] [Back fx+7..fx+9]  (slim)
+     *                   [Front fx..fx+3] [Side fx+4..fx+7] [Back fx+8..fx+11] (default)
+     * ```
+     * The depth side faces (right side: fx-4..fx-1) are 4px in both models.
+     */
+    private data class ArmRegion(
+        val frontX: Int,
+        val mainY: IntRange,
+        val topY: IntRange
+    )
+
+    private val SLIM_ARM_REGIONS = listOf(
+        ArmRegion(frontX = 44, mainY = 20..31, topY = 16..19),   // right arm base
+        ArmRegion(frontX = 44, mainY = 36..47, topY = 32..35),   // right arm overlay
+        ArmRegion(frontX = 36, mainY = 52..63, topY = 48..51),   // left arm base
+        ArmRegion(frontX = 52, mainY = 52..63, topY = 48..51),   // left arm overlay
+    )
+
+    /**
+     * Detect and fix slim arm-texture artefacts in a non-`_slim` asset.
+     *
+     * Two authoring styles are handled:
+     *
+     * **Type A – Default UV, 4th column empty.**
+     * The texture uses default-model UV positions but only fills 3 of the 4
+     * width-columns on each arm face.  Fix: stretch the 3rd column into the
+     * 4th for every affected face (front, top, bottom, back).
+     *
+     * **Type B – Shifted UV (true slim layout).**
+     * The side, bottom, and back faces start 1 pixel earlier because
+     * `side_start = front_x + 3` instead of `front_x + 4`.  Fix: shift
+     * those faces right by 1, then stretch the last width-column to fill
+     * the new 4th position.
+     */
+    private fun fixSlimArmGaps(image: java.awt.image.BufferedImage) {
+        for (arm in SLIM_ARM_REGIONS) {
+            val fx = arm.frontX
+
+            // ── Detect Type B (shifted UV) ──────────────────────────────
+            // Indicators: the front-gap column (fx+3) has data (side face
+            // shifted there), the slim back start (fx+7) has data, and the
+            // default back-end column (fx+11) is empty.
+            val frontGapHasData  = arm.mainY.any { y -> (image.getRGB(fx + 3, y) ushr 24) != 0 }
+            val slimBackHasData  = arm.mainY.any { y -> (image.getRGB(fx + 7, y) ushr 24) != 0 }
+            val defaultBackEmpty = arm.mainY.all { y -> (image.getRGB(fx + 11, y) ushr 24) == 0 }
+
+            if (frontGapHasData && slimBackHasData && defaultBackEmpty) {
+                remapShiftedSlim(image, arm)
+                continue
+            }
+
+            // ── Type A: simple gap-fills ─────────────────────────────────
+            // Front + top face gap (fx+3)
+            fillGapColumn(image, fx + 3, fx + 2, fx + 4, arm.mainY)
+            fillGapColumn(image, fx + 3, fx + 2, fx + 4, arm.topY)
+            // Bottom face gap (fx+7)
+            fillGapColumn(image, fx + 7, fx + 6, fx + 6, arm.topY)
+            // Back face gap (fx+11)
+            fillGapColumn(image, fx + 11, fx + 10, fx + 8, arm.mainY)
+        }
+    }
+
+    /** Stretch a single gap column if it is fully transparent and the
+     *  verification column confirms data exists. */
+    private fun fillGapColumn(
+        image: java.awt.image.BufferedImage,
+        gapX: Int, sourceX: Int, verifyX: Int, yRange: IntRange
+    ) {
+        if (gapX >= image.width || sourceX >= image.width) return
+        val gapEmpty     = yRange.all { y -> (image.getRGB(gapX, y) ushr 24) == 0 }
+        if (!gapEmpty) return
+        val verifyFilled = yRange.any { y -> (image.getRGB(verifyX, y) ushr 24) != 0 }
+        if (!verifyFilled) return
+        for (y in yRange) {
+            image.setRGB(gapX, y, image.getRGB(sourceX, y))
+        }
+    }
+
+    /**
+     * Full remap for a Type-B slim arm: every face after the front is
+     * shifted 1 pixel to the left of where the default model expects it.
+     *
+     * Operations are ordered right-to-left to avoid overwriting:
+     * 1. Back face (3 cols at fx+7) → shift to fx+8, stretch to fx+11
+     * 2. Side face (4 cols at fx+3) → shift to fx+4
+     * 3. Front gap → stretch fx+2 into fx+3
+     * Same pattern for the top row (bottom face + top gap).
+     */
+    private fun remapShiftedSlim(image: java.awt.image.BufferedImage, arm: ArmRegion) {
+        val fx = arm.frontX
+
+        // ── Main row (front / side / back) ──────────────────────────────
+
+        // 1. Back face: read 3 cols at fx+7..fx+9, write to fx+8..fx+10,
+        //    stretch last column to fx+11.
+        for (y in arm.mainY) {
+            val b1 = image.getRGB(fx + 7, y)
+            val b2 = image.getRGB(fx + 8, y)
+            val b3 = image.getRGB(fx + 9, y)
+            image.setRGB(fx + 8,  y, b1)
+            image.setRGB(fx + 9,  y, b2)
+            image.setRGB(fx + 10, y, b3)
+            image.setRGB(fx + 11, y, b3)   // stretch
+        }
+
+        // 2. Side face: 4 cols at fx+3..fx+6 → shift right to fx+4..fx+7.
+        //    Process right-to-left so each read happens before the write
+        //    that would overwrite it.
+        for (y in arm.mainY) {
+            for (col in (fx + 6) downTo (fx + 3)) {
+                image.setRGB(col + 1, y, image.getRGB(col, y))
+            }
+        }
+
+        // 3. Front gap: stretch fx+2 into fx+3.
+        for (y in arm.mainY) {
+            image.setRGB(fx + 3, y, image.getRGB(fx + 2, y))
+        }
+
+        // ── Top row (top / bottom) ──────────────────────────────────────
+
+        // 1. Bottom face: 3 cols at fx+3..fx+5 → shift to fx+4..fx+6,
+        //    stretch to fx+7.
+        for (y in arm.topY) {
+            val b1 = image.getRGB(fx + 3, y)
+            val b2 = image.getRGB(fx + 4, y)
+            val b3 = image.getRGB(fx + 5, y)
+            image.setRGB(fx + 4, y, b1)
+            image.setRGB(fx + 5, y, b2)
+            image.setRGB(fx + 6, y, b3)
+            image.setRGB(fx + 7, y, b3)   // stretch
+        }
+
+        // 2. Top gap: stretch fx+2 into fx+3.
+        for (y in arm.topY) {
+            image.setRGB(fx + 3, y, image.getRGB(fx + 2, y))
+        }
+    }
+
+    private fun isSlimAsset(path: Path): Boolean =
+        path.nameWithoutExtension.endsWith("_slim", ignoreCase = true)
 
     // ── Masking strategies ────────────────────────────────────────────────
 
