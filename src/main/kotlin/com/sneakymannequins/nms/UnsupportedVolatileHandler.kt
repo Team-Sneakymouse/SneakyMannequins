@@ -60,5 +60,23 @@ class UnsupportedVolatileHandler(
 
     override fun sendHudBackground(viewer: Player, entityId: Int, bgColor: Int) { /* no-op */ }
 
+    override fun spawnHudItemDisplay(
+        viewer: Player, entityId: Int,
+        x: Double, y: Double, z: Double,
+        item: String, displayContext: String,
+        tx: Float, ty: Float, tz: Float,
+        sx: Float, sy: Float, sz: Float,
+        yaw: Float
+    ) { /* no-op */ }
+
+    override fun updateHudItemDisplay(
+        viewer: Player, entityId: Int,
+        item: String, displayContext: String,
+        tx: Float, ty: Float, tz: Float,
+        sx: Float, sy: Float, sz: Float,
+        yaw: Float,
+        interpolationTicks: Int
+    ) { /* no-op */ }
+
     override fun destroyEntities(viewer: Player, entityIds: IntArray) { /* no-op */ }
 }

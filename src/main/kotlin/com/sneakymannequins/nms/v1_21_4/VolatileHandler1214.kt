@@ -14,7 +14,12 @@ import net.minecraft.network.chat.TextColor
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.Display
 import net.minecraft.world.entity.EntityType
+import net.minecraft.world.entity.Display.ItemDisplay
 import net.minecraft.world.entity.Display.TextDisplay
+import net.minecraft.world.item.ItemDisplayContext
+import org.bukkit.Material
+import org.bukkit.craftbukkit.inventory.CraftItemStack
+import org.bukkit.inventory.ItemStack as BukkitItemStack
 import net.minecraft.world.phys.Vec3
 import org.joml.Quaternionf
 import org.joml.Vector3f
@@ -197,6 +202,96 @@ class VolatileHandler1214(
         if (entityIds.isEmpty()) return
         val handle = (viewer as CraftPlayer).handle as ServerPlayer
         handle.connection.send(ClientboundRemoveEntitiesPacket(*entityIds))
+    }
+
+    // ── Virtual HUD ItemDisplay (backdrop frame) ──────────────────────────────────
+
+    override fun spawnHudItemDisplay(
+        viewer: Player, entityId: Int,
+        x: Double, y: Double, z: Double,
+        item: String, displayContext: String,
+        tx: Float, ty: Float, tz: Float,
+        sx: Float, sy: Float, sz: Float,
+        yaw: Float
+    ) {
+        val handle = (viewer as CraftPlayer).handle as ServerPlayer
+        val level = handle.serverLevel()
+        val connection = handle.connection
+
+        val display = buildHudItemDisplay(level, item, displayContext, tx, ty, tz, sx, sy, sz, yaw)
+        display.setPos(x, y, z)
+
+        val spawnPacket = ClientboundAddEntityPacket(
+            entityId,
+            UUID.randomUUID(),
+            x, y, z,
+            0f, 0f,
+            EntityType.ITEM_DISPLAY,
+            0,
+            Vec3.ZERO,
+            0.0
+        )
+        connection.send(spawnPacket)
+        connection.send(ClientboundSetEntityDataPacket(entityId, display.entityData.packAll()))
+    }
+
+    override fun updateHudItemDisplay(
+        viewer: Player, entityId: Int,
+        item: String, displayContext: String,
+        tx: Float, ty: Float, tz: Float,
+        sx: Float, sy: Float, sz: Float,
+        yaw: Float,
+        interpolationTicks: Int
+    ) {
+        val handle = (viewer as CraftPlayer).handle as ServerPlayer
+        val level = handle.serverLevel()
+        val connection = handle.connection
+
+        val display = buildHudItemDisplay(level, item, displayContext, tx, ty, tz, sx, sy, sz, yaw)
+        display.setTransformationInterpolationDelay(0)
+        display.setTransformationInterpolationDuration(interpolationTicks)
+
+        connection.send(ClientboundSetEntityDataPacket(entityId, display.entityData.packAll()))
+    }
+
+    private fun buildHudItemDisplay(
+        level: net.minecraft.server.level.ServerLevel,
+        item: String, displayContext: String,
+        tx: Float, ty: Float, tz: Float,
+        sx: Float, sy: Float, sz: Float,
+        yaw: Float
+    ): ItemDisplay {
+        val display = ItemDisplay(EntityType.ITEM_DISPLAY, level)
+        display.setBillboardConstraints(Display.BillboardConstraints.FIXED)
+        display.setShadowRadius(0f)
+        display.setShadowStrength(0f)
+        display.setViewRange(32f)
+
+        // Resolve item via Bukkit Material and convert to NMS ItemStack
+        val material = Material.matchMaterial(item) ?: Material.GLASS_PANE
+        display.setItemStack(CraftItemStack.asNMSCopy(BukkitItemStack(material)))
+
+        // Set display context
+        val context = try {
+            ItemDisplayContext.valueOf(displayContext.uppercase())
+        } catch (_: Exception) {
+            ItemDisplayContext.FIXED
+        }
+        display.setItemTransform(context)
+
+        // Rotate translation by yaw, same as TextDisplay HUD
+        val rotQ = Quaternionf().rotationY(yaw)
+        val rotatedTranslation = Vector3f(tx, ty, tz).also { rotQ.transform(it) }
+
+        display.setTransformation(
+            com.mojang.math.Transformation(
+                rotatedTranslation,
+                rotQ,
+                Vector3f(sx, sy, sz),
+                Quaternionf()
+            )
+        )
+        return display
     }
 
     // ── Helper ──────────────────────────────────────────────────────────────────

@@ -64,6 +64,7 @@ private data class ButtonVisual(
 private data class PlayerHudState(
     val mannequinId: UUID,
     val entityIds: Map<String, Int>,  // buttonName → virtual entity ID
+    val frameEntityId: Int? = null,   // optional backdrop ItemDisplay
     var lastYaw: Float = Float.NaN,
     var hoveredButton: String? = null
 )
@@ -352,9 +353,13 @@ class MannequinManager(
             ids[btn.name] = entityId
         }
 
+        // Spawn optional backdrop ItemDisplay from config
+        val frameId = spawnHudFrame(player, loc, yaw)
+
         playerHuds[player.uniqueId] = PlayerHudState(
             mannequinId = manId,
             entityIds = ids,
+            frameEntityId = frameId,
             lastYaw = yaw
         )
     }
@@ -367,7 +372,9 @@ class MannequinManager(
     private fun destroyPlayerHud(playerId: UUID, player: Player? = null) {
         val state = playerHuds.remove(playerId) ?: return
         val p = player ?: plugin.server.getPlayer(playerId) ?: return
-        handler.destroyEntities(p, state.entityIds.values.toIntArray())
+        val allIds = state.entityIds.values.toMutableList()
+        state.frameEntityId?.let { allIds += it }
+        handler.destroyEntities(p, allIds.toIntArray())
     }
 
     /** Destroy all virtual HUDs that show a specific mannequin. */
@@ -376,7 +383,9 @@ class MannequinManager(
         for ((playerId, state) in toRemove) {
             val player = plugin.server.getPlayer(playerId)
             if (player != null) {
-                handler.destroyEntities(player, state.entityIds.values.toIntArray())
+                val allIds = state.entityIds.values.toMutableList()
+                state.frameEntityId?.let { allIds += it }
+                handler.destroyEntities(player, allIds.toIntArray())
             }
             playerHuds.remove(playerId)
         }
@@ -400,6 +409,53 @@ class MannequinManager(
                 interpolationTicks = 0 // instant text update
             )
         }
+    }
+
+    // ── HUD frame (ItemDisplay backdrop) ───────────────────────────────────────
+
+    /** Read hud-frame config and spawn the ItemDisplay if enabled. Returns entity ID or null. */
+    private fun spawnHudFrame(player: Player, loc: Location, yaw: Float): Int? {
+        if (!plugin.config.getBoolean("hud-frame.enabled", false)) return null
+        val item = plugin.config.getString("hud-frame.item") ?: "minecraft:glass_pane"
+        val displayCtx = plugin.config.getString("hud-frame.display-context") ?: "FIXED"
+        val tx = plugin.config.getDouble("hud-frame.translation.x", 0.0).toFloat()
+        val ty = plugin.config.getDouble("hud-frame.translation.y", 1.7).toFloat()
+        val tz = plugin.config.getDouble("hud-frame.translation.z", -2.0).toFloat()
+        val sx = plugin.config.getDouble("hud-frame.scale.x", 3.0).toFloat()
+        val sy = plugin.config.getDouble("hud-frame.scale.y", 3.0).toFloat()
+        val sz = plugin.config.getDouble("hud-frame.scale.z", 0.05).toFloat()
+        val entityId = handler.allocateEntityId()
+        handler.spawnHudItemDisplay(
+            viewer = player, entityId = entityId,
+            x = loc.x, y = loc.y, z = loc.z,
+            item = item, displayContext = displayCtx,
+            tx = tx, ty = ty, tz = tz,
+            sx = sx, sy = sy, sz = sz,
+            yaw = yaw
+        )
+        return entityId
+    }
+
+    /** Update the frame's rotation to match the new yaw. */
+    private fun updateHudFrame(player: Player, hud: PlayerHudState, yaw: Float) {
+        val frameId = hud.frameEntityId ?: return
+        if (!plugin.config.getBoolean("hud-frame.enabled", false)) return
+        val item = plugin.config.getString("hud-frame.item") ?: "minecraft:glass_pane"
+        val displayCtx = plugin.config.getString("hud-frame.display-context") ?: "FIXED"
+        val tx = plugin.config.getDouble("hud-frame.translation.x", 0.0).toFloat()
+        val ty = plugin.config.getDouble("hud-frame.translation.y", 1.7).toFloat()
+        val tz = plugin.config.getDouble("hud-frame.translation.z", -2.0).toFloat()
+        val sx = plugin.config.getDouble("hud-frame.scale.x", 3.0).toFloat()
+        val sy = plugin.config.getDouble("hud-frame.scale.y", 3.0).toFloat()
+        val sz = plugin.config.getDouble("hud-frame.scale.z", 0.05).toFloat()
+        handler.updateHudItemDisplay(
+            viewer = player, entityId = frameId,
+            item = item, displayContext = displayCtx,
+            tx = tx, ty = ty, tz = tz,
+            sx = sx, sy = sy, sz = sz,
+            yaw = yaw,
+            interpolationTicks = ROTATION_INTERP_TICKS
+        )
     }
 
     // ── Hover + rotation tick ───────────────────────────────────────────────────
@@ -464,6 +520,8 @@ class MannequinManager(
                         interpolationTicks = ROTATION_INTERP_TICKS
                     )
                 }
+                // Rotate the backdrop frame alongside the buttons
+                updateHudFrame(player, hudState, yaw)
                 hudState.lastYaw = yaw
             }
 
