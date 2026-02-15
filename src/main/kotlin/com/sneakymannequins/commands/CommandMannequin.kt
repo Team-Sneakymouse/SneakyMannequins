@@ -37,17 +37,17 @@ class CommandMannequin(
             1 -> listOf("remove", "reload", "remask")
                 .filter { it.startsWith(args[0], ignoreCase = true) }.toMutableList()
             2 -> when (args[0].lowercase()) {
-                "remask" -> LayerManager.STRATEGY_NAMES
+                "remask" -> layerManager.definitionsInOrder().map { it.id }
                     .filter { it.startsWith(args[1], ignoreCase = true) }.toMutableList()
                 else -> mutableListOf()
             }
             3 -> if (args[0].equals("remask", true)) {
-                layerManager.definitionsInOrder().map { it.id }
+                val layerId = args[1].lowercase()
+                layerManager.optionsFor(layerId).map { it.id }
                     .filter { it.startsWith(args[2], ignoreCase = true) }.toMutableList()
             } else mutableListOf()
             4 -> if (args[0].equals("remask", true)) {
-                val layerId = args[2].lowercase()
-                layerManager.optionsFor(layerId).map { it.id }
+                LayerManager.STRATEGY_NAMES
                     .filter { it.startsWith(args[3], ignoreCase = true) }.toMutableList()
             } else mutableListOf()
             else -> mutableListOf()
@@ -87,28 +87,31 @@ class CommandMannequin(
     }
 
     private fun handleRemask(sender: CommandSender, args: Array<out String>) {
-        // /mannequin remask <strategy> <layer> <part>
-        if (args.size < 4) {
+        // /mannequin remask <layer> <part> [strategy]
+        if (args.size < 3) {
             sender.sendMessage(TextUtility.convertToComponent(
-                "&cUsage: /mannequin remask <${LayerManager.STRATEGY_NAMES.joinToString("|")}> <layer> <part>"
+                "&cUsage: /mannequin remask <layer> <part> [${LayerManager.STRATEGY_NAMES.joinToString("|")}]"
             ))
             return
         }
-        val strategyName = args[1].uppercase()
-        val strategy = try {
-            LayerManager.MaskStrategy.valueOf(strategyName)
-        } catch (_: Exception) {
-            sender.sendMessage(TextUtility.convertToComponent(
-                "&cUnknown strategy '$strategyName'. Available: ${LayerManager.STRATEGY_NAMES.joinToString(", ")}"
-            ))
-            return
-        }
-        val layerId = args[2].lowercase()
-        val partId = args[3].lowercase()
+        val layerId = args[1].lowercase()
+        val partId = args[2].lowercase()
+        val strategyName = (if (args.size >= 4) args[3] else null)?.uppercase()
+        val strategy = if (strategyName != null) {
+            try {
+                LayerManager.MaskStrategy.valueOf(strategyName)
+            } catch (_: Exception) {
+                sender.sendMessage(TextUtility.convertToComponent(
+                    "&cUnknown strategy '$strategyName'. Available: ${LayerManager.STRATEGY_NAMES.joinToString(", ")}"
+                ))
+                return
+            }
+        } else null
 
-        sender.sendMessage(TextUtility.convertToComponent("&7Remasking '$partId' in '$layerId' with ${strategy.name}..."))
+        val label = strategy?.name ?: "default"
+        sender.sendMessage(TextUtility.convertToComponent("&7Remasking '$partId' in '$layerId' with $label..."))
         try {
-            val result = layerManager.remask(strategy, layerId, partId)
+            val result = layerManager.remask(strategy = strategy, layerId = layerId, partId = partId)
             sender.sendMessage(TextUtility.convertToComponent("&a$result"))
         } catch (e: Exception) {
             sender.sendMessage(TextUtility.convertToComponent("&cRemask failed: ${e.message}"))

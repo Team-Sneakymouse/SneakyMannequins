@@ -286,7 +286,9 @@ class LayerManager(
      * Deletes existing masks, re-preprocesses, and reloads the layer.
      * Returns a human-readable status message.
      */
-    fun remask(strategy: MaskStrategy, layerId: String, partId: String): String {
+    fun remask(strategy: MaskStrategy? = null, layerId: String, partId: String): String {
+        @Suppress("NAME_SHADOWING")
+        val strategy = strategy ?: defaultStrategy()
         val (definition, options) = loadedLayers[layerId]
             ?: return "Unknown layer: $layerId"
 
