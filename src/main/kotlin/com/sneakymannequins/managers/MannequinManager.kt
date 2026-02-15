@@ -20,11 +20,10 @@ import org.bukkit.entity.Display
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
 import org.bukkit.entity.TextDisplay
-import org.bukkit.util.Transformation
 import org.bukkit.util.Vector
-import org.joml.AxisAngle4f
-import org.joml.Vector3f
 import java.util.UUID
+import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.sqrt
 
 // ── Data classes ────────────────────────────────────────────────────────────────
@@ -40,11 +39,11 @@ private data class ControlState(
 private enum class ControlMode { NONE, PART, COLOR }
 
 /**
- * Describes one HUD button: its identifier, default label, and position offset.
- * Offsets are in "screen-space" relative to the mannequin with billboard VERTICAL:
- *   tx: negative = left, positive = right   (from the player's point of view)
+ * Describes one HUD button: its identifier, default label, and translation offset.
+ * Translations are in entity-local space (billboard FIXED, rotated by yaw):
+ *   tx: positive = right from the viewer's POV
  *   ty: positive = up
- *   tz: depth behind the mannequin (typically a small negative value)
+ *   tz: negative = behind the mannequin
  */
 private data class HudButton(
     val name: String,
@@ -52,16 +51,22 @@ private data class HudButton(
     val tx: Float,
     val ty: Float,
     val tz: Float,
-    val width: Float = 1.2f,
-    val height: Float = 0.5f,
     val lineWidth: Int = 200
 )
 
-/** Runtime state for one HUD button entity. */
-private data class HudButtonState(
-    val entityUUID: UUID,   // Bukkit entity UUID
-    val entityId: Int,      // NMS numeric entity id (for per-player packets)
-    val button: HudButton
+/** Canonical per-button visual state (shared across all viewers). */
+private data class ButtonVisual(
+    var text: String,
+    var textColor: Int = 0xFFFFFF,   // RGB white
+    var bgColor: Int = 0x78000000.toInt()  // semi-transparent black (matches HUD_BG_DEFAULT)
+)
+
+/** Per-player virtual HUD tracking. */
+private data class PlayerHudState(
+    val mannequinId: UUID,
+    val entityIds: Map<String, Int>,  // buttonName → virtual entity ID
+    var lastYaw: Float = Float.NaN,
+    var hoveredButton: String? = null
 )
 
 // ── Manager ─────────────────────────────────────────────────────────────────────
@@ -73,17 +78,17 @@ class MannequinManager(
     private val persistence: MannequinPersistence
 ) {
     private val mannequins = mutableMapOf<UUID, Mannequin>()
-    private val sentTo = mutableMapOf<UUID, MutableSet<UUID>>() // viewerId -> mannequins seen
-    private val statusText = mutableMapOf<UUID, String>()       // mannequinId -> last action
-    private val poseState = mutableMapOf<UUID, Boolean>()       // mannequinId -> true = T-pose
+    private val sentTo = mutableMapOf<UUID, MutableSet<UUID>>()        // viewerId → mannequins seen
+    private val statusText = mutableMapOf<UUID, String>()              // mannequinId → last action
+    private val poseState = mutableMapOf<UUID, Boolean>()              // mannequinId → true = T-pose
     private val controlState = mutableMapOf<UUID, ControlState>()
     private val interactionDebounce = mutableMapOf<Pair<UUID, String>, Long>()
 
-    /** Per-mannequin HUD entities: buttonName → HudButtonState */
-    private val hudButtons = mutableMapOf<UUID, Map<String, HudButtonState>>()
+    /** Per-mannequin canonical button visuals. */
+    private val buttonVisuals = mutableMapOf<UUID, MutableMap<String, ButtonVisual>>()
 
-    /** Tracks which button each player is currently hovering (mannequinId to buttonName). */
-    private val playerHover = mutableMapOf<UUID, Pair<UUID, String>>()
+    /** Per-player virtual HUD state. */
+    private val playerHuds = mutableMapOf<UUID, PlayerHudState>()
 
     private var hoverTaskId: Int = -1
 
@@ -91,14 +96,16 @@ class MannequinManager(
 
     companion object {
         private const val VISIBLE_RANGE_SQ = 32.0 * 32.0
-        private const val HOVER_RANGE = 6.0        // max range for hover scanning
-        private const val INTERACT_RADIUS = 3.0f   // Interaction entity radius
-        private const val HUD_BG_DEFAULT = 0x78000000.toInt()   // ARGB: semi-transparent black
-        private const val HUD_BG_HIGHLIGHT = 0xB8336699.toInt() // ARGB: translucent blue
-        private const val BUTTON_TOLERANCE = 0.35   // world-unit distance from look-ray to button centre
+        private const val HOVER_RANGE = 6.0
+        private const val INTERACT_RADIUS = 3.0f
+        private const val HUD_BG_DEFAULT = 0x78000000.toInt()       // semi-transparent black
+        private const val HUD_BG_HIGHLIGHT = 0xB8336699.toInt()     // translucent blue
+        private const val BUTTON_TOLERANCE = 0.35
+        private const val ROTATION_INTERP_TICKS = 3
+        private const val YAW_THRESHOLD = 0.02f                     // radians (~1°)
 
         private val HUD_LAYOUT = listOf(
-            HudButton("status", "Controls", 0.0f, 2.8f, -2.0f, width = 2.8f, height = 0.7f, lineWidth = 256),
+            HudButton("status", "Controls", 0.0f, 2.8f, -2.0f, lineWidth = 256),
             // Left column
             HudButton("model",  "Model",   -1.1f, 2.2f, -2.0f),
             HudButton("pose",   "Pose",    -1.1f, 1.7f, -2.0f),
@@ -110,7 +117,7 @@ class MannequinManager(
             HudButton("color",  "Color",    1.1f, 0.7f, -2.0f),
         )
 
-        /** Names of buttons that can be activated by clicking. "status" is display-only. */
+        /** Button names that respond to clicks.  "status" is display-only. */
         private val CLICKABLE_BUTTONS = setOf("model", "pose", "random", "layer", "part", "channel", "color")
     }
 
@@ -122,8 +129,9 @@ class MannequinManager(
             val selection = bootstrapSelection()
             mannequins[id] = Mannequin(id = id, location = loc.clone(), selection = selection)
             controlState[id] = ControlState()
+            initButtonVisuals(id)
             cleanupControlEntities(id)
-            spawnHud(id)
+            spawnInteractionEntity(id)
         }
     }
 
@@ -136,7 +144,8 @@ class MannequinManager(
         val mannequin = Mannequin(location = location.clone(), selection = selection)
         mannequins[mannequin.id] = mannequin
         controlState[mannequin.id] = ControlState()
-        spawnHud(mannequin.id)
+        initButtonVisuals(mannequin.id)
+        spawnInteractionEntity(mannequin.id)
         persist()
         return mannequin
     }
@@ -145,9 +154,11 @@ class MannequinManager(
 
     fun remove(mannequinId: UUID, viewers: Collection<Player>) {
         viewers.forEach { viewer -> handler.destroyMannequin(viewer, mannequinId) }
+        // Destroy virtual HUDs for all players viewing this mannequin
+        destroyHudsForMannequin(mannequinId)
         cleanupControlEntities(mannequinId)
         mannequins.remove(mannequinId)
-        hudButtons.remove(mannequinId)
+        buttonVisuals.remove(mannequinId)
         controlState.remove(mannequinId)
         statusText.remove(mannequinId)
         poseState.remove(mannequinId)
@@ -156,7 +167,7 @@ class MannequinManager(
 
     fun forgetViewer(viewerId: UUID) {
         sentTo.remove(viewerId)
-        playerHover.remove(viewerId)
+        destroyPlayerHud(viewerId)
     }
 
     fun shutdown() {
@@ -164,6 +175,11 @@ class MannequinManager(
         val viewers = plugin.server.onlinePlayers
         mannequins.keys.forEach { id ->
             viewers.forEach { viewer -> handler.destroyMannequin(viewer, id) }
+        }
+        // Destroy all virtual HUDs
+        for (playerId in playerHuds.keys.toList()) {
+            val player = plugin.server.getPlayer(playerId) ?: continue
+            destroyPlayerHud(player)
         }
         persist()
         mannequins.clear()
@@ -176,14 +192,19 @@ class MannequinManager(
             viewers.forEach { viewer -> handler.destroyMannequin(viewer, id) }
             cleanupControlEntities(id)
         }
+        // Destroy all virtual HUDs
+        for (playerId in playerHuds.keys.toList()) {
+            val player = plugin.server.getPlayer(playerId) ?: continue
+            destroyPlayerHud(player)
+        }
         mannequins.clear()
-        hudButtons.clear()
+        buttonVisuals.clear()
         sentTo.clear()
         statusText.clear()
         poseState.clear()
         controlState.clear()
         interactionDebounce.clear()
-        playerHover.clear()
+        playerHuds.clear()
 
         loadFromDisk()
         startHoverTask()
@@ -262,19 +283,21 @@ class MannequinManager(
         }?.takeIf { it.location.world == location.world && it.location.distance(location) <= radius }
     }
 
-    // ── HUD spawning ────────────────────────────────────────────────────────────
+    // ── Interaction entity (real, server-side) ──────────────────────────────────
 
-    /**
-     * Spawns the holographic HUD for a mannequin: one Interaction entity (radius 3)
-     * plus a set of TextDisplay buttons positioned via billboard VERTICAL + translation.
-     * All entities are placed at the mannequin's location.
-     */
-    private fun spawnHud(mannequinId: UUID) {
+    private fun spawnInteractionEntity(mannequinId: UUID) {
         val man = mannequins[mannequinId] ?: return
         val world = man.location.world ?: return
         val loc = man.location.clone()
 
-        // Spawn the single Interaction entity
+        // Check if one already exists
+        val existing = world.getNearbyEntities(loc, 8.0, 8.0, 8.0).any {
+            it is org.bukkit.entity.Interaction
+                    && it.scoreboardTags.contains("sneakymannequin_control")
+                    && it.scoreboardTags.contains("mannequin:$mannequinId")
+        }
+        if (existing) return
+
         world.spawn(loc, org.bukkit.entity.Interaction::class.java) { inter ->
             inter.interactionWidth = INTERACT_RADIUS * 2
             inter.interactionHeight = INTERACT_RADIUS * 2
@@ -283,58 +306,9 @@ class MannequinManager(
             inter.scoreboardTags.add("mannequin:$mannequinId")
             inter.scoreboardTags.add("button:interact")
         }
-
-        val buttonStates = mutableMapOf<String, HudButtonState>()
-
-        for (btn in HUD_LAYOUT) {
-            val label = if (btn.name == "status") (statusText[mannequinId] ?: btn.defaultLabel) else btn.defaultLabel
-            val td = world.spawn(loc, TextDisplay::class.java) { td ->
-                td.text(Component.text(label))
-                td.billboard = Display.Billboard.VERTICAL
-                td.backgroundColor = Color.fromARGB(
-                    (HUD_BG_DEFAULT ushr 24) and 0xFF,
-                    (HUD_BG_DEFAULT ushr 16) and 0xFF,
-                    (HUD_BG_DEFAULT ushr 8) and 0xFF,
-                    HUD_BG_DEFAULT and 0xFF
-                )
-                td.isShadowed = false
-                td.viewRange = 32f
-                td.textOpacity = 255.toByte()
-                td.lineWidth = btn.lineWidth
-                td.isPersistent = false
-                // Position via translation
-                td.transformation = Transformation(
-                    Vector3f(btn.tx, btn.ty, btn.tz),
-                    AxisAngle4f(0f, 0f, 1f, 0f),
-                    Vector3f(1f, 1f, 1f),
-                    AxisAngle4f(0f, 0f, 1f, 0f)
-                )
-                td.scoreboardTags.add("sneakymannequin_control")
-                td.scoreboardTags.add("mannequin:$mannequinId")
-                td.scoreboardTags.add("button:${btn.name}")
-            }
-            val craftEntity = td as org.bukkit.craftbukkit.entity.CraftEntity
-            val nmsId = craftEntity.handle.id
-            val bukkitUUID: UUID = craftEntity.uniqueId
-            buttonStates[btn.name] = HudButtonState(bukkitUUID, nmsId, btn)
-        }
-
-        hudButtons[mannequinId] = buttonStates
-
-        // Refresh dynamic labels (channel disabled/active mode colours)
-        val state = controlState.getOrPut(mannequinId) { ControlState() }
-        val layers = layerManager.definitionsInOrder()
-        val layer = layers.getOrNull(state.layerIndex % layers.size) ?: layers.firstOrNull()
-        val option = layer?.let {
-            mannequins[mannequinId]?.selection?.selections?.get(it.id)?.option
-                ?: layerManager.optionsFor(it.id).firstOrNull()
-        }
-        refreshDynamicLabels(mannequinId, option, layer)
     }
 
-    // ── HUD cleanup ─────────────────────────────────────────────────────────────
-
-    /** Remove all control/HUD entities for a mannequin. */
+    /** Remove all control entities (Interaction + any legacy TextDisplays) for a mannequin. */
     private fun cleanupControlEntities(mannequinId: UUID) {
         val man = mannequins[mannequinId] ?: return
         val world = man.location.world ?: return
@@ -345,15 +319,96 @@ class MannequinManager(
                 it.remove()
             }
         }
-        hudButtons.remove(mannequinId)
     }
 
-    // ── Hover task ──────────────────────────────────────────────────────────────
+    // ── Virtual HUD management ──────────────────────────────────────────────────
+
+    /** Initialise the canonical button visuals for a mannequin. */
+    private fun initButtonVisuals(mannequinId: UUID) {
+        val visuals = mutableMapOf<String, ButtonVisual>()
+        for (btn in HUD_LAYOUT) {
+            val label = if (btn.name == "status") (statusText[mannequinId] ?: btn.defaultLabel) else btn.defaultLabel
+            visuals[btn.name] = ButtonVisual(text = label)
+        }
+        buttonVisuals[mannequinId] = visuals
+    }
+
+    /** Spawn the full virtual HUD for a player viewing a mannequin. */
+    private fun spawnPlayerHud(player: Player, mannequin: Mannequin, yaw: Float) {
+        val manId = mannequin.id
+        val loc = mannequin.location
+        val visuals = buttonVisuals[manId] ?: return
+        val ids = mutableMapOf<String, Int>()
+
+        for (btn in HUD_LAYOUT) {
+            val entityId = handler.allocateEntityId()
+            val vis = visuals[btn.name] ?: ButtonVisual(text = btn.defaultLabel)
+            handler.spawnHudTextDisplay(
+                viewer = player, entityId = entityId,
+                x = loc.x, y = loc.y, z = loc.z,
+                text = vis.text, textColor = vis.textColor, bgColor = vis.bgColor,
+                tx = btn.tx, ty = btn.ty, tz = btn.tz,
+                yaw = yaw, lineWidth = btn.lineWidth
+            )
+            ids[btn.name] = entityId
+        }
+
+        playerHuds[player.uniqueId] = PlayerHudState(
+            mannequinId = manId,
+            entityIds = ids,
+            lastYaw = yaw
+        )
+    }
+
+    /** Destroy the virtual HUD for a player (if any). */
+    private fun destroyPlayerHud(player: Player) {
+        destroyPlayerHud(player.uniqueId, player)
+    }
+
+    private fun destroyPlayerHud(playerId: UUID, player: Player? = null) {
+        val state = playerHuds.remove(playerId) ?: return
+        val p = player ?: plugin.server.getPlayer(playerId) ?: return
+        handler.destroyEntities(p, state.entityIds.values.toIntArray())
+    }
+
+    /** Destroy all virtual HUDs that show a specific mannequin. */
+    private fun destroyHudsForMannequin(mannequinId: UUID) {
+        val toRemove = playerHuds.entries.filter { it.value.mannequinId == mannequinId }
+        for ((playerId, state) in toRemove) {
+            val player = plugin.server.getPlayer(playerId)
+            if (player != null) {
+                handler.destroyEntities(player, state.entityIds.values.toIntArray())
+            }
+            playerHuds.remove(playerId)
+        }
+    }
+
+    /** Push the current visual state of one button to all players viewing this mannequin. */
+    private fun pushButtonToViewers(mannequinId: UUID, buttonName: String) {
+        val vis = buttonVisuals[mannequinId]?.get(buttonName) ?: return
+        val btn = HUD_LAYOUT.firstOrNull { it.name == buttonName } ?: return
+        playerHuds.forEach { (playerId, state) ->
+            if (state.mannequinId != mannequinId) return@forEach
+            val player = plugin.server.getPlayer(playerId) ?: return@forEach
+            val entityId = state.entityIds[buttonName] ?: return@forEach
+            // Use the player's current yaw for the rotation
+            handler.updateHudTextDisplay(
+                viewer = player, entityId = entityId,
+                text = vis.text, textColor = vis.textColor,
+                bgColor = if (state.hoveredButton == buttonName) HUD_BG_HIGHLIGHT else vis.bgColor,
+                tx = btn.tx, ty = btn.ty, tz = btn.tz,
+                yaw = state.lastYaw, lineWidth = btn.lineWidth,
+                interpolationTicks = 0 // instant text update
+            )
+        }
+    }
+
+    // ── Hover + rotation tick ───────────────────────────────────────────────────
 
     fun startHoverTask() {
         if (hoverTaskId != -1) return
         hoverTaskId = plugin.server.scheduler.scheduleSyncRepeatingTask(plugin, Runnable {
-            tickHover()
+            tickHoverAndRotation()
         }, 0L, 1L)
     }
 
@@ -362,53 +417,91 @@ class MannequinManager(
             plugin.server.scheduler.cancelTask(hoverTaskId)
             hoverTaskId = -1
         }
-        playerHover.clear()
     }
 
-    private fun tickHover() {
+    /**
+     * Runs every tick.  For each online player:
+     *  1. Find the nearest mannequin (within HOVER_RANGE).
+     *  2. Spawn / despawn the virtual HUD as needed.
+     *  3. Update the HUD rotation (with interpolation) if the player moved.
+     *  4. Determine which button the crosshair is over → highlight it.
+     */
+    private fun tickHoverAndRotation() {
         for (player in plugin.server.onlinePlayers) {
             val nearest = nearestMannequin(player.location, HOVER_RANGE)
-            if (nearest == null) {
-                clearHover(player)
-                continue
-            }
-            val hovered = computeHoveredButton(player, nearest)
-            val prev = playerHover[player.uniqueId]
-            val cur = hovered?.let { nearest.id to it }
+            val currentHud = playerHuds[player.uniqueId]
 
-            if (cur != prev) {
+            // ── Despawn HUD if mannequin changed or player moved away ────────
+            if (nearest == null || (currentHud != null && currentHud.mannequinId != nearest.id)) {
+                if (currentHud != null) destroyPlayerHud(player)
+            }
+
+            if (nearest == null) continue
+
+            // ── Compute facing yaw (radians, from mannequin toward player) ───
+            val dx = player.location.x - nearest.location.x
+            val dz = player.location.z - nearest.location.z
+            val yaw = atan2(dx, dz).toFloat()  // same convention as Minecraft entity yaw
+
+            // ── Spawn HUD if needed ──────────────────────────────────────────
+            if (playerHuds[player.uniqueId] == null) {
+                spawnPlayerHud(player, nearest, yaw)
+            }
+
+            val hudState = playerHuds[player.uniqueId] ?: continue
+
+            // ── Update rotation if yaw changed ──────────────────────────────
+            if (abs(yaw - hudState.lastYaw) > YAW_THRESHOLD) {
+                val visuals = buttonVisuals[nearest.id] ?: continue
+                for (btn in HUD_LAYOUT) {
+                    val entityId = hudState.entityIds[btn.name] ?: continue
+                    val vis = visuals[btn.name] ?: continue
+                    val bg = if (hudState.hoveredButton == btn.name) HUD_BG_HIGHLIGHT else vis.bgColor
+                    handler.updateHudTextDisplay(
+                        viewer = player, entityId = entityId,
+                        text = vis.text, textColor = vis.textColor, bgColor = bg,
+                        tx = btn.tx, ty = btn.ty, tz = btn.tz,
+                        yaw = yaw, lineWidth = btn.lineWidth,
+                        interpolationTicks = ROTATION_INTERP_TICKS
+                    )
+                }
+                hudState.lastYaw = yaw
+            }
+
+            // ── Hover detection ─────────────────────────────────────────────
+            val hovered = computeHoveredButton(player, nearest)
+            val prev = hudState.hoveredButton
+
+            if (hovered != prev) {
                 // Un-highlight previous
                 if (prev != null) {
-                    sendButtonHighlight(player, prev.first, prev.second, HUD_BG_DEFAULT)
+                    sendButtonBg(player, hudState, nearest.id, prev, HUD_BG_DEFAULT)
                 }
                 // Highlight new
-                if (cur != null) {
-                    sendButtonHighlight(player, cur.first, cur.second, HUD_BG_HIGHLIGHT)
+                if (hovered != null) {
+                    sendButtonBg(player, hudState, nearest.id, hovered, HUD_BG_HIGHLIGHT)
                     player.playSound(player.location, Sound.UI_BUTTON_CLICK, 0.15f, 1.8f)
                 }
-                if (cur != null) playerHover[player.uniqueId] = cur else playerHover.remove(player.uniqueId)
+                hudState.hoveredButton = hovered
             }
         }
     }
 
-    private fun clearHover(player: Player) {
-        val prev = playerHover.remove(player.uniqueId) ?: return
-        sendButtonHighlight(player, prev.first, prev.second, HUD_BG_DEFAULT)
-    }
-
-    private fun sendButtonHighlight(player: Player, mannequinId: UUID, buttonName: String, argb: Int) {
-        val state = hudButtons[mannequinId]?.get(buttonName) ?: return
-        handler.sendTextDisplayHighlight(player, state.entityId, argb)
+    /** Send a background colour override for a single button to a single player.
+     *  Uses a lightweight packet that only touches the background colour,
+     *  so it won't interrupt an in-progress rotation interpolation. */
+    private fun sendButtonBg(player: Player, hud: PlayerHudState, manId: UUID, buttonName: String, bgColor: Int) {
+        val entityId = hud.entityIds[buttonName] ?: return
+        handler.sendHudBackground(player, entityId, bgColor)
     }
 
     // ── Look-direction → button resolution ──────────────────────────────────────
 
     /**
-     * Determine which HUD button (if any) the player's crosshair is aiming at.
+     * Determine which HUD button the player's crosshair is closest to.
      * Returns the button name, or null if none is within tolerance.
      */
     private fun computeHoveredButton(player: Player, mannequin: Mannequin): String? {
-        val buttons = hudButtons[mannequin.id] ?: return null
         val eyeLoc = player.eyeLocation
         val lookDir = eyeLoc.direction.normalize()
         val eyeVec = eyeLoc.toVector()
@@ -417,14 +510,13 @@ class MannequinManager(
         var bestName: String? = null
         var bestDist = Double.MAX_VALUE
 
-        for ((name, state) in buttons) {
-            if (name == "status") continue // status is not clickable
-            val btn = state.button
+        for (btn in HUD_LAYOUT) {
+            if (btn.name == "status") continue
             val worldPos = buttonWorldPos(manVec, eyeVec, btn.tx, btn.ty, btn.tz)
             val dist = distanceFromRay(eyeVec, lookDir, worldPos)
             if (dist < bestDist) {
                 bestDist = dist
-                bestName = name
+                bestName = btn.name
             }
         }
 
@@ -432,12 +524,9 @@ class MannequinManager(
     }
 
     /**
-     * Compute the world-space position of a billboard-VERTICAL button, accounting
-     * for the screen-facing rotation toward the given viewer position.
-     *
-     * Billboard VERTICAL makes the entity face the viewer, so the entity's local
-     * +X axis is the viewer's visual LEFT.  We negate tx so that a positive tx in
-     * the layout appears on the viewer's right.
+     * Compute the world-space position of a billboard-FIXED button that has been
+     * Y-rotated to face the viewer.  The rotation is the same yaw computed from
+     * player position → mannequin position, matching the NMS transformation.
      */
     private fun buttonWorldPos(mannequinPos: Vector, viewerPos: Vector, tx: Float, ty: Float, tz: Float): Vector {
         val dx = viewerPos.x - mannequinPos.x
@@ -449,8 +538,8 @@ class MannequinManager(
         // Forward: from mannequin toward the viewer (XZ plane)
         val fwdX = dx / horizDist
         val fwdZ = dz / horizDist
-        // Entity-local right (= viewer's LEFT), so we negate for world mapping
-        val rightX = fwdZ   // negated compared to player-right
+        // Right: 90° CW rotation of forward (viewer's right)
+        val rightX = fwdZ
         val rightZ = -fwdX
 
         return Vector(
@@ -464,7 +553,7 @@ class MannequinManager(
     private fun distanceFromRay(rayOrigin: Vector, rayDir: Vector, point: Vector): Double {
         val diff = point.clone().subtract(rayOrigin)
         val t = diff.dot(rayDir)
-        if (t < 0) return Double.MAX_VALUE // behind the viewer
+        if (t < 0) return Double.MAX_VALUE
         val closest = rayOrigin.clone().add(rayDir.clone().multiply(t))
         return closest.distance(point)
     }
@@ -472,9 +561,8 @@ class MannequinManager(
     // ── Interaction handling ────────────────────────────────────────────────────
 
     /**
-     * Called when a player interacts with (left-click / right-click) the single
-     * Interaction entity of a mannequin.  We resolve which button (if any) the
-     * player was aiming at and dispatch accordingly.
+     * Called when a player interacts with (left/right click) the Interaction entity.
+     * Uses the hover state to determine which button was targeted.
      */
     fun handleInteract(entity: Entity, player: Player, backwards: Boolean) {
         if (entity !is org.bukkit.entity.Interaction) return
@@ -493,13 +581,12 @@ class MannequinManager(
         val mannequin = mannequins[manId] ?: return
         val state = controlState.getOrPut(manId) { ControlState() }
 
-        // Determine what the player is looking at
-        val hoveredButton = computeHoveredButton(player, mannequin)
+        // Use the already-computed hover from the tick loop
+        val hoveredButton = playerHuds[player.uniqueId]?.hoveredButton
 
         if (hoveredButton != null && hoveredButton in CLICKABLE_BUTTONS) {
             executeButton(hoveredButton, manId, mannequin, state, player, backwards)
         } else {
-            // No button targeted → mode-based cycling (like the old area click)
             executeModeAction(manId, mannequin, state, backwards)
         }
     }
@@ -555,7 +642,6 @@ class MannequinManager(
                 updateStatus(manId, if (newPose) "Pose: T-Pose" else "Pose: Default")
             }
             "random" -> {
-                // Placeholder — no functionality yet
                 updateStatus(manId, "Random: (coming soon)")
                 return
             }
@@ -568,8 +654,9 @@ class MannequinManager(
                 state.channelIndex[newLayer.id] = 0
                 state.colorIndex[newLayer.id] = 0
                 state.mode = ControlMode.NONE
-                val option = mannequin.selection.selections[newLayer.id]?.option ?: layerManager.optionsFor(newLayer.id).firstOrNull()
-                refreshDynamicLabels(manId, option, newLayer)
+                val option = mannequin.selection.selections[newLayer.id]?.option
+                    ?: layerManager.optionsFor(newLayer.id).firstOrNull()
+                refreshDynamicLabels(manId, option, layer)
             }
             "part" -> {
                 if (state.mode == ControlMode.PART) {
@@ -578,14 +665,16 @@ class MannequinManager(
                     state.mode = ControlMode.PART
                     refreshDynamicLabels(
                         manId,
-                        mannequin.selection.selections[layer.id]?.option ?: layerManager.optionsFor(layer.id).firstOrNull(),
+                        mannequin.selection.selections[layer.id]?.option
+                            ?: layerManager.optionsFor(layer.id).firstOrNull(),
                         layer
                     )
                     updateStatus(manId, "Mode: Part")
                 }
             }
             "channel" -> {
-                val option = mannequin.selection.selections[layer.id]?.option ?: layerManager.optionsFor(layer.id).firstOrNull()
+                val option = mannequin.selection.selections[layer.id]?.option
+                    ?: layerManager.optionsFor(layer.id).firstOrNull()
                 val channels = option?.masks?.keys?.sorted() ?: emptyList()
                 val channelDisabled = channels.size <= 1
                 if (channels.isEmpty()) {
@@ -629,7 +718,8 @@ class MannequinManager(
                     state.mode = ControlMode.COLOR
                     refreshDynamicLabels(
                         manId,
-                        mannequin.selection.selections[layer.id]?.option ?: layerManager.optionsFor(layer.id).firstOrNull(),
+                        mannequin.selection.selections[layer.id]?.option
+                            ?: layerManager.optionsFor(layer.id).firstOrNull(),
                         layer
                     )
                     updateStatus(manId, "Mode: Color")
@@ -637,12 +727,10 @@ class MannequinManager(
             }
         }
 
-        // Render to nearby players
         val viewers = nearbyViewers(mannequin)
         render(mannequin, viewers)
     }
 
-    /** Mode-based cycling when the player clicks the interaction entity but isn't aiming at a button. */
     private fun executeModeAction(manId: UUID, mannequin: Mannequin, state: ControlState, backwards: Boolean) {
         val layers = layerManager.definitionsInOrder()
         if (layers.isEmpty()) return
@@ -657,7 +745,7 @@ class MannequinManager(
                 updateStatus(manId, it)
                 render(mannequin, nearbyViewers(mannequin))
             }
-            else -> {} // no active mode, ignore
+            else -> {}
         }
     }
 
@@ -665,37 +753,33 @@ class MannequinManager(
 
     private fun updateStatus(mannequinId: UUID, msg: String) {
         statusText[mannequinId] = msg
-        val state = hudButtons[mannequinId]?.get("status") ?: return
-        val man = mannequins[mannequinId] ?: return
-        val world = man.location.world ?: return
-        // Find the real TextDisplay entity and update its text
-        world.getNearbyEntities(man.location, 2.0, 4.0, 2.0).forEach {
-            if (it is TextDisplay && it.uniqueId == state.entityUUID) {
-                it.text(Component.text(msg))
-            }
-        }
+        val visuals = buttonVisuals[mannequinId] ?: return
+        visuals["status"]?.text = msg
+        pushButtonToViewers(mannequinId, "status")
     }
 
     private fun refreshDynamicLabels(mannequinId: UUID, option: LayerOption?, layer: LayerDefinition?) {
         val channels = option?.masks?.keys?.sorted() ?: emptyList()
         val channelDisabled = channels.size <= 1
         val mode = controlState[mannequinId]?.mode
-        val man = mannequins[mannequinId] ?: return
-        val world = man.location.world ?: return
-        val buttons = hudButtons[mannequinId] ?: return
+        val visuals = buttonVisuals[mannequinId] ?: return
 
-        fun setLabel(buttonName: String, text: Component) {
-            val bs = buttons[buttonName] ?: return
-            world.getNearbyEntities(man.location, 2.0, 4.0, 2.0).forEach {
-                if (it is TextDisplay && it.uniqueId == bs.entityUUID) {
-                    it.text(text)
-                }
-            }
+        visuals["channel"]?.let {
+            it.text = "Channel"
+            it.textColor = if (channelDisabled) 0x888888 else 0xFFFFFF
+        }
+        visuals["part"]?.let {
+            it.text = "Part"
+            it.textColor = if (mode == ControlMode.PART) 0xFFFF55 else 0xFFFFFF
+        }
+        visuals["color"]?.let {
+            it.text = "Color"
+            it.textColor = if (mode == ControlMode.COLOR) 0xFFFF55 else 0xFFFFFF
         }
 
-        setLabel("channel", Component.text("Channel", if (channelDisabled) NamedTextColor.GRAY else NamedTextColor.WHITE))
-        setLabel("part", Component.text("Part", if (mode == ControlMode.PART) NamedTextColor.YELLOW else NamedTextColor.WHITE))
-        setLabel("color", Component.text("Color", if (mode == ControlMode.COLOR) NamedTextColor.YELLOW else NamedTextColor.WHITE))
+        pushButtonToViewers(mannequinId, "channel")
+        pushButtonToViewers(mannequinId, "part")
+        pushButtonToViewers(mannequinId, "color")
     }
 
     // ── Part / Colour cycling ───────────────────────────────────────────────────
@@ -788,3 +872,5 @@ class MannequinManager(
             }
             .ifEmpty { raw }
 }
+
+

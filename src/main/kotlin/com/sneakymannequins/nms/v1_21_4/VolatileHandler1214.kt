@@ -10,6 +10,7 @@ import net.minecraft.network.protocol.game.ClientboundAddEntityPacket
 import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket
 import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket
 import net.minecraft.network.chat.Component
+import net.minecraft.network.chat.TextColor
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.Display
 import net.minecraft.world.entity.EntityType
@@ -130,12 +131,111 @@ class VolatileHandler1214(
         }
     }
 
-    override fun sendTextDisplayHighlight(viewer: Player, entityId: Int, backgroundColor: Int) {
+    // ── Virtual HUD TextDisplay ─────────────────────────────────────────────────
+
+    override fun allocateEntityId(): Int = entityIdCounter.getAndIncrement()
+
+    override fun spawnHudTextDisplay(
+        viewer: Player, entityId: Int,
+        x: Double, y: Double, z: Double,
+        text: String, textColor: Int, bgColor: Int,
+        tx: Float, ty: Float, tz: Float,
+        yaw: Float, lineWidth: Int
+    ) {
         val handle = (viewer as CraftPlayer).handle as ServerPlayer
-        val dataItem = net.minecraft.network.syncher.SynchedEntityData.DataValue.create(
-            TextDisplay.DATA_BACKGROUND_COLOR_ID, backgroundColor
+        val level = handle.serverLevel()
+        val connection = handle.connection
+
+        val display = buildHudDisplay(level, text, textColor, bgColor, tx, ty, tz, yaw, lineWidth)
+        display.setPos(x, y, z)
+
+        val spawnPacket = ClientboundAddEntityPacket(
+            entityId,
+            UUID.randomUUID(),
+            x, y, z,
+            0f, 0f,
+            EntityType.TEXT_DISPLAY,
+            0,
+            Vec3.ZERO,
+            0.0
         )
-        handle.connection.send(ClientboundSetEntityDataPacket(entityId, listOf(dataItem)))
+        connection.send(spawnPacket)
+        connection.send(ClientboundSetEntityDataPacket(entityId, display.entityData.packAll()))
+    }
+
+    override fun updateHudTextDisplay(
+        viewer: Player, entityId: Int,
+        text: String, textColor: Int, bgColor: Int,
+        tx: Float, ty: Float, tz: Float,
+        yaw: Float, lineWidth: Int,
+        interpolationTicks: Int
+    ) {
+        val handle = (viewer as CraftPlayer).handle as ServerPlayer
+        val level = handle.serverLevel()
+        val connection = handle.connection
+
+        val display = buildHudDisplay(level, text, textColor, bgColor, tx, ty, tz, yaw, lineWidth)
+        // Interpolation: start immediately, smooth over the given duration
+        display.setTransformationInterpolationDelay(0)
+        display.setTransformationInterpolationDuration(interpolationTicks)
+
+        connection.send(ClientboundSetEntityDataPacket(entityId, display.entityData.packAll()))
+    }
+
+    override fun sendHudBackground(viewer: Player, entityId: Int, bgColor: Int) {
+        val handle = (viewer as CraftPlayer).handle as ServerPlayer
+        // Send ONLY the background colour – no transformation, no interpolation reset
+        val dataItems = listOf(
+            net.minecraft.network.syncher.SynchedEntityData.DataValue.create(
+                TextDisplay.DATA_BACKGROUND_COLOR_ID, bgColor
+            )
+        )
+        handle.connection.send(ClientboundSetEntityDataPacket(entityId, dataItems))
+    }
+
+    override fun destroyEntities(viewer: Player, entityIds: IntArray) {
+        if (entityIds.isEmpty()) return
+        val handle = (viewer as CraftPlayer).handle as ServerPlayer
+        handle.connection.send(ClientboundRemoveEntitiesPacket(*entityIds))
+    }
+
+    // ── Helper ──────────────────────────────────────────────────────────────────
+
+    /**
+     * Build a throw-away NMS TextDisplay with all HUD properties set.
+     * Used for both spawning and full-state metadata updates.
+     */
+    private fun buildHudDisplay(
+        level: net.minecraft.server.level.ServerLevel,
+        text: String, textColor: Int, bgColor: Int,
+        tx: Float, ty: Float, tz: Float,
+        yaw: Float, lineWidth: Int
+    ): TextDisplay {
+        val display = TextDisplay(EntityType.TEXT_DISPLAY, level)
+        display.setBillboardConstraints(Display.BillboardConstraints.FIXED)
+        display.setShadowRadius(0f)
+        display.setShadowStrength(0f)
+        display.setViewRange(32f)
+
+        val nmsText = Component.literal(text).withStyle { it.withColor(TextColor.fromRgb(textColor)) }
+        display.setText(nmsText)
+        display.setTextOpacity((-1).toByte()) // 0xFF = fully opaque
+        display.entityData.set(TextDisplay.DATA_LINE_WIDTH_ID, lineWidth)
+        display.entityData.set(TextDisplay.DATA_BACKGROUND_COLOR_ID, bgColor)
+
+        // Rotate the translation offset by the yaw so buttons orbit the mannequin,
+        // then also rotate the text content so it faces the viewer.
+        val rotQ = Quaternionf().rotationY(yaw)
+        val rotatedTranslation = Vector3f(tx, ty, tz).also { rotQ.transform(it) }
+
+        display.setTransformation(
+            com.mojang.math.Transformation(
+                rotatedTranslation,
+                rotQ,
+                Vector3f(1f, 1f, 1f),
+                Quaternionf()
+            )
+        )
+        return display
     }
 }
-

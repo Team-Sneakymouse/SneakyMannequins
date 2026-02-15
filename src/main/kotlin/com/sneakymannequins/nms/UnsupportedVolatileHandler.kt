@@ -13,6 +13,7 @@ class UnsupportedVolatileHandler(
 ) : VolatileHandler {
 
     override fun pixelScaleMultiplier(): Float = 1f
+    private var nextId = 2_000_000
 
     override fun applyPixelChanges(
         viewer: Player,
@@ -39,8 +40,25 @@ class UnsupportedVolatileHandler(
         applyPixelChanges(viewer, mannequinId, viewer.location, emptyList())
     }
 
-    override fun sendTextDisplayHighlight(viewer: Player, entityId: Int, backgroundColor: Int) {
-        // No-op on unsupported versions
-    }
-}
+    override fun allocateEntityId(): Int = nextId++
 
+    override fun spawnHudTextDisplay(
+        viewer: Player, entityId: Int,
+        x: Double, y: Double, z: Double,
+        text: String, textColor: Int, bgColor: Int,
+        tx: Float, ty: Float, tz: Float,
+        yaw: Float, lineWidth: Int
+    ) { /* no-op */ }
+
+    override fun updateHudTextDisplay(
+        viewer: Player, entityId: Int,
+        text: String, textColor: Int, bgColor: Int,
+        tx: Float, ty: Float, tz: Float,
+        yaw: Float, lineWidth: Int,
+        interpolationTicks: Int
+    ) { /* no-op */ }
+
+    override fun sendHudBackground(viewer: Player, entityId: Int, bgColor: Int) { /* no-op */ }
+
+    override fun destroyEntities(viewer: Player, entityIds: IntArray) { /* no-op */ }
+}
