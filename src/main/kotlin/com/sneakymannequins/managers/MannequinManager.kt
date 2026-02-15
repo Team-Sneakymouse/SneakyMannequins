@@ -666,11 +666,14 @@ class MannequinManager(
         player: Player,
         backwards: Boolean
     ) {
-        // Fire click trigger
-        val clickPh = basePlaceholders(player, mannequin).apply {
-            put("button", button)
+        // Fire the click trigger unless the click will cycle a part/colour
+        // (those have their own dedicated triggers).
+        val willCycle = (button == "part" && state.mode == ControlMode.PART)
+                || (button == "color" && state.mode == ControlMode.COLOR)
+        if (!willCycle) {
+            val clickPh = basePlaceholders(player, mannequin).apply { put("button", button) }
+            fireTrigger("click", clickPh)
         }
-        fireTrigger("click", clickPh)
 
         val layers = layerManager.definitionsInOrder()
         if (layers.isEmpty()) return
