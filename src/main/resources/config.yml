@@ -68,7 +68,7 @@ triggers:
 # Background colours are ARGB hex strings.
 hud-buttons:
   # Global defaults (can be overridden per button)
-  bg-default: "00000000"
+  bg-default: "78000000"
   bg-highlight: "B8336699"
 
   status:
