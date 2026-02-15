@@ -52,6 +52,7 @@ private data class HudButton(
     val textMM: String,            // raw MiniMessage string (for generating variants)
     val textJson: String,          // pre-serialised JSON component
     val activeTextJson: String?,   // JSON component for part/color active mode
+    val disabledTextJson: String?, // JSON component when button is disabled (e.g. channel with no masks)
     val tx: Float,
     val ty: Float,
     val tz: Float,
@@ -163,8 +164,9 @@ class MannequinManager(
         return BUTTON_ORDER.map { name ->
             val def = BUTTON_DEFAULTS[name]!!
             val sec = plugin.config.getConfigurationSection("hud-buttons.$name")
-            val textMM    = sec?.getString("text") ?: def.text
-            val activeMM  = sec?.getString("active-text") ?: def.activeText
+            val textMM      = sec?.getString("text") ?: def.text
+            val activeMM    = sec?.getString("active-text") ?: def.activeText
+            val disabledMM  = sec?.getString("disabled-text")
             val tx = sec?.getDouble("translation.x", def.tx.toDouble())?.toFloat() ?: def.tx
             val ty = sec?.getDouble("translation.y", def.ty.toDouble())?.toFloat() ?: def.ty
             val tz = sec?.getDouble("translation.z", def.tz.toDouble())?.toFloat() ?: def.tz
@@ -177,6 +179,7 @@ class MannequinManager(
                 textMM = textMM,
                 textJson = mmToJson(textMM),
                 activeTextJson = activeMM?.let { mmToJson(it) },
+                disabledTextJson = disabledMM?.let { mmToJson(it) },
                 tx = tx, ty = ty, tz = tz,
                 lineWidth = lw,
                 bgDefault = bgDef,
@@ -922,10 +925,8 @@ class MannequinManager(
 
         val chBtn = buttonByName("channel")
         visuals["channel"]?.let {
-            it.textJson = if (channelDisabled && chBtn != null) {
-                // Grey-out: strip MiniMessage tags and re-wrap in grey
-                val plain = mm.stripTags(chBtn.textMM)
-                textToJson(plain, 0x888888)
+            it.textJson = if (channelDisabled && chBtn?.disabledTextJson != null) {
+                chBtn.disabledTextJson
             } else {
                 chBtn?.textJson ?: textToJson("Channel")
             }
