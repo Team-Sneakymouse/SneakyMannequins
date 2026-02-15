@@ -120,7 +120,7 @@ class MannequinManager(
         /** Hardcoded defaults used when a key is absent from config. */
         private data class BtnDefault(val text: String, val activeText: String?, val tx: Float, val ty: Float, val tz: Float, val lineWidth: Int)
         private val BUTTON_DEFAULTS = mapOf(
-            "status"  to BtnDefault("<white>Controls", null,            0.0f,  2.8f, -2.0f, 256),
+            "status"  to BtnDefault("<white>{message}", null,            0.0f,  2.8f, -2.0f, 256),
             "model"   to BtnDefault("<white>Model",    null,           -1.1f,  2.2f, -2.0f, 200),
             "pose"    to BtnDefault("<white>Pose",     null,           -1.1f,  1.7f, -2.0f, 200),
             "random"  to BtnDefault("<white>Random",   null,           -1.1f,  1.2f, -2.0f, 200),
@@ -393,13 +393,27 @@ class MannequinManager(
         val visuals = mutableMapOf<String, ButtonVisual>()
         for (btn in hudButtons) {
             val json = if (btn.name == "status") {
-                statusText[mannequinId]?.let { textToJson(it) } ?: btn.textJson
+                formatStatusText(statusText[mannequinId])
             } else {
                 btn.textJson
             }
             visuals[btn.name] = ButtonVisual(textJson = json, bgColor = btn.bgDefault)
         }
         buttonVisuals[mannequinId] = visuals
+    }
+
+    /**
+     * Apply the status button's MiniMessage template to a message.
+     * If the template contains `{message}`, the placeholder is substituted;
+     * otherwise the message is wrapped in the template formatting.
+     */
+    private fun formatStatusText(msg: String?): String {
+        val btn = buttonByName("status")
+        val template = btn?.textMM ?: "<white>{message}"
+        val defaultMsg = plugin.config.getString("hud-buttons.status.default-message") ?: "Controls"
+        val text = msg ?: defaultMsg
+        val formatted = if ("{message}" in template) template.replace("{message}", text) else text
+        return mmToJson(formatted)
     }
 
     /** Spawn the full virtual HUD for a player viewing a mannequin. */
@@ -894,7 +908,7 @@ class MannequinManager(
     private fun updateStatus(mannequinId: UUID, msg: String) {
         statusText[mannequinId] = msg
         val visuals = buttonVisuals[mannequinId] ?: return
-        visuals["status"]?.textJson = textToJson(msg)
+        visuals["status"]?.textJson = formatStatusText(msg)
         pushButtonToViewers(mannequinId, "status")
     }
 

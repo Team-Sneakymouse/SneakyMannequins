@@ -72,7 +72,10 @@ hud-buttons:
   bg-highlight: "B8336699"
 
   status:
-    text: "<white>Controls"
+    # Use {message} as a placeholder for the dynamic status text.
+    # The default message ("Controls") is shown when no action has occurred yet.
+    text: "<white>{message}"
+    default-message: "Controls"
     translation:
       x: 0.0
       y: 2.8
