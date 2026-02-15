@@ -52,13 +52,16 @@ triggers:
 
   # A new part is selected. Use the layer key for per-layer commands,
   # or "default" as a catch-all fallback.
+  # Extra placeholders: {part} (display name), {layer}
   part-change:
     default:
     - "playsound minecraft:ui.button.click ambient {player} {x} {y} {z} 0.15 1.8"
     # hair:
     #   - "particle dust 1.0 0.8 0.6 1 {x} {y} {z} 0.3 0.5 0.3 0 5"
 
-  # A colour is applied to a channel
+  # A colour is applied to a channel.
+  # Extra placeholders: {color} (display name), {color_code} (hex e.g. #FF0000),
+  #                     {layer}, {channel}
   color-change:
     - "playsound minecraft:ui.button.click ambient {player} {x} {y} {z} 0.15 1.8"
 

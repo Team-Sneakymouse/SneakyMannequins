@@ -969,13 +969,14 @@ class MannequinManager(
         refreshDynamicLabels(mannequin.id, chosen, layer)
 
         // Fire per-layer part-change trigger
+        val prettyPart = prettyName(chosen.displayName)
         val ph = basePlaceholders(player, mannequin).apply {
             put("layer", layer.id)
-            put("part", chosen.displayName)
+            put("part", prettyPart.replace(' ', '\u00A0'))
         }
         fireLayerTrigger("part-change", layer.id, ph)
 
-        return "Part: ${chosen.displayName}"
+        return "Part: $prettyPart"
     }
 
     private fun cycleColor(layer: LayerDefinition, mannequin: Mannequin, state: ControlState, player: Player, backwards: Boolean): String? {
@@ -1008,11 +1009,14 @@ class MannequinManager(
         )
 
         val colorLabel = if (idx == 0) "Default" else optionsList[idx]
+        val colorObj = if (idx > 0) colors.getOrNull(idx - 1)?.color else null
+        val colorCode = colorObj?.let { String.format("#%02X%02X%02X", it.red, it.green, it.blue) } ?: ""
 
         // Fire color-change trigger
         val ph = basePlaceholders(player, mannequin).apply {
             put("layer", layer.id)
-            put("color", colorLabel)
+            put("color", colorLabel.replace(' ', '\u00A0'))
+            put("color_code", colorCode)
             put("channel", (selectedChannel ?: 0).toString())
         }
         fireTrigger("color-change", ph)
