@@ -90,6 +90,8 @@ class MannequinManager(
     private val poseState = mutableMapOf<UUID, Boolean>()              // mannequinId → true = T-pose
     private val controlState = mutableMapOf<UUID, ControlState>()
     private val interactionDebounce = mutableMapOf<Pair<UUID, String>, Long>()
+    /** playerId → expiry timestamp for random confirmation */
+    private val randomConfirm = mutableMapOf<UUID, Long>()
 
     /** Per-mannequin canonical button visuals. */
     private val buttonVisuals = mutableMapOf<UUID, MutableMap<String, ButtonVisual>>()
@@ -193,10 +195,11 @@ class MannequinManager(
     fun loadFromDisk() {
         val loaded = persistence.load()
         loaded.forEach { (id, loc, slim) ->
-            val preferSlim = slim || (plugin.config.getString("plugin.default-skin-model", "CLASSIC")?.uppercase() == "SLIM")
             val selection = bootstrapSelection()
-            mannequins[id] = Mannequin(id = id, location = loc.clone(), selection = selection, slimModel = preferSlim)
+            val mannequin = Mannequin(id = id, location = loc.clone(), selection = selection, slimModel = slim)
+            mannequins[id] = mannequin
             controlState[id] = ControlState()
+            randomize(mannequin, randomizeModel = true)
             initButtonVisuals(id)
             cleanupControlEntities(id)
             spawnInteractionEntity(id)
@@ -209,10 +212,10 @@ class MannequinManager(
 
     fun create(location: Location): Mannequin {
         val selection = bootstrapSelection()
-        val preferSlim = plugin.config.getString("plugin.default-skin-model", "CLASSIC")?.uppercase() == "SLIM"
-        val mannequin = Mannequin(location = location.clone(), selection = selection, slimModel = preferSlim)
+        val mannequin = Mannequin(location = location.clone(), selection = selection)
         mannequins[mannequin.id] = mannequin
         controlState[mannequin.id] = ControlState()
+        randomize(mannequin, randomizeModel = true)
         initButtonVisuals(mannequin.id)
         spawnInteractionEntity(mannequin.id)
         persist()
@@ -780,7 +783,24 @@ class MannequinManager(
                 updateStatus(manId, if (newPose) "Pose: T-Pose" else "Pose: Default")
             }
             "random" -> {
-                updateStatus(manId, "Random: (coming soon)")
+                val now = System.currentTimeMillis()
+                val expiry = randomConfirm[player.uniqueId]
+                if (expiry != null && now < expiry) {
+                    // Confirmed — randomise and keep the window open
+                    randomConfirm[player.uniqueId] = now + 5000L
+                    randomize(mannequin)
+                    val option = mannequin.selection.selections.values.firstOrNull()?.option
+                    val layer = layers.firstOrNull()
+                    if (layer != null) refreshDynamicLabels(manId, option, layer)
+                    updateStatus(manId, "Randomised!")
+                    val viewers = nearbyViewers(mannequin)
+                    viewers.forEach { v -> handler.destroyMannequin(v, mannequin.id) }
+                    renderFull(mannequin, viewers)
+                } else {
+                    // Prompt for confirmation (5 seconds)
+                    randomConfirm[player.uniqueId] = now + 5000L
+                    updateStatus(manId, "Click again to randomise")
+                }
                 return
             }
             "layer" -> {
@@ -1027,6 +1047,49 @@ class MannequinManager(
             )
         }
         return SkinSelection(selections)
+    }
+
+    /**
+     * Randomise the mannequin's parts: pick a random option for every layer.
+     * Colours are left untouched. If [randomizeModel] is true, also randomise
+     * slim vs default model.
+     */
+    private fun randomize(mannequin: Mannequin, randomizeModel: Boolean = false) {
+        val definitions = layerManager.definitionsInOrder()
+        val rng = java.util.concurrent.ThreadLocalRandom.current()
+        val newSelections = mutableMapOf<String, LayerSelection>()
+
+        for (def in definitions) {
+            val options = layerManager.optionsFor(def.id)
+            if (options.isEmpty()) continue
+            val chosen = options[rng.nextInt(options.size)]
+
+            newSelections[def.id] = LayerSelection(
+                layerId = def.id,
+                option = chosen
+            )
+        }
+
+        mannequin.selection = SkinSelection(newSelections)
+        mannequin.lastFrame = PixelFrame.blank()
+
+        if (randomizeModel) {
+            mannequin.slimModel = rng.nextBoolean()
+        }
+
+        // Sync control state indices to match randomised choices
+        val state = controlState[mannequin.id]
+        if (state != null) {
+            for (def in definitions) {
+                val opts = layerManager.optionsFor(def.id)
+                val sel = newSelections[def.id]
+                val idx = opts.indexOfFirst { it.id == sel?.option?.id }.coerceAtLeast(0)
+                state.partIndex[def.id] = idx
+                state.colorIndex[def.id] = 0
+                state.channelIndex[def.id] = 0
+            }
+            state.mode = ControlMode.NONE
+        }
     }
 
     // ── Trigger helpers ───────────────────────────────────────────────────────
