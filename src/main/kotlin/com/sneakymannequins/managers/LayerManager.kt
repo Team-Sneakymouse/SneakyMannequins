@@ -337,14 +337,70 @@ class LayerManager(
         preprocessImage(path)
     }
 
-    private fun preprocessImage(sourcePath: Path) {
+    private fun preprocessImage(sourcePath: Path, strategy: MaskStrategy = defaultStrategy()) {
         val image = ImageIO.read(sourcePath.toFile()) ?: return
         val sanitized = sanitizeUv(image)
 
-        val clusters = clusterColors(sanitized)
+        val clusters = clusterColors(sanitized, strategy)
         writeMasks(sourcePath, sanitized, clusters)
         // overwrite source with sanitized (remove UV junk)
         ImageIO.write(sanitized, "png", sourcePath.toFile())
+    }
+
+    /**
+     * Re-mask a specific part with the given strategy.
+     * Deletes existing masks, re-preprocesses, and reloads the layer.
+     * Returns a human-readable status message.
+     */
+    fun remask(strategy: MaskStrategy, layerId: String, partId: String): String {
+        val (definition, options) = loadedLayers[layerId]
+            ?: return "Unknown layer: $layerId"
+
+        val option = options.find { it.id.equals(partId, ignoreCase = true) }
+            ?: return "Unknown part '$partId' in layer '$layerId'"
+
+        // Find the source image path(s)
+        val sourcePaths = listOfNotNull(option.fileDefault, option.fileSlim).distinct()
+        if (sourcePaths.isEmpty()) return "No image files for part '$partId'"
+
+        var totalMasks = 0
+        for (srcPath in sourcePaths) {
+            // Delete existing mask files
+            val baseName = srcPath.nameWithoutExtension
+            val dir = srcPath.parent
+            Files.list(dir).use { stream ->
+                stream.iterator().asSequence()
+                    .filter { it.name.matches(Regex("${Regex.escape(baseName)}_mask_\\d+\\.png")) }
+                    .forEach { Files.deleteIfExists(it) }
+            }
+
+            // Re-preprocess with the chosen strategy
+            preprocessImage(srcPath, strategy)
+
+            // Count generated masks
+            totalMasks += Files.list(dir).use { stream ->
+                stream.iterator().asSequence()
+                    .filter { it.name.matches(Regex("${Regex.escape(baseName)}_mask_\\d+\\.png")) }
+                    .count()
+            }
+        }
+
+        // Reload this layer so the new masks are picked up in memory
+        reloadLayer(layerId)
+
+        return "Remasked '$partId' in '$layerId' using ${strategy.name}: $totalMasks mask(s) generated"
+    }
+
+    /**
+     * Reload a single layer's options (re-reads files from disk).
+     */
+    private fun reloadLayer(layerId: String) {
+        val (definition, _) = loadedLayers[layerId] ?: return
+        val root = plugin.config.getConfigurationSection("layers") ?: return
+        val definitions = root.getConfigurationSection("definitions") ?: return
+        val optionConfig = definitions.getConfigurationSection(layerId)?.getConfigurationSection("options")
+        val newOptions = loadOptions(definition, optionConfig)
+        loadedLayers[layerId] = definition to newOptions
     }
 
     private fun sanitizeUv(image: java.awt.image.BufferedImage): java.awt.image.BufferedImage {
@@ -399,74 +455,168 @@ class LayerManager(
         fun contains(x: Int, y: Int): Boolean = x in x0 until x1 && y in y0 until y1
     }
 
-    /**
-     * Hue-based cluster. Tracks circular hue sum (via sin/cos), saturation sum,
-     * and brightness sum for centroid computation. Pixels with very low saturation
-     * Pixels that are too desaturated, too dark, or too bright are considered
-     * "neutral" and excluded from masking entirely.
-     *
-     * The remaining chromatic pixels are split into exactly 2 groups by
-     * finding the largest hue gap on the colour wheel and cutting there.
-     */
-    private data class Cluster(
-        val pixels: MutableList<Pair<Int, Int>>
+    // ── Masking strategies ────────────────────────────────────────────────
+
+    enum class MaskStrategy { HSB, HUE, RGB }
+
+    companion object {
+        /** All valid strategy names for tab-completion and config validation. */
+        val STRATEGY_NAMES: List<String> = MaskStrategy.entries.map { it.name }
+    }
+
+    private data class Cluster(val pixels: MutableList<Pair<Int, Int>>)
+
+    /** Pixel with full HSB + RGB + position, shared across strategies. */
+    private data class ColorPixel(
+        val h: Float, val s: Float, val b: Float,
+        val r: Int, val g: Int, val bl: Int,
+        val x: Int, val y: Int
     )
 
-    private fun clusterColors(image: java.awt.image.BufferedImage): List<Cluster> {
-        val config = plugin.config
-        val neutralSat    = config.getDouble("plugin.preprocessing.neutral-saturation", 0.12).toFloat()
-        val neutralBriLow = config.getDouble("plugin.preprocessing.neutral-brightness-low", 0.10).toFloat()
+    /** Returns the configured default masking strategy. */
+    fun defaultStrategy(): MaskStrategy {
+        val name = plugin.config.getString("plugin.preprocessing.default-strategy", "HSB") ?: "HSB"
+        return try { MaskStrategy.valueOf(name.uppercase()) } catch (_: Exception) { MaskStrategy.HSB }
+    }
 
-        // Step 1: collect chromatic (non-neutral) pixels with their hue
-        // Neutral = too desaturated (hue meaningless) or too dark (hue unreliable)
-        data class HuePixel(val hue: Float, val x: Int, val y: Int)
-
-        val chromatic = mutableListOf<HuePixel>()
+    /** Collect all chromatic (non-neutral) pixels from an image. */
+    private fun collectChromatic(image: java.awt.image.BufferedImage): List<ColorPixel> {
+        val neutralSat    = plugin.config.getDouble("plugin.preprocessing.neutral-saturation", 0.12).toFloat()
+        val neutralBriLow = plugin.config.getDouble("plugin.preprocessing.neutral-brightness-low", 0.10).toFloat()
+        val result = mutableListOf<ColorPixel>()
         for (x in 0 until image.width) {
             for (y in 0 until image.height) {
                 val argb = image.getRGB(x, y)
                 if ((argb ushr 24 and 0xFF) == 0) continue
                 val r = argb ushr 16 and 0xFF
                 val g = argb ushr 8 and 0xFF
-                val b = argb and 0xFF
-                val hsb = java.awt.Color.RGBtoHSB(r, g, b, null)
-                val sat = hsb[1]; val bri = hsb[2]
-                if (sat < neutralSat || bri < neutralBriLow) continue
-                chromatic += HuePixel(hsb[0], x, y)
+                val bl = argb and 0xFF
+                val hsb = java.awt.Color.RGBtoHSB(r, g, bl, null)
+                if (hsb[1] < neutralSat || hsb[2] < neutralBriLow) continue
+                result += ColorPixel(hsb[0], hsb[1], hsb[2], r, g, bl, x, y)
             }
         }
+        return result
+    }
 
+    private fun clusterColors(image: java.awt.image.BufferedImage, strategy: MaskStrategy = defaultStrategy()): List<Cluster> {
+        val chromatic = collectChromatic(image)
         if (chromatic.isEmpty()) return emptyList()
+        if (chromatic.size == 1) return listOf(Cluster(mutableListOf(chromatic[0].x to chromatic[0].y)))
+        return when (strategy) {
+            MaskStrategy.HSB -> clusterKMeansHsb(chromatic)
+            MaskStrategy.HUE -> clusterHueGap(chromatic)
+            MaskStrategy.RGB -> clusterKMeansRgb(chromatic)
+        }
+    }
 
-        // Step 2: sort by hue and find the largest gap on the colour wheel
-        chromatic.sortBy { it.hue }
-        var maxGap = 0f
-        var splitAfter = -1
-        for (i in 0 until chromatic.size - 1) {
-            val gap = chromatic[i + 1].hue - chromatic[i].hue
+    // ── Strategy: k-means in HSB space (circular hue) ───────────────────
+
+    private fun clusterKMeansHsb(chromatic: List<ColorPixel>): List<Cluster> {
+        fun distSq(p: ColorPixel, ch: Float, cs: Float, cb: Float): Float {
+            val hDiff = kotlin.math.abs(p.h - ch)
+            val hDist = kotlin.math.min(hDiff, 1f - hDiff)
+            val sDist = p.s - cs; val bDist = p.b - cb
+            return hDist * hDist + sDist * sDist + bDist * bDist
+        }
+        fun circularMeanHue(pixels: List<ColorPixel>): Float {
+            var sinSum = 0.0; var cosSum = 0.0
+            for (p in pixels) {
+                val angle = p.h.toDouble() * 2.0 * Math.PI
+                sinSum += kotlin.math.sin(angle); cosSum += kotlin.math.cos(angle)
+            }
+            val mean = kotlin.math.atan2(sinSum, cosSum) / (2.0 * Math.PI)
+            return (if (mean < 0) mean + 1.0 else mean).toFloat()
+        }
+        // Init centroids: two most distant sampled pixels
+        var bestDist = -1f; var initA = 0; var initB = 1
+        val step = kotlin.math.max(chromatic.size / 50, 1)
+        val samples = (chromatic.indices step step).toList()
+        for (i in samples) for (j in samples) {
+            if (i >= j) continue
+            val d = distSq(chromatic[i], chromatic[j].h, chromatic[j].s, chromatic[j].b)
+            if (d > bestDist) { bestDist = d; initA = i; initB = j }
+        }
+        var cAh = chromatic[initA].h; var cAs = chromatic[initA].s; var cAb = chromatic[initA].b
+        var cBh = chromatic[initB].h; var cBs = chromatic[initB].s; var cBb = chromatic[initB].b
+        val assignments = IntArray(chromatic.size)
+        for (iter in 0 until 20) {
+            var changed = false
+            for (i in chromatic.indices) {
+                val n = if (distSq(chromatic[i], cAh, cAs, cAb) <= distSq(chromatic[i], cBh, cBs, cBb)) 0 else 1
+                if (assignments[i] != n) { changed = true; assignments[i] = n }
+            }
+            if (!changed && iter > 0) break
+            val aP = chromatic.indices.filter { assignments[it] == 0 }.map { chromatic[it] }
+            val bP = chromatic.indices.filter { assignments[it] == 1 }.map { chromatic[it] }
+            if (aP.isNotEmpty()) { cAh = circularMeanHue(aP); cAs = aP.map { it.s.toDouble() }.average().toFloat(); cAb = aP.map { it.b.toDouble() }.average().toFloat() }
+            if (bP.isNotEmpty()) { cBh = circularMeanHue(bP); cBs = bP.map { it.s.toDouble() }.average().toFloat(); cBb = bP.map { it.b.toDouble() }.average().toFloat() }
+        }
+        return buildClusters(chromatic, assignments)
+    }
+
+    // ── Strategy: largest hue gap on the colour wheel ───────────────────
+
+    private fun clusterHueGap(chromatic: List<ColorPixel>): List<Cluster> {
+        val sorted = chromatic.sortedBy { it.h }
+        var maxGap = 0f; var splitAfter = -1
+        for (i in 0 until sorted.size - 1) {
+            val gap = sorted[i + 1].h - sorted[i].h
             if (gap > maxGap) { maxGap = gap; splitAfter = i }
         }
-        // Also consider the wrap-around gap (last → first across 0/1 boundary)
-        val wrapGap = 1f - chromatic.last().hue + chromatic.first().hue
-        if (wrapGap > maxGap) {
-            // All hues are contiguous — split at the midpoint so we still get 2 groups
-            splitAfter = (chromatic.size / 2) - 1
-        }
+        val wrapGap = 1f - sorted.last().h + sorted.first().h
+        if (wrapGap > maxGap) splitAfter = (sorted.size / 2) - 1
 
-        // Step 3: split into 2 groups at the largest gap
-        val groupA = Cluster(mutableListOf())
-        val groupB = Cluster(mutableListOf())
+        val groupA = Cluster(mutableListOf()); val groupB = Cluster(mutableListOf())
+        for (i in sorted.indices) {
+            val px = sorted[i]
+            if (i <= splitAfter) groupA.pixels += px.x to px.y else groupB.pixels += px.x to px.y
+        }
+        return listOfNotNull(groupA.takeIf { it.pixels.isNotEmpty() }, groupB.takeIf { it.pixels.isNotEmpty() })
+    }
+
+    // ── Strategy: k-means in RGB space ──────────────────────────────────
+
+    private fun clusterKMeansRgb(chromatic: List<ColorPixel>): List<Cluster> {
+        fun distSq(p: ColorPixel, cr: Float, cg: Float, cb: Float): Float {
+            val dr = p.r - cr; val dg = p.g - cg; val db = p.bl - cb
+            return dr * dr + dg * dg + db * db
+        }
+        var bestDist = -1f; var initA = 0; var initB = 1
+        val step = kotlin.math.max(chromatic.size / 50, 1)
+        val samples = (chromatic.indices step step).toList()
+        for (i in samples) for (j in samples) {
+            if (i >= j) continue
+            val d = distSq(chromatic[i], chromatic[j].r.toFloat(), chromatic[j].g.toFloat(), chromatic[j].bl.toFloat())
+            if (d > bestDist) { bestDist = d; initA = i; initB = j }
+        }
+        var cAr = chromatic[initA].r.toFloat(); var cAg = chromatic[initA].g.toFloat(); var cAb = chromatic[initA].bl.toFloat()
+        var cBr = chromatic[initB].r.toFloat(); var cBg = chromatic[initB].g.toFloat(); var cBb = chromatic[initB].bl.toFloat()
+        val assignments = IntArray(chromatic.size)
+        for (iter in 0 until 20) {
+            var changed = false
+            for (i in chromatic.indices) {
+                val n = if (distSq(chromatic[i], cAr, cAg, cAb) <= distSq(chromatic[i], cBr, cBg, cBb)) 0 else 1
+                if (assignments[i] != n) { changed = true; assignments[i] = n }
+            }
+            if (!changed && iter > 0) break
+            val aP = chromatic.indices.filter { assignments[it] == 0 }.map { chromatic[it] }
+            val bP = chromatic.indices.filter { assignments[it] == 1 }.map { chromatic[it] }
+            if (aP.isNotEmpty()) { cAr = aP.map { it.r.toDouble() }.average().toFloat(); cAg = aP.map { it.g.toDouble() }.average().toFloat(); cAb = aP.map { it.bl.toDouble() }.average().toFloat() }
+            if (bP.isNotEmpty()) { cBr = bP.map { it.r.toDouble() }.average().toFloat(); cBg = bP.map { it.g.toDouble() }.average().toFloat(); cBb = bP.map { it.bl.toDouble() }.average().toFloat() }
+        }
+        return buildClusters(chromatic, assignments)
+    }
+
+    // ── Shared helper ───────────────────────────────────────────────────
+
+    private fun buildClusters(chromatic: List<ColorPixel>, assignments: IntArray): List<Cluster> {
+        val groupA = Cluster(mutableListOf()); val groupB = Cluster(mutableListOf())
         for (i in chromatic.indices) {
             val px = chromatic[i]
-            if (i <= splitAfter) groupA.pixels += px.x to px.y
-            else groupB.pixels += px.x to px.y
+            if (assignments[i] == 0) groupA.pixels += px.x to px.y else groupB.pixels += px.x to px.y
         }
-
-        // Always return 2 groups (fall back to midpoint split if needed)
-        return listOfNotNull(
-            groupA.takeIf { it.pixels.isNotEmpty() },
-            groupB.takeIf { it.pixels.isNotEmpty() }
-        )
+        return listOfNotNull(groupA.takeIf { it.pixels.isNotEmpty() }, groupB.takeIf { it.pixels.isNotEmpty() })
     }
 
     private fun writeMasks(sourcePath: Path, sanitized: java.awt.image.BufferedImage, clusters: List<Cluster>) {

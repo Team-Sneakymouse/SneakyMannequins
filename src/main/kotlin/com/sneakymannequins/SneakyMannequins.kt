@@ -52,7 +52,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
         mannequinManager = MannequinManager(this, layerManager, handler, persistence).also { it.loadFromDisk() }
 
 		// Register commands
-        registerCommand("mannequin", CommandMannequin(this, mannequinManager))
+        registerCommand("mannequin", CommandMannequin(this, mannequinManager, layerManager))
         server.pluginManager.registerEvents(this, this)
     }
     

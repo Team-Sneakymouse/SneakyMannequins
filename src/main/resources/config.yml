@@ -21,6 +21,12 @@ plugin:
   preprocessing:
     # If true, sanitize/mask new layer PNGs on load (creates *_mask_*.png)
     enabled: true
+    # Default masking strategy for splitting pixels into colour channels.
+    # Available: HSB (k-means in hue/saturation/brightness — best all-rounder),
+    #            HUE (largest hue gap — fast, good when colours are clearly different hues),
+    #            RGB (k-means in RGB space — classic Euclidean colour distance)
+    # Can be overridden per part with: /mannequin remask <strategy> <layer> <part>
+    default-strategy: HSB
     # Pixels below this saturation (0.0-1.0) are considered neutral and excluded from masks
     # (catches greys, whites, near-whites whose hue is meaningless)
     neutral-saturation: 0.02
