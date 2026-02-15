@@ -43,14 +43,14 @@ interface VolatileHandler {
      * The entity uses Billboard.FIXED; rotation is controlled via the
      * Transformation's left-rotation quaternion (Y-axis).
      *
-     * @param textColor RGB colour for text (e.g. 0xFFFFFF for white)
+     * @param textJson  JSON-serialised Adventure Component (rich text)
      * @param bgColor   ARGB colour for background
      * @param yaw       Y-rotation in radians
      */
     fun spawnHudTextDisplay(
         viewer: Player, entityId: Int,
         x: Double, y: Double, z: Double,
-        text: String, textColor: Int, bgColor: Int,
+        textJson: String, bgColor: Int,
         tx: Float, ty: Float, tz: Float,
         yaw: Float, lineWidth: Int
     )
@@ -59,12 +59,13 @@ interface VolatileHandler {
      * Update an existing virtual HUD TextDisplay.  Sends a metadata-only packet
      * (no spawn) replacing all entity data including an interpolated transformation.
      *
+     * @param textJson            JSON-serialised Adventure Component (rich text)
      * @param interpolationTicks  client-side interpolation duration for the
      *                            transformation change (0 = instant)
      */
     fun updateHudTextDisplay(
         viewer: Player, entityId: Int,
-        text: String, textColor: Int, bgColor: Int,
+        textJson: String, bgColor: Int,
         tx: Float, ty: Float, tz: Float,
         yaw: Float, lineWidth: Int,
         interpolationTicks: Int

@@ -62,6 +62,74 @@ triggers:
   color-change:
     - "playsound minecraft:ui.button.click ambient {player} {x} {y} {z} 0.15 1.8"
 
+# HUD button configuration – controls the look and layout of each button.
+# Text supports MiniMessage format codes: <white>, <yellow>, <bold>, <italic>,
+# <font:minecraft:uniform>, <gradient:#AABB00:#CCDD00>, etc.
+# Background colours are ARGB hex strings.
+hud-buttons:
+  # Global defaults (can be overridden per button)
+  bg-default: "00000000"
+  bg-highlight: "B8336699"
+
+  status:
+    text: "<white>Controls"
+    translation:
+      x: 0.0
+      y: 2.8
+      z: -2.0
+    line-width: 256
+
+  model:
+    text: "<white>Model"
+    translation:
+      x: -1.1
+      y: 2.2
+      z: -2.0
+
+  pose:
+    text: "<white>Pose"
+    translation:
+      x: -1.1
+      y: 1.7
+      z: -2.0
+
+  random:
+    text: "<white>Random"
+    translation:
+      x: -1.1
+      y: 1.2
+      z: -2.0
+
+  layer:
+    text: "<white>Layer"
+    translation:
+      x: 1.1
+      y: 2.2
+      z: -2.0
+
+  part:
+    text: "<white>Part"
+    active-text: "<yellow>Part"
+    translation:
+      x: 1.1
+      y: 1.7
+      z: -2.0
+
+  channel:
+    text: "<white>Channel"
+    translation:
+      x: 1.1
+      y: 1.2
+      z: -2.0
+
+  color:
+    text: "<white>Color"
+    active-text: "<yellow>Color"
+    translation:
+      x: 1.1
+      y: 0.7
+      z: -2.0
+
 # HUD frame – optional ItemDisplay rendered as a backdrop behind the HUD buttons.
 # Rotates together with the rest of the HUD.  Disabled by default.
 hud-frame:

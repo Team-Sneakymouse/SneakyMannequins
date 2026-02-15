@@ -10,7 +10,6 @@ import net.minecraft.network.protocol.game.ClientboundAddEntityPacket
 import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket
 import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket
 import net.minecraft.network.chat.Component
-import net.minecraft.network.chat.TextColor
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.Display
 import net.minecraft.world.entity.EntityType
@@ -143,7 +142,7 @@ class VolatileHandler1214(
     override fun spawnHudTextDisplay(
         viewer: Player, entityId: Int,
         x: Double, y: Double, z: Double,
-        text: String, textColor: Int, bgColor: Int,
+        textJson: String, bgColor: Int,
         tx: Float, ty: Float, tz: Float,
         yaw: Float, lineWidth: Int
     ) {
@@ -151,7 +150,7 @@ class VolatileHandler1214(
         val level = handle.serverLevel()
         val connection = handle.connection
 
-        val display = buildHudDisplay(level, text, textColor, bgColor, tx, ty, tz, yaw, lineWidth)
+        val display = buildHudDisplay(level, textJson, bgColor, tx, ty, tz, yaw, lineWidth)
         display.setPos(x, y, z)
 
         val spawnPacket = ClientboundAddEntityPacket(
@@ -170,7 +169,7 @@ class VolatileHandler1214(
 
     override fun updateHudTextDisplay(
         viewer: Player, entityId: Int,
-        text: String, textColor: Int, bgColor: Int,
+        textJson: String, bgColor: Int,
         tx: Float, ty: Float, tz: Float,
         yaw: Float, lineWidth: Int,
         interpolationTicks: Int
@@ -179,7 +178,7 @@ class VolatileHandler1214(
         val level = handle.serverLevel()
         val connection = handle.connection
 
-        val display = buildHudDisplay(level, text, textColor, bgColor, tx, ty, tz, yaw, lineWidth)
+        val display = buildHudDisplay(level, textJson, bgColor, tx, ty, tz, yaw, lineWidth)
         // Interpolation: start immediately, smooth over the given duration
         display.setTransformationInterpolationDelay(0)
         display.setTransformationInterpolationDuration(interpolationTicks)
@@ -299,10 +298,12 @@ class VolatileHandler1214(
     /**
      * Build a throw-away NMS TextDisplay with all HUD properties set.
      * Used for both spawning and full-state metadata updates.
+     *
+     * @param textJson  JSON-serialised Adventure Component (rich text)
      */
     private fun buildHudDisplay(
         level: net.minecraft.server.level.ServerLevel,
-        text: String, textColor: Int, bgColor: Int,
+        textJson: String, bgColor: Int,
         tx: Float, ty: Float, tz: Float,
         yaw: Float, lineWidth: Int
     ): TextDisplay {
@@ -312,7 +313,9 @@ class VolatileHandler1214(
         display.setShadowStrength(0f)
         display.setViewRange(32f)
 
-        val nmsText = Component.literal(text).withStyle { it.withColor(TextColor.fromRgb(textColor)) }
+        val nmsText = try {
+            Component.Serializer.fromJson(textJson, level.registryAccess())
+        } catch (_: Exception) { null } ?: Component.literal("?")
         display.setText(nmsText)
         display.setTextOpacity((-1).toByte()) // 0xFF = fully opaque
         display.entityData.set(TextDisplay.DATA_LINE_WIDTH_ID, lineWidth)

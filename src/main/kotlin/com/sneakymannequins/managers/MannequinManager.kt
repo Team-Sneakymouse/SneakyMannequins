@@ -13,6 +13,9 @@ import com.sneakymannequins.render.PixelProjector
 import com.sneakymannequins.util.SkinComposer
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
+import net.kyori.adventure.text.format.TextColor
+import net.kyori.adventure.text.minimessage.MiniMessage
+import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer
 import org.bukkit.Color
 import org.bukkit.Location
 import org.bukkit.entity.Display
@@ -38,7 +41,7 @@ private data class ControlState(
 private enum class ControlMode { NONE, PART, COLOR }
 
 /**
- * Describes one HUD button: its identifier, default label, and translation offset.
+ * Describes one HUD button loaded from config.
  * Translations are in entity-local space (billboard FIXED, rotated by yaw):
  *   tx: positive = right from the viewer's POV
  *   ty: positive = up
@@ -46,18 +49,21 @@ private enum class ControlMode { NONE, PART, COLOR }
  */
 private data class HudButton(
     val name: String,
-    val defaultLabel: String,
+    val textMM: String,            // raw MiniMessage string (for generating variants)
+    val textJson: String,          // pre-serialised JSON component
+    val activeTextJson: String?,   // JSON component for part/color active mode
     val tx: Float,
     val ty: Float,
     val tz: Float,
-    val lineWidth: Int = 200
+    val lineWidth: Int,
+    val bgDefault: Int,
+    val bgHighlight: Int
 )
 
 /** Canonical per-button visual state (shared across all viewers). */
 private data class ButtonVisual(
-    var text: String,
-    var textColor: Int = 0xFFFFFF,   // RGB white
-    var bgColor: Int = 0x78000000.toInt()  // semi-transparent black (matches HUD_BG_DEFAULT)
+    var textJson: String,
+    var bgColor: Int
 )
 
 /** Per-player virtual HUD tracking. */
@@ -98,31 +104,85 @@ class MannequinManager(
         private const val VISIBLE_RANGE_SQ = 32.0 * 32.0
         private const val HOVER_RANGE = 6.0
         private const val INTERACT_RADIUS = 3.0f
-        private const val HUD_BG_DEFAULT = 0x78000000.toInt()       // semi-transparent black
-        private const val HUD_BG_HIGHLIGHT = 0xB8336699.toInt()     // translucent blue
+        private const val HUD_BG_DEFAULT = 0x78000000.toInt()       // fallback semi-transparent black
+        private const val HUD_BG_HIGHLIGHT = 0xB8336699.toInt()     // fallback translucent blue
         private const val BUTTON_TOLERANCE = 0.35
         private const val ROTATION_INTERP_TICKS = 3
         private const val YAW_THRESHOLD = 0.02f                     // radians (~1°)
-        /** Y offset applied to the frame ItemDisplay spawn position so its
-         *  AABB sits well above the Interaction entity and can't intercept
-         *  client-side ray-casts.  Compensated in the translation ty. */
         private const val FRAME_Y_OFFSET = 10.0
 
-        private val HUD_LAYOUT = listOf(
-            HudButton("status", "Controls", 0.0f, 2.8f, -2.0f, lineWidth = 256),
-            // Left column
-            HudButton("model",  "Model",   -1.1f, 2.2f, -2.0f),
-            HudButton("pose",   "Pose",    -1.1f, 1.7f, -2.0f),
-            HudButton("random", "Random",  -1.1f, 1.2f, -2.0f),
-            // Right column
-            HudButton("layer",  "Layer",    1.1f, 2.2f, -2.0f),
-            HudButton("part",   "Part",     1.1f, 1.7f, -2.0f),
-            HudButton("channel","Channel",  1.1f, 1.2f, -2.0f),
-            HudButton("color",  "Color",    1.1f, 0.7f, -2.0f),
-        )
+        /** Canonical ordered list of button names. */
+        private val BUTTON_ORDER = listOf("status", "model", "pose", "random", "layer", "part", "channel", "color")
 
         /** Button names that respond to clicks.  "status" is display-only. */
         private val CLICKABLE_BUTTONS = setOf("model", "pose", "random", "layer", "part", "channel", "color")
+
+        /** Hardcoded defaults used when a key is absent from config. */
+        private data class BtnDefault(val text: String, val activeText: String?, val tx: Float, val ty: Float, val tz: Float, val lineWidth: Int)
+        private val BUTTON_DEFAULTS = mapOf(
+            "status"  to BtnDefault("<white>Controls", null,            0.0f,  2.8f, -2.0f, 256),
+            "model"   to BtnDefault("<white>Model",    null,           -1.1f,  2.2f, -2.0f, 200),
+            "pose"    to BtnDefault("<white>Pose",     null,           -1.1f,  1.7f, -2.0f, 200),
+            "random"  to BtnDefault("<white>Random",   null,           -1.1f,  1.2f, -2.0f, 200),
+            "layer"   to BtnDefault("<white>Layer",    null,            1.1f,  2.2f, -2.0f, 200),
+            "part"    to BtnDefault("<white>Part",     "<yellow>Part",  1.1f,  1.7f, -2.0f, 200),
+            "channel" to BtnDefault("<white>Channel",  null,            1.1f,  1.2f, -2.0f, 200),
+            "color"   to BtnDefault("<white>Color",    "<yellow>Color", 1.1f,  0.7f, -2.0f, 200),
+        )
+
+        private val mm = MiniMessage.miniMessage()
+        private val gsonSer = GsonComponentSerializer.gson()
+
+        /** Parse a MiniMessage string and serialise to JSON (for NMS). */
+        fun mmToJson(miniMsg: String): String = gsonSer.serialize(mm.deserialize(miniMsg))
+
+        /** Build a JSON component from plain text + RGB colour. */
+        fun textToJson(text: String, color: Int = 0xFFFFFF): String =
+            gsonSer.serialize(Component.text(text).color(TextColor.color(color)))
+
+        /** Parse an ARGB hex string (e.g. "B8336699") to an Int. */
+        private fun parseArgb(hex: String?): Int? {
+            if (hex.isNullOrBlank()) return null
+            return hex.removePrefix("#").toLongOrNull(16)?.toInt()
+        }
+    }
+
+    /** Buttons loaded from config (refreshed on reload). */
+    private var hudButtons: List<HudButton> = emptyList()
+
+    init { hudButtons = loadHudButtons() }
+
+    /** Look up a button config by name. */
+    private fun buttonByName(name: String): HudButton? = hudButtons.firstOrNull { it.name == name }
+
+    /** Read the hud-buttons config section and build the button list. */
+    private fun loadHudButtons(): List<HudButton> {
+        val globalBgDef = parseArgb(plugin.config.getString("hud-buttons.bg-default")) ?: HUD_BG_DEFAULT
+        val globalBgHi  = parseArgb(plugin.config.getString("hud-buttons.bg-highlight")) ?: HUD_BG_HIGHLIGHT
+
+        return BUTTON_ORDER.map { name ->
+            val def = BUTTON_DEFAULTS[name]!!
+            val sec = plugin.config.getConfigurationSection("hud-buttons.$name")
+            val textMM    = sec?.getString("text") ?: def.text
+            val activeMM  = sec?.getString("active-text") ?: def.activeText
+            val tx = sec?.getDouble("translation.x", def.tx.toDouble())?.toFloat() ?: def.tx
+            val ty = sec?.getDouble("translation.y", def.ty.toDouble())?.toFloat() ?: def.ty
+            val tz = sec?.getDouble("translation.z", def.tz.toDouble())?.toFloat() ?: def.tz
+            val lw = sec?.getInt("line-width", def.lineWidth) ?: def.lineWidth
+            val bgDef = parseArgb(sec?.getString("bg-default")) ?: globalBgDef
+            val bgHi  = parseArgb(sec?.getString("bg-highlight")) ?: globalBgHi
+
+            HudButton(
+                name = name,
+                textMM = textMM,
+                textJson = mmToJson(textMM),
+                activeTextJson = activeMM?.let { mmToJson(it) },
+                tx = tx, ty = ty, tz = tz,
+                lineWidth = lw,
+                bgDefault = bgDef,
+                bgHighlight = bgHi
+            )
+        }
     }
 
     // ── Lifecycle ───────────────────────────────────────────────────────────────
@@ -210,6 +270,7 @@ class MannequinManager(
         interactionDebounce.clear()
         playerHuds.clear()
 
+        hudButtons = loadHudButtons()
         loadFromDisk()
         startHoverTask()
 
@@ -330,9 +391,13 @@ class MannequinManager(
     /** Initialise the canonical button visuals for a mannequin. */
     private fun initButtonVisuals(mannequinId: UUID) {
         val visuals = mutableMapOf<String, ButtonVisual>()
-        for (btn in HUD_LAYOUT) {
-            val label = if (btn.name == "status") (statusText[mannequinId] ?: btn.defaultLabel) else btn.defaultLabel
-            visuals[btn.name] = ButtonVisual(text = label)
+        for (btn in hudButtons) {
+            val json = if (btn.name == "status") {
+                statusText[mannequinId]?.let { textToJson(it) } ?: btn.textJson
+            } else {
+                btn.textJson
+            }
+            visuals[btn.name] = ButtonVisual(textJson = json, bgColor = btn.bgDefault)
         }
         buttonVisuals[mannequinId] = visuals
     }
@@ -344,13 +409,13 @@ class MannequinManager(
         val visuals = buttonVisuals[manId] ?: return
         val ids = mutableMapOf<String, Int>()
 
-        for (btn in HUD_LAYOUT) {
+        for (btn in hudButtons) {
             val entityId = handler.allocateEntityId()
-            val vis = visuals[btn.name] ?: ButtonVisual(text = btn.defaultLabel)
+            val vis = visuals[btn.name] ?: ButtonVisual(textJson = btn.textJson, bgColor = btn.bgDefault)
             handler.spawnHudTextDisplay(
                 viewer = player, entityId = entityId,
                 x = loc.x, y = loc.y, z = loc.z,
-                text = vis.text, textColor = vis.textColor, bgColor = vis.bgColor,
+                textJson = vis.textJson, bgColor = vis.bgColor,
                 tx = btn.tx, ty = btn.ty, tz = btn.tz,
                 yaw = yaw, lineWidth = btn.lineWidth
             )
@@ -398,16 +463,15 @@ class MannequinManager(
     /** Push the current visual state of one button to all players viewing this mannequin. */
     private fun pushButtonToViewers(mannequinId: UUID, buttonName: String) {
         val vis = buttonVisuals[mannequinId]?.get(buttonName) ?: return
-        val btn = HUD_LAYOUT.firstOrNull { it.name == buttonName } ?: return
+        val btn = buttonByName(buttonName) ?: return
         playerHuds.forEach { (playerId, state) ->
             if (state.mannequinId != mannequinId) return@forEach
             val player = plugin.server.getPlayer(playerId) ?: return@forEach
             val entityId = state.entityIds[buttonName] ?: return@forEach
-            // Use the player's current yaw for the rotation
             handler.updateHudTextDisplay(
                 viewer = player, entityId = entityId,
-                text = vis.text, textColor = vis.textColor,
-                bgColor = if (state.hoveredButton == buttonName) HUD_BG_HIGHLIGHT else vis.bgColor,
+                textJson = vis.textJson,
+                bgColor = if (state.hoveredButton == buttonName) btn.bgHighlight else vis.bgColor,
                 tx = btn.tx, ty = btn.ty, tz = btn.tz,
                 yaw = state.lastYaw, lineWidth = btn.lineWidth,
                 interpolationTicks = 0 // instant text update
@@ -515,13 +579,13 @@ class MannequinManager(
             // ── Update rotation if yaw changed ──────────────────────────────
             if (abs(yaw - hudState.lastYaw) > YAW_THRESHOLD) {
                 val visuals = buttonVisuals[nearest.id] ?: continue
-                for (btn in HUD_LAYOUT) {
+                for (btn in hudButtons) {
                     val entityId = hudState.entityIds[btn.name] ?: continue
                     val vis = visuals[btn.name] ?: continue
-                    val bg = if (hudState.hoveredButton == btn.name) HUD_BG_HIGHLIGHT else vis.bgColor
+                    val bg = if (hudState.hoveredButton == btn.name) btn.bgHighlight else vis.bgColor
                     handler.updateHudTextDisplay(
                         viewer = player, entityId = entityId,
-                        text = vis.text, textColor = vis.textColor, bgColor = bg,
+                        textJson = vis.textJson, bgColor = bg,
                         tx = btn.tx, ty = btn.ty, tz = btn.tz,
                         yaw = yaw, lineWidth = btn.lineWidth,
                         interpolationTicks = ROTATION_INTERP_TICKS
@@ -539,11 +603,13 @@ class MannequinManager(
             if (hovered != prev) {
                 // Un-highlight previous
                 if (prev != null) {
-                    sendButtonBg(player, hudState, nearest.id, prev, HUD_BG_DEFAULT)
+                    val prevBtn = buttonByName(prev)
+                    sendButtonBg(player, hudState, nearest.id, prev, prevBtn?.bgDefault ?: HUD_BG_DEFAULT)
                 }
                 // Highlight new
                 if (hovered != null) {
-                    sendButtonBg(player, hudState, nearest.id, hovered, HUD_BG_HIGHLIGHT)
+                    val hovBtn = buttonByName(hovered)
+                    sendButtonBg(player, hudState, nearest.id, hovered, hovBtn?.bgHighlight ?: HUD_BG_HIGHLIGHT)
                     val ph = basePlaceholders(player, nearest).apply { put("button", hovered) }
                     fireTrigger("hover", ph)
                 }
@@ -575,7 +641,7 @@ class MannequinManager(
         var bestName: String? = null
         var bestDist = Double.MAX_VALUE
 
-        for (btn in HUD_LAYOUT) {
+        for (btn in hudButtons) {
             if (btn.name == "status") continue
             val worldPos = buttonWorldPos(manVec, eyeVec, btn.tx, btn.ty, btn.tz)
             val dist = distanceFromRay(eyeVec, lookDir, worldPos)
@@ -828,7 +894,7 @@ class MannequinManager(
     private fun updateStatus(mannequinId: UUID, msg: String) {
         statusText[mannequinId] = msg
         val visuals = buttonVisuals[mannequinId] ?: return
-        visuals["status"]?.text = msg
+        visuals["status"]?.textJson = textToJson(msg)
         pushButtonToViewers(mannequinId, "status")
     }
 
@@ -838,17 +904,33 @@ class MannequinManager(
         val mode = controlState[mannequinId]?.mode
         val visuals = buttonVisuals[mannequinId] ?: return
 
+        val chBtn = buttonByName("channel")
         visuals["channel"]?.let {
-            it.text = "Channel"
-            it.textColor = if (channelDisabled) 0x888888 else 0xFFFFFF
+            it.textJson = if (channelDisabled && chBtn != null) {
+                // Grey-out: strip MiniMessage tags and re-wrap in grey
+                val plain = mm.stripTags(chBtn.textMM)
+                textToJson(plain, 0x888888)
+            } else {
+                chBtn?.textJson ?: textToJson("Channel")
+            }
         }
+
+        val partBtn = buttonByName("part")
         visuals["part"]?.let {
-            it.text = "Part"
-            it.textColor = if (mode == ControlMode.PART) 0xFFFF55 else 0xFFFFFF
+            it.textJson = if (mode == ControlMode.PART && partBtn?.activeTextJson != null) {
+                partBtn.activeTextJson
+            } else {
+                partBtn?.textJson ?: textToJson("Part")
+            }
         }
+
+        val colorBtn = buttonByName("color")
         visuals["color"]?.let {
-            it.text = "Color"
-            it.textColor = if (mode == ControlMode.COLOR) 0xFFFF55 else 0xFFFFFF
+            it.textJson = if (mode == ControlMode.COLOR && colorBtn?.activeTextJson != null) {
+                colorBtn.activeTextJson
+            } else {
+                colorBtn?.textJson ?: textToJson("Color")
+            }
         }
 
         pushButtonToViewers(mannequinId, "channel")

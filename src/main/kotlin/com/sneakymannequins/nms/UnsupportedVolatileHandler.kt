@@ -45,14 +45,14 @@ class UnsupportedVolatileHandler(
     override fun spawnHudTextDisplay(
         viewer: Player, entityId: Int,
         x: Double, y: Double, z: Double,
-        text: String, textColor: Int, bgColor: Int,
+        textJson: String, bgColor: Int,
         tx: Float, ty: Float, tz: Float,
         yaw: Float, lineWidth: Int
     ) { /* no-op */ }
 
     override fun updateHudTextDisplay(
         viewer: Player, entityId: Int,
-        text: String, textColor: Int, bgColor: Int,
+        textJson: String, bgColor: Int,
         tx: Float, ty: Float, tz: Float,
         yaw: Float, lineWidth: Int,
         interpolationTicks: Int
