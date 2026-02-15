@@ -129,5 +129,13 @@ class VolatileHandler1214(
             }
         }
     }
+
+    override fun sendTextDisplayHighlight(viewer: Player, entityId: Int, backgroundColor: Int) {
+        val handle = (viewer as CraftPlayer).handle as ServerPlayer
+        val dataItem = net.minecraft.network.syncher.SynchedEntityData.DataValue.create(
+            TextDisplay.DATA_BACKGROUND_COLOR_ID, backgroundColor
+        )
+        handle.connection.send(ClientboundSetEntityDataPacket(entityId, listOf(dataItem)))
+    }
 }
 

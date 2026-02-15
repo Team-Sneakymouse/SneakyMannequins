@@ -38,5 +38,9 @@ class UnsupportedVolatileHandler(
     ) {
         applyPixelChanges(viewer, mannequinId, viewer.location, emptyList())
     }
+
+    override fun sendTextDisplayHighlight(viewer: Player, entityId: Int, backgroundColor: Int) {
+        // No-op on unsupported versions
+    }
 }
 

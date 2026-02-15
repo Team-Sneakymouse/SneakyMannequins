@@ -27,24 +27,16 @@ class CommandMannequin(
         }
         when (args.firstOrNull()?.lowercase()) {
             "remove" -> removeNearest(player)
-            "controls" -> {
-                if (args.getOrNull(1)?.lowercase() == "remove") {
-                    removeNearestControl(player)
-                } else {
-                    addControls(player)
-                }
-            }
             else -> create(player)
         }
     }
 
     override fun suggest(stack: CommandSourceStack, args: Array<out String>): MutableList<String> {
         return when (args.size) {
-            0 -> mutableListOf("remove", "controls", "reload", "remask")
-            1 -> listOf("remove", "controls", "reload", "remask")
+            0 -> mutableListOf("remove", "reload", "remask")
+            1 -> listOf("remove", "reload", "remask")
                 .filter { it.startsWith(args[0], ignoreCase = true) }.toMutableList()
             2 -> when (args[0].lowercase()) {
-                "controls" -> listOf("remove").filter { it.startsWith(args[1], ignoreCase = true) }.toMutableList()
                 "remask" -> LayerManager.STRATEGY_NAMES
                     .filter { it.startsWith(args[1], ignoreCase = true) }.toMutableList()
                 else -> mutableListOf()
@@ -81,25 +73,6 @@ class CommandMannequin(
         }
         mannequinManager.remove(man.id, player.server.onlinePlayers)
         player.sendMessage(TextUtility.convertToComponent("&aRemoved mannequin ${man.id}"))
-    }
-
-    private fun addControls(player: Player) {
-        val man = mannequinManager.nearestMannequin(player.location) ?: run {
-            player.sendMessage(TextUtility.convertToComponent("&cNo mannequin nearby."))
-            return
-        }
-        val controlLoc = player.location.clone()
-        mannequinManager.addControls(man, controlLoc)
-        player.sendMessage(TextUtility.convertToComponent("&aAdded controls for mannequin ${man.id}"))
-    }
-
-    private fun removeNearestControl(player: Player) {
-        val removed = mannequinManager.removeNearestControl(player.location)
-        if (removed) {
-            player.sendMessage(TextUtility.convertToComponent("&aRemoved nearest control."))
-        } else {
-            player.sendMessage(TextUtility.convertToComponent("&cNo control nearby."))
-        }
     }
 
     private fun handleReload(sender: CommandSender) {

@@ -32,5 +32,11 @@ interface VolatileHandler {
     )
 
     fun destroyMannequin(viewer: Player, mannequinId: UUID)
+
+    /**
+     * Send a per-player TextDisplay background-color override.
+     * Only [viewer] sees the change; other players remain unaffected.
+     */
+    fun sendTextDisplayHighlight(viewer: Player, entityId: Int, backgroundColor: Int)
 }
 

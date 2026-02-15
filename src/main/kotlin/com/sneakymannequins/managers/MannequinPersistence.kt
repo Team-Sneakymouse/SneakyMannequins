@@ -13,14 +13,13 @@ class MannequinPersistence(private val plugin: SneakyMannequins) {
     private val file: File = File(plugin.dataFolder, "mannequins.yml")
     private val config = YamlConfiguration()
 
-    fun load(): Pair<List<Pair<UUID, Location>>, Map<UUID, List<Location>>> {
+    fun load(): List<Pair<UUID, Location>> {
         if (!file.exists()) {
             plugin.dataFolder.mkdirs()
             file.createNewFile()
         }
         config.load(file)
         val mannequins = mutableListOf<Pair<UUID, Location>>()
-        val controls = mutableMapOf<UUID, MutableList<Location>>()
 
         val manSection = config.getConfigurationSection("mannequins")
         manSection?.getKeys(false)?.forEach { key ->
@@ -37,29 +36,16 @@ class MannequinPersistence(private val plugin: SneakyMannequins) {
             }
         }
 
-        val ctrlSection = config.getConfigurationSection("controls")
-        ctrlSection?.getKeys(false)?.forEach { key ->
-            runCatching {
-                val id = UUID.fromString(key)
-                val listSection = ctrlSection.getConfigurationSection(key) ?: return@runCatching
-                listSection.getKeys(false).forEach { idx ->
-                    val world = Bukkit.getWorld(listSection.getString("$idx.world") ?: return@forEach)
-                    val x = listSection.getDouble("$idx.x")
-                    val y = listSection.getDouble("$idx.y")
-                    val z = listSection.getDouble("$idx.z")
-                    val yaw = listSection.getDouble("$idx.yaw", 0.0).toFloat()
-                    if (world != null) {
-                        controls.computeIfAbsent(id) { mutableListOf() }
-                            .add(Location(world, x, y, z, yaw, 0f))
-                    }
-                }
-            }
+        // Clean up legacy "controls" section if present
+        if (config.contains("controls")) {
+            config.set("controls", null)
+            config.save(file)
         }
 
-        return mannequins to controls
+        return mannequins
     }
 
-    fun save(mannequins: Collection<Mannequin>, controls: Map<UUID, List<Location>>) {
+    fun save(mannequins: Collection<Mannequin>) {
         config.set("mannequins", null)
         mannequins.forEach { man ->
             val path = "mannequins.${man.id}"
@@ -69,19 +55,6 @@ class MannequinPersistence(private val plugin: SneakyMannequins) {
             config.set("$path.z", man.location.z)
             config.set("$path.yaw", man.location.yaw.toDouble())
         }
-        config.set("controls", null)
-        controls.forEach { (id, list) ->
-            val base = "controls.$id"
-            list.forEachIndexed { idx, loc ->
-                val path = "$base.$idx"
-                config.set("$path.world", loc.world?.name)
-                config.set("$path.x", loc.x)
-                config.set("$path.y", loc.y)
-                config.set("$path.z", loc.z)
-                config.set("$path.yaw", loc.yaw.toDouble())
-            }
-        }
         config.save(file)
     }
 }
-

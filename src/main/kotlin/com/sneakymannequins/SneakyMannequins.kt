@@ -9,11 +9,9 @@ import com.sneakymannequins.nms.VolatileHandler
 import com.sneakymannequins.nms.VolatileHandlerRegistry
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
-import org.bukkit.event.block.Action
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.player.PlayerInteractAtEntityEvent
 import org.bukkit.event.player.PlayerInteractEntityEvent
-import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.event.player.PlayerMoveEvent
 import org.bukkit.event.player.PlayerQuitEvent
@@ -54,6 +52,9 @@ class SneakyMannequins : JavaPlugin(), Listener {
 		// Register commands
         registerCommand("mannequin", CommandMannequin(this, mannequinManager, layerManager))
         server.pluginManager.registerEvents(this, this)
+
+        // Start the per-tick hover detection task
+        mannequinManager.startHoverTask()
     }
     
     override fun onDisable() {
@@ -81,10 +82,11 @@ class SneakyMannequins : JavaPlugin(), Listener {
         }
     }
 
+    // Right-click the Interaction entity → backwards
     @EventHandler
     fun onInteractControl(event: PlayerInteractAtEntityEvent) {
         if (event.hand != EquipmentSlot.HAND) return
-        mannequinManager.handleControlInteract(event.rightClicked, event.player, backwards = true)
+        mannequinManager.handleInteract(event.rightClicked, event.player, backwards = true)
         event.isCancelled = true
     }
 
@@ -92,23 +94,16 @@ class SneakyMannequins : JavaPlugin(), Listener {
     fun onInteractControlGeneric(event: PlayerInteractEntityEvent) {
         if (event.hand != EquipmentSlot.HAND) return
         if (event.isCancelled) return
-        mannequinManager.handleControlInteract(event.rightClicked, event.player, backwards = true)
+        mannequinManager.handleInteract(event.rightClicked, event.player, backwards = true)
         event.isCancelled = true
     }
 
+    // Left-click (punch) the Interaction entity → forwards
     @EventHandler
     fun onDamageControl(event: EntityDamageByEntityEvent) {
         val player = event.damager as? org.bukkit.entity.Player ?: return
-        mannequinManager.handleControlInteract(event.entity, player, backwards = false)
+        mannequinManager.handleInteract(event.entity, player, backwards = false)
         event.isCancelled = true
-    }
-
-    // Left-click air: cycle forward in active mode (right-click is handled by the big Interaction entity)
-    @EventHandler
-    fun onAirInteract(event: PlayerInteractEvent) {
-        if (event.action != Action.LEFT_CLICK_AIR) return
-        if (event.hand != EquipmentSlot.HAND) return
-        mannequinManager.handleEmptyClick(event.player, backwards = false)
     }
 
     @EventHandler
