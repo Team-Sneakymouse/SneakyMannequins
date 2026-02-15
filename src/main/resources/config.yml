@@ -161,18 +161,15 @@ hud-frame:
 # Layer configuration
 layers:
   palettes:
+    # ── Natural / earthy tones ──
     earth:
       stone: "5E503F"
       bark: "7A5C42"
       sand: "A67C52"
       dune: "C2A47B"
       clay: "E0C9A6"
-    neon:
-      hot_pink: "FF4D6D"
-      cyan: "4DFFFF"
-      lime: "7CFF4D"
-      amber: "FFD24D"
-      violet: "AA4DFF"
+
+    # ── Skin tones ──
     skin:
       ivory: "F6E2CE"
       porcelain: "F2D6C5"
@@ -185,6 +182,135 @@ layers:
       bronze: "8B503C"
       espresso: "6B3B2A"
       umber: "553023"
+
+    # ── Hair colours ──
+    hair:
+      platinum: "E8E0D4"
+      ash_blonde: "C4B7A6"
+      golden_blonde: "D4A547"
+      strawberry: "C67A4B"
+      ginger: "B8512D"
+      auburn: "8C3420"
+      copper: "A64B2E"
+      light_brown: "8B6C4A"
+      brunette: "5C3A1E"
+      dark_brown: "3B2314"
+      black: "1A1110"
+      silver: "B0B0B0"
+      white: "E8E8E8"
+
+    # ── Eye colours ──
+    eyes:
+      ice_blue: "A2C4E0"
+      sky_blue: "5B92C8"
+      steel_blue: "4A6D8C"
+      sea_green: "5D9B84"
+      emerald: "3E8C5F"
+      hazel: "8E7E54"
+      amber: "B8860B"
+      light_brown: "9B7340"
+      dark_brown: "4A2E1A"
+      grey: "8A8D8F"
+      violet: "7B5EA7"
+
+    # ── Greyscale ──
+    greyscale:
+      white: "F0F0F0"
+      silver: "C0C0C0"
+      ash: "999999"
+      grey: "707070"
+      slate: "4A4A4A"
+      charcoal: "2A2A2A"
+      black: "141414"
+
+    # ── Primary / basics ──
+    primary:
+      red: "CC3333"
+      orange: "E07020"
+      yellow: "E0C030"
+      green: "39A845"
+      blue: "3366CC"
+      purple: "7733AA"
+      white: "F0F0F0"
+      black: "1A1A1A"
+
+    # ── Pastels ──
+    pastel:
+      blush: "F4B8C1"
+      peach: "F8C9A0"
+      buttercup: "F8E8A0"
+      mint: "A0E8C0"
+      sky: "A0C8F0"
+      lavender: "C0A8E0"
+      lilac: "D8B0E8"
+      cream: "F5ECD7"
+
+    # ── Neon / vibrant ──
+    neon:
+      hot_pink: "FF4D6D"
+      cyan: "4DFFFF"
+      lime: "7CFF4D"
+      amber: "FFD24D"
+      violet: "AA4DFF"
+      electric_blue: "4D6DFF"
+      magenta: "FF4DAA"
+
+    # ── Jewel tones ──
+    jewel:
+      ruby: "9B1B30"
+      garnet: "7B2D3B"
+      emerald: "1B6B3A"
+      jade: "2E8B57"
+      sapphire: "1B3A6B"
+      amethyst: "6B3FA0"
+      topaz: "C89B30"
+      onyx: "1A1A2E"
+
+    # ── Warm tones ──
+    warm:
+      scarlet: "CC2222"
+      crimson: "A01530"
+      rust: "B7410E"
+      terracotta: "C66B3D"
+      tangerine: "E08030"
+      gold: "D4A830"
+      sunflower: "E0C040"
+      coral: "E07060"
+
+    # ── Cool tones ──
+    cool:
+      navy: "1A2A50"
+      cobalt: "2050A0"
+      cerulean: "3080C0"
+      teal: "207070"
+      forest: "1A5030"
+      sage: "6B8B6B"
+      periwinkle: "7070C0"
+      plum: "5A2060"
+
+    # ── Metals ──
+    metallic:
+      iron: "6B6B6B"
+      steel: "8A8A9A"
+      silver: "C0C0D0"
+      gold: "D4AA30"
+      rose_gold: "C8907A"
+      copper: "B87333"
+      bronze: "8B6C40"
+      brass: "B5A642"
+
+    # ── Fabric / clothing ──
+    fabric:
+      denim: "3B5998"
+      khaki: "BDB76B"
+      olive: "6B7B3A"
+      burgundy: "6B1A2A"
+      navy: "1A1A40"
+      tan: "C8AD7F"
+      ivory: "F0EAD6"
+      charcoal: "36363A"
+      maroon: "5A1A1A"
+      forest_green: "1A4A1A"
 
   # Rendering order for layers (bottom to top)
   order:
@@ -199,8 +325,9 @@ layers:
       directory: "layers/Hair"
       allow-color-mask: true
       default-palettes:
-        - earth
+        - hair
         - neon
+        - pastel
       # Optional per-option overrides:
       # options:
       #   fedora:
@@ -212,19 +339,23 @@ layers:
       directory: "layers/Shirt"
       allow-color-mask: true
       default-palettes:
-        - earth
-        - neon
+        - primary
+        - fabric
+        - pastel
     
     pants:
       display-name: "Pants"
       directory: "layers/Pants"
       allow-color-mask: true
       default-palettes:
+        - fabric
         - earth
-        - neon
+        - greyscale
     
     body:
       display-name: "Body"
       directory: "layers/Body"
       allow-color-mask: true
-      default-palettes: [skin]
+      default-palettes:
+        - skin
+        - jewel
