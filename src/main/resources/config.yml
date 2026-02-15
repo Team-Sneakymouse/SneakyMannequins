@@ -48,22 +48,35 @@ triggers:
 
   # Player clicks any HUD button
   click:
-    - "playsound minecraft:ui.button.click ambient {player} {x} {y} {z} 0.15 1.8"
+    - "playsound minecraft:ui.button.click ambient {player} {x} {y} {z} 0.2 2.0"
 
   # A new part is selected. Use the layer key for per-layer commands,
   # or "default" as a catch-all fallback.
   # Extra placeholders: {part} (display name), {layer}
   part-change:
     default:
-    - "playsound minecraft:ui.button.click ambient {player} {x} {y} {z} 0.15 1.8"
-    # hair:
-    #   - "particle dust 1.0 0.8 0.6 1 {x} {y} {z} 0.3 0.5 0.3 0 5"
+      - "playsound minecraft:ui.button.click ambient {player} {x} {y} {z} 0.2 1.8"
+    hair:
+      - "playsound minecraft:entity.sheep.shear ambient {player} {x} {y} {z} 0.5 1.2"
+      - "particle minecraft:poof {x} {y} {z} 0.2 0.3 0.2 0.02 5"
+    shirt:
+      - "playsound minecraft:item.armor.equip_leather ambient {player} {x} {y} {z} 0.5 1.1"
+      - "particle minecraft:poof {x} {y} {z} 0.2 0.4 0.2 0.02 3"
+    pants:
+      - "playsound minecraft:item.armor.equip_leather ambient {player} {x} {y} {z} 0.5 0.8"
+      - "particle minecraft:poof {x} {y} {z} 0.15 0.3 0.15 0.02 3"
+    body:
+      - "playsound minecraft:block.amethyst_block.chime ambient {player} {x} {y} {z} 0.6 1.0"
+      - "particle minecraft:enchant {x} {y} {z} 0.3 0.5 0.3 0.5 10"
 
   # A colour is applied to a channel.
   # Extra placeholders: {color} (display name), {color_code} (hex e.g. #FF0000),
+  #                     {color_r}, {color_g}, {color_b} (0.0–1.0 floats),
   #                     {layer}, {channel}
   color-change:
-    - "playsound minecraft:ui.button.click ambient {player} {x} {y} {z} 0.15 1.8"
+    - "playsound minecraft:item.dye.use ambient {player} {x} {y} {z} 0.5 1.2"
+    - "particle dust{color:[{color_r},{color_g},{color_b}],scale:1.5} {x} {y} {z} 0.3 0.5 0.3 0 12"
+    - "particle dust{color:[{color_r},{color_g},{color_b}],scale:0.7} {x} {y} {z} 0.15 0.8 0.15 0.1 8"
 
 # HUD button configuration – controls the look and layout of each button.
 # Text supports MiniMessage format codes: <white>, <yellow>, <bold>, <italic>,

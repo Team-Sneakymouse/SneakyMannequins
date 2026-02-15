@@ -1017,6 +1017,9 @@ class MannequinManager(
             put("layer", layer.id)
             put("color", colorLabel.replace(' ', '\u00A0'))
             put("color_code", colorCode)
+            put("color_r", colorObj?.let { String.format("%.3f", it.red / 255.0) } ?: "1.000")
+            put("color_g", colorObj?.let { String.format("%.3f", it.green / 255.0) } ?: "1.000")
+            put("color_b", colorObj?.let { String.format("%.3f", it.blue / 255.0) } ?: "1.000")
             put("channel", (selectedChannel ?: 0).toString())
         }
         fireTrigger("color-change", ph)
