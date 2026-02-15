@@ -155,6 +155,8 @@ hud-frame:
   enabled: true
   # Minecraft item to display (any valid item ID, e.g. minecraft:glass_pane)
   item: "minecraft:glass_pane"
+  # Custom model data (integer). Set to 0 or remove to use the default model.
+  custom-model-data: 0
   # Item model transform context:
   #   NONE, THIRDPERSON_LEFTHAND, THIRDPERSON_RIGHTHAND,
   #   FIRSTPERSON_LEFTHAND, FIRSTPERSON_RIGHTHAND,

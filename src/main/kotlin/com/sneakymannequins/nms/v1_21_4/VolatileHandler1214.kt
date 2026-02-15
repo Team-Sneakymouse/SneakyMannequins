@@ -208,7 +208,7 @@ class VolatileHandler1214(
     override fun spawnHudItemDisplay(
         viewer: Player, entityId: Int,
         x: Double, y: Double, z: Double,
-        item: String, displayContext: String,
+        item: String, customModelData: Int, displayContext: String,
         tx: Float, ty: Float, tz: Float,
         sx: Float, sy: Float, sz: Float,
         yaw: Float
@@ -217,7 +217,7 @@ class VolatileHandler1214(
         val level = handle.serverLevel()
         val connection = handle.connection
 
-        val display = buildHudItemDisplay(level, item, displayContext, tx, ty, tz, sx, sy, sz, yaw)
+        val display = buildHudItemDisplay(level, item, customModelData, displayContext, tx, ty, tz, sx, sy, sz, yaw)
         display.setPos(x, y, z)
 
         val spawnPacket = ClientboundAddEntityPacket(
@@ -236,7 +236,7 @@ class VolatileHandler1214(
 
     override fun updateHudItemDisplay(
         viewer: Player, entityId: Int,
-        item: String, displayContext: String,
+        item: String, customModelData: Int, displayContext: String,
         tx: Float, ty: Float, tz: Float,
         sx: Float, sy: Float, sz: Float,
         yaw: Float,
@@ -246,7 +246,7 @@ class VolatileHandler1214(
         val level = handle.serverLevel()
         val connection = handle.connection
 
-        val display = buildHudItemDisplay(level, item, displayContext, tx, ty, tz, sx, sy, sz, yaw)
+        val display = buildHudItemDisplay(level, item, customModelData, displayContext, tx, ty, tz, sx, sy, sz, yaw)
         display.setTransformationInterpolationDelay(0)
         display.setTransformationInterpolationDuration(interpolationTicks)
 
@@ -255,7 +255,7 @@ class VolatileHandler1214(
 
     private fun buildHudItemDisplay(
         level: net.minecraft.server.level.ServerLevel,
-        item: String, displayContext: String,
+        item: String, customModelData: Int, displayContext: String,
         tx: Float, ty: Float, tz: Float,
         sx: Float, sy: Float, sz: Float,
         yaw: Float
@@ -266,9 +266,15 @@ class VolatileHandler1214(
         display.setShadowStrength(0f)
         display.setViewRange(32f)
 
-        // Resolve item via Bukkit Material and convert to NMS ItemStack
+        // Resolve item via Bukkit Material, apply custom model data, convert to NMS
         val material = Material.matchMaterial(item) ?: Material.GLASS_PANE
-        display.setItemStack(CraftItemStack.asNMSCopy(BukkitItemStack(material)))
+        val bukkitStack = BukkitItemStack(material)
+        if (customModelData > 0) {
+            val meta = bukkitStack.itemMeta
+            meta?.setCustomModelData(customModelData)
+            bukkitStack.itemMeta = meta
+        }
+        display.setItemStack(CraftItemStack.asNMSCopy(bukkitStack))
 
         // Set display context
         val context = try {

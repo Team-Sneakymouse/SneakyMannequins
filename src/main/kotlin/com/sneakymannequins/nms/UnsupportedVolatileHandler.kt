@@ -63,7 +63,7 @@ class UnsupportedVolatileHandler(
     override fun spawnHudItemDisplay(
         viewer: Player, entityId: Int,
         x: Double, y: Double, z: Double,
-        item: String, displayContext: String,
+        item: String, customModelData: Int, displayContext: String,
         tx: Float, ty: Float, tz: Float,
         sx: Float, sy: Float, sz: Float,
         yaw: Float
@@ -71,7 +71,7 @@ class UnsupportedVolatileHandler(
 
     override fun updateHudItemDisplay(
         viewer: Player, entityId: Int,
-        item: String, displayContext: String,
+        item: String, customModelData: Int, displayContext: String,
         tx: Float, ty: Float, tz: Float,
         sx: Float, sy: Float, sz: Float,
         yaw: Float,

@@ -499,6 +499,7 @@ class MannequinManager(
     private fun spawnHudFrame(player: Player, loc: Location, yaw: Float): Int? {
         if (!plugin.config.getBoolean("hud-frame.enabled", false)) return null
         val item = plugin.config.getString("hud-frame.item") ?: "minecraft:glass_pane"
+        val cmd = plugin.config.getInt("hud-frame.custom-model-data", 0)
         val displayCtx = plugin.config.getString("hud-frame.display-context") ?: "FIXED"
         val tx = plugin.config.getDouble("hud-frame.translation.x", 0.0).toFloat()
         val ty = plugin.config.getDouble("hud-frame.translation.y", 1.7).toFloat()
@@ -512,7 +513,7 @@ class MannequinManager(
         handler.spawnHudItemDisplay(
             viewer = player, entityId = entityId,
             x = loc.x, y = loc.y + FRAME_Y_OFFSET, z = loc.z,
-            item = item, displayContext = displayCtx,
+            item = item, customModelData = cmd, displayContext = displayCtx,
             tx = tx, ty = ty - FRAME_Y_OFFSET.toFloat(), tz = tz,
             sx = sx, sy = sy, sz = sz,
             yaw = yaw
@@ -525,6 +526,7 @@ class MannequinManager(
         val frameId = hud.frameEntityId ?: return
         if (!plugin.config.getBoolean("hud-frame.enabled", false)) return
         val item = plugin.config.getString("hud-frame.item") ?: "minecraft:glass_pane"
+        val cmd = plugin.config.getInt("hud-frame.custom-model-data", 0)
         val displayCtx = plugin.config.getString("hud-frame.display-context") ?: "FIXED"
         val tx = plugin.config.getDouble("hud-frame.translation.x", 0.0).toFloat()
         val ty = plugin.config.getDouble("hud-frame.translation.y", 1.7).toFloat()
@@ -535,7 +537,7 @@ class MannequinManager(
         // Entity lives at Y + FRAME_Y_OFFSET; compensate in translation
         handler.updateHudItemDisplay(
             viewer = player, entityId = frameId,
-            item = item, displayContext = displayCtx,
+            item = item, customModelData = cmd, displayContext = displayCtx,
             tx = tx, ty = ty - FRAME_Y_OFFSET.toFloat(), tz = tz,
             sx = sx, sy = sy, sz = sz,
             yaw = yaw,

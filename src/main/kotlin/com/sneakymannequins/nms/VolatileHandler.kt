@@ -91,7 +91,7 @@ interface VolatileHandler {
     fun spawnHudItemDisplay(
         viewer: Player, entityId: Int,
         x: Double, y: Double, z: Double,
-        item: String, displayContext: String,
+        item: String, customModelData: Int, displayContext: String,
         tx: Float, ty: Float, tz: Float,
         sx: Float, sy: Float, sz: Float,
         yaw: Float
@@ -102,7 +102,7 @@ interface VolatileHandler {
      */
     fun updateHudItemDisplay(
         viewer: Player, entityId: Int,
-        item: String, displayContext: String,
+        item: String, customModelData: Int, displayContext: String,
         tx: Float, ty: Float, tz: Float,
         sx: Float, sy: Float, sz: Float,
         yaw: Float,
