@@ -18,7 +18,9 @@ data class ProjectedPixel(
     val argb: Int,
     val scaleW: Float,  // horizontal pixel size (world units)
     val scaleH: Float,  // vertical pixel size (world units)
-    val visible: Boolean
+    val visible: Boolean,
+    val modelX: Double = 0.0,  // pre-rotation model-space X (for column grouping)
+    val modelZ: Double = 0.0   // pre-rotation model-space Z (for column grouping)
 )
 
 /**
@@ -59,7 +61,9 @@ object PixelProjector {
                 argb = change.argb ?: 0,
                 scaleW = (pose.scaleW * scaleMultiplier).toFloat(),
                 scaleH = (pose.scaleH * scaleMultiplier).toFloat(),
-                visible = isVisible
+                visible = isVisible,
+                modelX = pose.x,
+                modelZ = pose.z
             )
         }
     }

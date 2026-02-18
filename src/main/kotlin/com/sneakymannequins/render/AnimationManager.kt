@@ -1,0 +1,168 @@
+package com.sneakymannequins.render
+
+import com.sneakymannequins.SneakyMannequins
+import com.sneakymannequins.nms.VolatileHandler
+import org.bukkit.entity.Player
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+
+/** Pixel-delivery mode. */
+enum class RenderMode { INSTANT, BUILD }
+
+/** Per-context (first-seen / update) delivery settings. */
+data class RenderSettings(
+    val mode: RenderMode = RenderMode.INSTANT,
+    val tickInterval: Int = 1,
+    val skipChance: Double = 0.5
+)
+
+/**
+ * Manages the delivery of projected pixels to viewers.
+ *
+ * - **INSTANT** mode sends all pixels in a single burst (original behaviour).
+ * - **BUILD** mode queues pixels into [BuildAnimation]s that gradually reveal
+ *   the mannequin from bottom to top, one column-step per tick interval.
+ *
+ * When a new edit arrives while a BUILD animation is still in progress, any
+ * pending (unsent) pixels from the old animation that overlap with the new
+ * edit are cancelled — the new animation takes ownership of those pixels.
+ * The old animation continues for its remaining non-overlapping pixels.
+ */
+class AnimationManager(
+    private val plugin: SneakyMannequins,
+    private val handler: VolatileHandler
+) {
+    /** Per-player list of active build animations. */
+    private val animations = ConcurrentHashMap<UUID, MutableList<BuildAnimation>>()
+    private var taskId: Int = -1
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────────
+
+    fun start() {
+        if (taskId != -1) return
+        taskId = plugin.server.scheduler.scheduleSyncRepeatingTask(plugin, Runnable { tick() }, 0L, 1L)
+    }
+
+    fun stop() {
+        if (taskId != -1) {
+            plugin.server.scheduler.cancelTask(taskId)
+            taskId = -1
+        }
+        animations.clear()
+    }
+
+    // ── Delivery ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Deliver projected pixels to [viewer].
+     *
+     * - [RenderMode.INSTANT]: sends immediately via the volatile handler.
+     * - [RenderMode.BUILD]: queues a new [BuildAnimation], cancelling any
+     *   overlapping pixels from earlier animations for the same mannequin.
+     */
+    fun deliver(
+        viewer: Player,
+        mannequinId: UUID,
+        projected: List<ProjectedPixel>,
+        settings: RenderSettings
+    ) {
+        if (projected.isEmpty()) return
+
+        when (settings.mode) {
+            RenderMode.INSTANT -> {
+                handler.applyProjectedPixels(viewer, mannequinId, projected)
+            }
+            RenderMode.BUILD -> {
+                queueBuild(viewer, mannequinId, projected, settings)
+            }
+        }
+    }
+
+    // ── Cleanup ──────────────────────────────────────────────────────────────────
+
+    /** Remove all animations for a player (e.g. on disconnect). */
+    fun cleanupPlayer(playerUUID: UUID) {
+        animations.remove(playerUUID)
+    }
+
+    /** Cancel all animations targeting a specific mannequin (all players). */
+    fun cancelMannequin(mannequinId: UUID) {
+        for (anims in animations.values) {
+            anims.removeIf { it.mannequinId == mannequinId }
+        }
+        animations.entries.removeIf { it.value.isEmpty() }
+    }
+
+    /** Cancel animations for a mannequin viewed by a specific player. */
+    fun cancelMannequinForPlayer(playerUUID: UUID, mannequinId: UUID) {
+        val anims = animations[playerUUID] ?: return
+        anims.removeIf { it.mannequinId == mannequinId }
+        if (anims.isEmpty()) animations.remove(playerUUID)
+    }
+
+    // ── Internal ─────────────────────────────────────────────────────────────────
+
+    private fun queueBuild(
+        viewer: Player,
+        mannequinId: UUID,
+        projected: List<ProjectedPixel>,
+        settings: RenderSettings
+    ) {
+        val playerAnims = animations.computeIfAbsent(viewer.uniqueId) { mutableListOf() }
+
+        // Cancel overlapping pixels in any existing animation for this mannequin
+        val newIndices = projected.mapTo(HashSet()) { it.index }
+        playerAnims
+            .filter { it.mannequinId == mannequinId }
+            .forEach { it.cancelPixels(newIndices) }
+        playerAnims.removeIf { it.isComplete() }
+
+        // Start the new animation
+        val anim = BuildAnimation.create(
+            mannequinId = mannequinId,
+            projected = projected,
+            tickInterval = settings.tickInterval,
+            skipChance = settings.skipChance
+        )
+        if (!anim.isComplete()) {
+            playerAnims.add(anim)
+        }
+    }
+
+    /**
+     * Called every server tick.  Advances all active BUILD animations and
+     * sends the resulting pixels to each viewer.
+     */
+    private fun tick() {
+        val onlineUUIDs = plugin.server.onlinePlayers.mapTo(HashSet()) { it.uniqueId }
+        val stale = mutableListOf<UUID>()
+
+        for ((playerUUID, anims) in animations) {
+            if (playerUUID !in onlineUUIDs) {
+                stale.add(playerUUID)
+                continue
+            }
+            val player = plugin.server.getPlayer(playerUUID)
+            if (player == null) {
+                stale.add(playerUUID)
+                continue
+            }
+
+            val iter = anims.iterator()
+            while (iter.hasNext()) {
+                val anim = iter.next()
+                val pixels = anim.step()
+                if (pixels.isNotEmpty()) {
+                    handler.applyProjectedPixels(player, anim.mannequinId, pixels)
+                }
+                if (anim.isComplete()) {
+                    iter.remove()
+                }
+            }
+        }
+
+        stale.forEach { animations.remove(it) }
+        animations.entries.removeIf { it.value.isEmpty() }
+    }
+}
+

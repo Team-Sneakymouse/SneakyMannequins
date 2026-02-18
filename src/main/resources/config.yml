@@ -34,6 +34,32 @@ plugin:
     # (catches blacks, near-blacks whose hue is unreliable)
     neutral-brightness-low: 0.10
 
+# ── Rendering & Animation ─────────────────────────────────────────────────────
+rendering:
+  # Radius (blocks) at which a mannequin first appears for a player.
+  view-radius: 8
+  # Radius (blocks) within which a player continues to receive updates.
+  # Players beyond this distance stop getting updates but the mannequin
+  # remains visible until vanilla tracking distance despawns it.
+  update-radius: 15
+
+  # Settings for the first time a player sees a mannequin.
+  first-seen:
+    # INSTANT – all pixels in one burst.
+    # BUILD   – bottom-to-top column animation (staggered, chaotic).
+    mode: BUILD
+    # Ticks between each column advance (BUILD mode only, 1 = every tick).
+    tick-interval: 2
+    # Per-column chance (0.0–1.0) to do nothing on a given tick,
+    # adding organic randomness to the build-up.
+    skip-chance: 0.5
+
+  # Settings for when an already-visible mannequin is updated.
+  update:
+    mode: BUILD
+    tick-interval: 1
+    skip-chance: 0.5
+
 # Command triggers – console commands executed when certain mannequin events occur.
 # Available placeholders (replaced before dispatch):
 #   {player}  – player name          {x} {y} {z} – mannequin location

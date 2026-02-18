@@ -9,7 +9,10 @@ import com.sneakymannequins.model.PixelChange
 import com.sneakymannequins.model.PixelFrame
 import com.sneakymannequins.model.SkinSelection
 import com.sneakymannequins.nms.VolatileHandler
+import com.sneakymannequins.render.AnimationManager
 import com.sneakymannequins.render.PixelProjector
+import com.sneakymannequins.render.RenderMode
+import com.sneakymannequins.render.RenderSettings
 import com.sneakymannequins.util.SkinComposer
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
@@ -93,6 +96,29 @@ class MannequinManager(
     /** playerId → expiry timestamp for random confirmation */
     private val randomConfirm = mutableMapOf<UUID, Long>()
 
+    /** Manages INSTANT / BUILD pixel delivery to viewers. */
+    private val animationManager = AnimationManager(plugin, handler)
+
+    // ── Config-driven radii ─────────────────────────────────────────────────────
+
+    /** Radius at which a mannequin first appears for a player. */
+    private val viewRadius: Double
+        get() = plugin.config.getDouble("rendering.view-radius", 32.0)
+
+    /** Radius within which a player keeps receiving updates. */
+    private val updateRadius: Double
+        get() = plugin.config.getDouble("rendering.update-radius", 48.0)
+
+    /** Read [RenderSettings] from config for first-seen or update context. */
+    private fun readRenderSettings(isFirstSeen: Boolean): RenderSettings {
+        val path = if (isFirstSeen) "rendering.first-seen" else "rendering.update"
+        val modeStr = plugin.config.getString("$path.mode", "INSTANT")?.uppercase() ?: "INSTANT"
+        val mode = runCatching { RenderMode.valueOf(modeStr) }.getOrDefault(RenderMode.INSTANT)
+        val interval = plugin.config.getInt("$path.tick-interval", 1).coerceAtLeast(1)
+        val skip = plugin.config.getDouble("$path.skip-chance", 0.5).coerceIn(0.0, 1.0)
+        return RenderSettings(mode, interval, skip)
+    }
+
     /** Per-mannequin canonical button visuals. */
     private val buttonVisuals = mutableMapOf<UUID, MutableMap<String, ButtonVisual>>()
 
@@ -100,11 +126,11 @@ class MannequinManager(
     private val playerHuds = mutableMapOf<UUID, PlayerHudState>()
 
     private var hoverTaskId: Int = -1
+    private var viewCheckCounter: Int = 0
 
     // ── HUD button layout ───────────────────────────────────────────────────────
 
     companion object {
-        private const val VISIBLE_RANGE_SQ = 32.0 * 32.0
         private const val HOVER_RANGE = 6.0
         private const val INTERACT_RADIUS = 3.0f
         private const val HUD_BG_DEFAULT = 0x78000000.toInt()       // fallback semi-transparent black
@@ -225,6 +251,7 @@ class MannequinManager(
     fun get(id: UUID): Mannequin? = mannequins[id]
 
     fun remove(mannequinId: UUID, viewers: Collection<Player>) {
+        animationManager.cancelMannequin(mannequinId)
         viewers.forEach { viewer -> handler.destroyMannequin(viewer, mannequinId) }
         // Destroy virtual HUDs for all players viewing this mannequin
         destroyHudsForMannequin(mannequinId)
@@ -239,11 +266,13 @@ class MannequinManager(
 
     fun forgetViewer(viewerId: UUID) {
         sentTo.remove(viewerId)
+        animationManager.cleanupPlayer(viewerId)
         destroyPlayerHud(viewerId)
     }
 
     fun shutdown() {
         stopHoverTask()
+        animationManager.stop()
         val viewers = plugin.server.onlinePlayers
         mannequins.keys.forEach { id ->
             viewers.forEach { viewer -> handler.destroyMannequin(viewer, id) }
@@ -259,6 +288,7 @@ class MannequinManager(
 
     fun reloadAll() {
         stopHoverTask()
+        animationManager.stop()
         val viewers = plugin.server.onlinePlayers
         mannequins.keys.forEach { id ->
             viewers.forEach { viewer -> handler.destroyMannequin(viewer, id) }
@@ -280,6 +310,7 @@ class MannequinManager(
 
         hudButtons = loadHudButtons()
         loadFromDisk()
+        animationManager.start()
         startHoverTask()
 
         plugin.server.onlinePlayers.forEach { viewer -> renderVisibleTo(viewer) }
@@ -288,17 +319,41 @@ class MannequinManager(
     // ── Rendering ───────────────────────────────────────────────────────────────
 
     fun renderVisibleTo(viewer: Player) {
-        val nearby = mannequins.values.filter { man ->
-            man.location.world == viewer.world && man.location.distanceSquared(viewer.location) <= VISIBLE_RANGE_SQ
-        }
-        nearby.forEach { man ->
+        val viewRadiusSq = viewRadius * viewRadius
+        val updateRadiusSq = updateRadius * updateRadius
+
+        for (man in mannequins.values) {
+            if (man.location.world != viewer.world) continue
+            val distSq = man.location.distanceSquared(viewer.location)
+
             val seen = sentTo.computeIfAbsent(viewer.uniqueId) { mutableSetOf() }
             if (man.id !in seen) {
-                renderFull(man, listOf(viewer))
-                seen += man.id
+                if (distSq <= viewRadiusSq) {
+                    renderFull(man, listOf(viewer), isFirstSeen = true)
+                    seen += man.id
+                }
             } else {
-                render(man, listOf(viewer))
+                if (distSq <= updateRadiusSq) {
+                    render(man, listOf(viewer))
+                }
             }
+        }
+    }
+
+    /**
+     * Lightweight first-seen check: renders any mannequin within view-radius
+     * that the player hasn't seen yet.  Called periodically from the tick handler
+     * so BUILD animations trigger reliably when a player walks into range.
+     */
+    private fun checkFirstSeen(viewer: Player) {
+        val viewRadiusSq = viewRadius * viewRadius
+        val seen = sentTo.computeIfAbsent(viewer.uniqueId) { mutableSetOf() }
+        for (man in mannequins.values) {
+            if (man.id in seen) continue
+            if (man.location.world != viewer.world) continue
+            if (man.location.distanceSquared(viewer.location) > viewRadiusSq) continue
+            renderFull(man, listOf(viewer), isFirstSeen = true)
+            seen += man.id
         }
     }
 
@@ -319,11 +374,12 @@ class MannequinManager(
             slimArms = isSlimModel(mannequin),
             tPose = poseState[mannequin.id] == true
         )
-        viewers.forEach { viewer -> handler.applyProjectedPixels(viewer, mannequin.id, projected) }
+        val settings = readRenderSettings(isFirstSeen = false)
+        viewers.forEach { viewer -> animationManager.deliver(viewer, mannequin.id, projected, settings) }
         return diff.size
     }
 
-    private fun renderFull(mannequin: Mannequin, viewers: Collection<Player>) {
+    private fun renderFull(mannequin: Mannequin, viewers: Collection<Player>, isFirstSeen: Boolean = false) {
         val definitions = layerManager.definitionsInOrder()
         val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin))
         mannequin.lastFrame = PixelFrame.fromImage(composed)
@@ -344,7 +400,8 @@ class MannequinManager(
             slimArms = isSlimModel(mannequin),
             tPose = poseState[mannequin.id] == true
         )
-        viewers.forEach { viewer -> handler.applyProjectedPixels(viewer, mannequin.id, projected) }
+        val settings = readRenderSettings(isFirstSeen)
+        viewers.forEach { viewer -> animationManager.deliver(viewer, mannequin.id, projected, settings) }
     }
 
     private fun isSlimModel(mannequin: Mannequin): Boolean = mannequin.slimModel
@@ -556,6 +613,7 @@ class MannequinManager(
 
     fun startHoverTask() {
         if (hoverTaskId != -1) return
+        animationManager.start()
         hoverTaskId = plugin.server.scheduler.scheduleSyncRepeatingTask(plugin, Runnable {
             tickHoverAndRotation()
         }, 0L, 1L)
@@ -570,13 +628,19 @@ class MannequinManager(
 
     /**
      * Runs every tick.  For each online player:
+     *  0. (every 10 ticks) Check for mannequins entering view-radius.
      *  1. Find the nearest mannequin (within HOVER_RANGE).
      *  2. Spawn / despawn the virtual HUD as needed.
      *  3. Update the HUD rotation (with interpolation) if the player moved.
      *  4. Determine which button the crosshair is over → highlight it.
      */
     private fun tickHoverAndRotation() {
+        // ── Periodic first-seen check (every 10 ticks = 0.5 s) ──────────
+        val doViewCheck = (++viewCheckCounter % 10 == 0)
+
         for (player in plugin.server.onlinePlayers) {
+            if (doViewCheck) checkFirstSeen(player)
+
             val nearest = nearestMannequin(player.location, HOVER_RANGE)
             val currentHud = playerHuds[player.uniqueId]
 
@@ -775,6 +839,7 @@ class MannequinManager(
                 val modelLabel = if (mannequin.slimModel) "Slim" else "Default"
                 updateStatus(manId, "Model: $modelLabel")
                 val viewers = nearbyViewers(mannequin)
+                animationManager.cancelMannequin(mannequin.id)
                 viewers.forEach { viewer -> handler.destroyMannequin(viewer, mannequin.id) }
                 renderFull(mannequin, viewers)
                 return
@@ -785,8 +850,8 @@ class MannequinManager(
                 updateStatus(manId, if (newPose) "Pose: T-Pose" else "Pose: Default")
                 mannequin.lastFrame = PixelFrame.blank()
                 val viewers = nearbyViewers(mannequin)
+                animationManager.cancelMannequin(mannequin.id)
                 viewers.forEach { v -> handler.destroyMannequin(v, mannequin.id) }
-                renderFull(mannequin, viewers)
                 return
             }
             "random" -> {
@@ -801,6 +866,7 @@ class MannequinManager(
                     if (layer != null) refreshDynamicLabels(manId, option, layer)
                     updateStatus(manId, "Randomised!")
                     val viewers = nearbyViewers(mannequin)
+                    animationManager.cancelMannequin(mannequin.id)
                     viewers.forEach { v -> handler.destroyMannequin(v, mannequin.id) }
                     renderFull(mannequin, viewers)
                 } else {
@@ -1039,10 +1105,12 @@ class MannequinManager(
 
     // ── Utilities ───────────────────────────────────────────────────────────────
 
-    private fun nearbyViewers(mannequin: Mannequin): List<Player> =
-        plugin.server.onlinePlayers.filter {
-            it.world == mannequin.location.world && it.location.distanceSquared(mannequin.location) <= VISIBLE_RANGE_SQ
+    private fun nearbyViewers(mannequin: Mannequin): List<Player> {
+        val radiusSq = updateRadius * updateRadius
+        return plugin.server.onlinePlayers.filter {
+            it.world == mannequin.location.world && it.location.distanceSquared(mannequin.location) <= radiusSq
         }
+    }
 
     private fun bootstrapSelection(): SkinSelection {
         val definitions = layerManager.definitionsInOrder()
