@@ -381,8 +381,10 @@ class LayerManager(
             Rect(0, 16, 16, 32),
             // Right leg overlay
             Rect(0, 32, 16, 48),
-            // Left leg base/overlay area
-            Rect(16, 48, 32, 64)
+            // Left leg base
+            Rect(16, 48, 32, 64),
+            // Left leg overlay
+            Rect(0, 48, 16, 64)
         )
         return regions.any { it.contains(x, y) }
     }
