@@ -356,6 +356,8 @@ class VolatileHandler1214(
                 Quaternionf()
             )
         )
+        display.setTransformationInterpolationDelay(0)
+        display.setTransformationInterpolationDuration(0)
         return display
     }
 
@@ -400,6 +402,8 @@ class VolatileHandler1214(
                 Quaternionf()
             )
         )
+        display.setTransformationInterpolationDelay(0)
+        display.setTransformationInterpolationDuration(0)
         return display
     }
 }

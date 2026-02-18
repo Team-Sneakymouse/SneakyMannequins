@@ -76,7 +76,13 @@ private data class PlayerHudState(
     val entityIds: Map<String, Int>,  // buttonName → virtual entity ID
     val frameEntityId: Int? = null,   // optional backdrop ItemDisplay
     var lastYaw: Float = Float.NaN,
-    var hoveredButton: String? = null
+    var hoveredButton: String? = null,
+    /** True once the fly-in animation has finished and the HUD accepts rotation / hover updates. */
+    var ready: Boolean = false,
+    /** True while the HUD is interpolating away before being destroyed. */
+    var flyingAway: Boolean = false,
+    /** Remaining ticks in the server-driven fly-in animation (0 = done / not animating). */
+    var flyInTicksLeft: Int = 0
 )
 
 // ── Manager ─────────────────────────────────────────────────────────────────────
@@ -140,6 +146,9 @@ class MannequinManager(
         private const val ROTATION_INTERP_TICKS = 3
         private const val YAW_THRESHOLD = 0.02f                     // radians (~1°)
         private const val FRAME_Y_OFFSET = 10.0
+        private const val HUD_FLY_Z_OFFSET = -10.0f                 // local-Z offset for fly-in / fly-out (negative = behind the HUD face, away from player)
+        private const val HUD_FLY_INTERP_TICKS = 10                 // interpolation duration (ticks)
+        private const val HUD_DISMISS_RANGE = 8.0                   // dismiss HUD when player is this far (blocks)
 
         /** Canonical ordered list of button names. */
         private val BUTTON_ORDER = listOf("status", "model", "pose", "random", "layer", "part", "channel", "color")
@@ -355,10 +364,11 @@ class MannequinManager(
             if (man.location.distanceSquared(viewer.location) > viewRadiusSq) continue
             renderFull(man, listOf(viewer), isFirstSeen = true)
             seen += man.id
+            fireTrigger("first-seen", basePlaceholders(viewer, man))
         }
     }
 
-    fun render(mannequin: Mannequin, viewers: Collection<Player>): Int {
+    fun render(mannequin: Mannequin, viewers: Collection<Player>, forceInstant: Boolean = false): Int {
         val definitions = layerManager.definitionsInOrder()
         val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin))
         val nextFrame = PixelFrame.fromImage(composed)
@@ -375,7 +385,8 @@ class MannequinManager(
             slimArms = isSlimModel(mannequin),
             tPose = poseState[mannequin.id] == true
         )
-        val settings = readRenderSettings(isFirstSeen = false)
+        val settings = if (forceInstant) RenderSettings(RenderMode.INSTANT)
+                        else readRenderSettings(isFirstSeen = false)
         viewers.forEach { viewer -> animationManager.deliver(viewer, mannequin.id, projected, settings) }
         return diff.size
     }
@@ -481,7 +492,10 @@ class MannequinManager(
         return mmToJson(formatted)
     }
 
-    /** Spawn the full virtual HUD for a player viewing a mannequin. */
+    /** Spawn the full virtual HUD for a player viewing a mannequin.
+     *  All elements start with a local-Z offset; the tick loop drives them
+     *  toward their final position one step per tick (server-side animation).
+     */
     private fun spawnPlayerHud(player: Player, mannequin: Mannequin, yaw: Float) {
         val manId = mannequin.id
         val loc = mannequin.location
@@ -491,25 +505,29 @@ class MannequinManager(
         for (btn in hudButtons) {
             val entityId = handler.allocateEntityId()
             val vis = visuals[btn.name] ?: ButtonVisual(textJson = btn.textJson, bgColor = btn.bgDefault)
+            // Spawn at the offset Z position (far away); the tick loop will step it forward
             handler.spawnHudTextDisplay(
                 viewer = player, entityId = entityId,
                 x = loc.x, y = loc.y, z = loc.z,
                 textJson = vis.textJson, bgColor = vis.bgColor,
-                tx = btn.tx, ty = btn.ty, tz = btn.tz,
+                tx = btn.tx, ty = btn.ty, tz = btn.tz + HUD_FLY_Z_OFFSET,
                 yaw = yaw, lineWidth = btn.lineWidth
             )
             ids[btn.name] = entityId
         }
 
-        // Spawn optional backdrop ItemDisplay from config
-        val frameId = spawnHudFrame(player, loc, yaw)
+        // Spawn optional backdrop ItemDisplay from config (also at offset Z)
+        val frameId = spawnHudFrame(player, loc, yaw, zOffset = HUD_FLY_Z_OFFSET)
 
         playerHuds[player.uniqueId] = PlayerHudState(
             mannequinId = manId,
             entityIds = ids,
             frameEntityId = frameId,
-            lastYaw = yaw
+            lastYaw = yaw,
+            flyInTicksLeft = HUD_FLY_INTERP_TICKS
         )
+
+        fireTrigger("control-open", basePlaceholders(player, mannequin))
     }
 
     /** Destroy the virtual HUD for a player (if any). */
@@ -523,6 +541,50 @@ class MannequinManager(
         val allIds = state.entityIds.values.toMutableList()
         state.frameEntityId?.let { allIds += it }
         handler.destroyEntities(p, allIds.toIntArray())
+    }
+
+    /**
+     * Animate the HUD flying away (local +Z), then destroy it after the
+     * interpolation completes.  The [hud] is marked as [flyingAway] so the
+     * tick loop stops processing it while the animation plays.
+     */
+    private fun flyAwayPlayerHud(player: Player, hud: PlayerHudState) {
+        if (hud.flyingAway) return
+        hud.flyingAway = true
+
+        val manId = hud.mannequinId
+        val mannequin = mannequins[manId]
+        if (mannequin != null) {
+            fireTrigger("control-closed", basePlaceholders(player, mannequin))
+        }
+        val visuals = buttonVisuals[manId]
+        val yaw = hud.lastYaw
+
+        if (visuals != null) {
+            // Send fly-away updates (push Z further from the player)
+            for (btn in hudButtons) {
+                val entityId = hud.entityIds[btn.name] ?: continue
+                val vis = visuals[btn.name] ?: continue
+                handler.updateHudTextDisplay(
+                    viewer = player, entityId = entityId,
+                    textJson = vis.textJson, bgColor = vis.bgColor,
+                    tx = btn.tx, ty = btn.ty, tz = btn.tz + HUD_FLY_Z_OFFSET,
+                    yaw = yaw, lineWidth = btn.lineWidth,
+                    interpolationTicks = HUD_FLY_INTERP_TICKS
+                )
+            }
+            updateHudFrame(player, hud, yaw, zOffset = HUD_FLY_Z_OFFSET, interpolationTicks = HUD_FLY_INTERP_TICKS)
+        }
+
+        // Schedule destroy after the interpolation finishes
+        val playerId = player.uniqueId
+        plugin.server.scheduler.scheduleSyncDelayedTask(plugin, Runnable {
+            // Only destroy if this exact HUD instance is still active
+            val currentHud = playerHuds[playerId]
+            if (currentHud === hud) {
+                destroyPlayerHud(playerId, plugin.server.getPlayer(playerId))
+            }
+        }, (HUD_FLY_INTERP_TICKS + 1).toLong())
     }
 
     /** Destroy all virtual HUDs that show a specific mannequin. */
@@ -539,12 +601,15 @@ class MannequinManager(
         }
     }
 
-    /** Push the current visual state of one button to all players viewing this mannequin. */
+    /** Push the current visual state of one button to all players viewing this mannequin.
+     *  Skips HUDs that are mid-animation (fly-in or fly-out) to avoid overriding
+     *  the interpolation. */
     private fun pushButtonToViewers(mannequinId: UUID, buttonName: String) {
         val vis = buttonVisuals[mannequinId]?.get(buttonName) ?: return
         val btn = buttonByName(buttonName) ?: return
         playerHuds.forEach { (playerId, state) ->
             if (state.mannequinId != mannequinId) return@forEach
+            if (state.flyingAway || !state.ready) return@forEach
             val player = plugin.server.getPlayer(playerId) ?: return@forEach
             val entityId = state.entityIds[buttonName] ?: return@forEach
             handler.updateHudTextDisplay(
@@ -561,7 +626,7 @@ class MannequinManager(
     // ── HUD frame (ItemDisplay backdrop) ───────────────────────────────────────
 
     /** Read hud-frame config and spawn the ItemDisplay if enabled. Returns entity ID or null. */
-    private fun spawnHudFrame(player: Player, loc: Location, yaw: Float): Int? {
+    private fun spawnHudFrame(player: Player, loc: Location, yaw: Float, zOffset: Float = 0f): Int? {
         if (!plugin.config.getBoolean("hud-frame.enabled", false)) return null
         val item = plugin.config.getString("hud-frame.item") ?: "minecraft:glass_pane"
         val cmd = plugin.config.getInt("hud-frame.custom-model-data", 0)
@@ -579,15 +644,19 @@ class MannequinManager(
             viewer = player, entityId = entityId,
             x = loc.x, y = loc.y + FRAME_Y_OFFSET, z = loc.z,
             item = item, customModelData = cmd, displayContext = displayCtx,
-            tx = tx, ty = ty - FRAME_Y_OFFSET.toFloat(), tz = tz,
+            tx = tx, ty = ty - FRAME_Y_OFFSET.toFloat(), tz = tz + zOffset,
             sx = sx, sy = sy, sz = sz,
             yaw = yaw
         )
         return entityId
     }
 
-    /** Update the frame's rotation to match the new yaw. */
-    private fun updateHudFrame(player: Player, hud: PlayerHudState, yaw: Float) {
+    /** Update the frame's rotation (and optionally Z position) with interpolation. */
+    private fun updateHudFrame(
+        player: Player, hud: PlayerHudState, yaw: Float,
+        zOffset: Float = 0f,
+        interpolationTicks: Int = ROTATION_INTERP_TICKS
+    ) {
         val frameId = hud.frameEntityId ?: return
         if (!plugin.config.getBoolean("hud-frame.enabled", false)) return
         val item = plugin.config.getString("hud-frame.item") ?: "minecraft:glass_pane"
@@ -603,10 +672,10 @@ class MannequinManager(
         handler.updateHudItemDisplay(
             viewer = player, entityId = frameId,
             item = item, customModelData = cmd, displayContext = displayCtx,
-            tx = tx, ty = ty - FRAME_Y_OFFSET.toFloat(), tz = tz,
+            tx = tx, ty = ty - FRAME_Y_OFFSET.toFloat(), tz = tz + zOffset,
             sx = sx, sy = sy, sz = sz,
             yaw = yaw,
-            interpolationTicks = ROTATION_INTERP_TICKS
+            interpolationTicks = interpolationTicks
         )
     }
 
@@ -630,10 +699,13 @@ class MannequinManager(
     /**
      * Runs every tick.  For each online player:
      *  0. (every 10 ticks) Check for mannequins entering view-radius.
-     *  1. Find the nearest mannequin (within HOVER_RANGE).
-     *  2. Spawn / despawn the virtual HUD as needed.
-     *  3. Update the HUD rotation (with interpolation) if the player moved.
-     *  4. Determine which button the crosshair is over → highlight it.
+     *  1. If the player has a HUD, check whether it should be dismissed
+     *     (mannequin removed or player moved beyond [HUD_DISMISS_RANGE]).
+     *  2. Update the HUD rotation (with interpolation) if the player moved.
+     *  3. Determine which button the crosshair is over → highlight it.
+     *
+     * The HUD is **not** spawned here — it is only created when the player
+     * interacts with the Interaction entity (see [handleInteract]).
      */
     private fun tickHoverAndRotation() {
         // ── Periodic first-seen check (every 10 ticks = 0.5 s) ──────────
@@ -642,35 +714,66 @@ class MannequinManager(
         for (player in plugin.server.onlinePlayers) {
             if (doViewCheck) checkFirstSeen(player)
 
-            val nearest = nearestMannequin(player.location, HOVER_RANGE)
-            val currentHud = playerHuds[player.uniqueId]
+            val currentHud = playerHuds[player.uniqueId] ?: continue
 
-            // ── Despawn HUD if mannequin changed or player moved away ────────
-            if (nearest == null || (currentHud != null && currentHud.mannequinId != nearest.id)) {
-                if (currentHud != null) destroyPlayerHud(player)
+            // Skip all processing while flying away
+            if (currentHud.flyingAway) continue
+
+            val mannequin = mannequins[currentHud.mannequinId]
+
+            // ── Dismiss HUD if mannequin was removed ────────────────────────
+            if (mannequin == null) {
+                destroyPlayerHud(player)
+                continue
             }
 
-            if (nearest == null) continue
+            // ── Dismiss HUD if player moved too far away ────────────────────
+            val sameWorld = mannequin.location.world == player.location.world
+            if (!sameWorld || mannequin.location.distance(player.location) > HUD_DISMISS_RANGE) {
+                flyAwayPlayerHud(player, currentHud)
+                continue
+            }
 
             // ── Compute facing yaw (radians, from mannequin toward player) ───
-            val dx = player.location.x - nearest.location.x
-            val dz = player.location.z - nearest.location.z
-            val yaw = atan2(dx, dz).toFloat()  // same convention as Minecraft entity yaw
+            val dx = player.location.x - mannequin.location.x
+            val dz = player.location.z - mannequin.location.z
+            val yaw = atan2(dx, dz).toFloat()
 
-            // ── Spawn HUD if needed ──────────────────────────────────────────
-            if (playerHuds[player.uniqueId] == null) {
-                spawnPlayerHud(player, nearest, yaw)
+            // ── Server-driven fly-in animation ──────────────────────────────
+            if (currentHud.flyInTicksLeft > 0) {
+                currentHud.flyInTicksLeft--
+                // Lerp Z offset from HUD_FLY_Z_OFFSET → 0 over HUD_FLY_INTERP_TICKS
+                val progress = 1.0f - currentHud.flyInTicksLeft.toFloat() / HUD_FLY_INTERP_TICKS
+                val currentZOffset = HUD_FLY_Z_OFFSET * (1.0f - progress) // offset shrinks to 0
+
+                val visuals = buttonVisuals[mannequin.id] ?: continue
+                for (btn in hudButtons) {
+                    val entityId = currentHud.entityIds[btn.name] ?: continue
+                    val vis = visuals[btn.name] ?: continue
+                    handler.updateHudTextDisplay(
+                        viewer = player, entityId = entityId,
+                        textJson = vis.textJson, bgColor = vis.bgColor,
+                        tx = btn.tx, ty = btn.ty, tz = btn.tz + currentZOffset,
+                        yaw = yaw, lineWidth = btn.lineWidth,
+                        interpolationTicks = 2 // micro-interpolation for smoothness
+                    )
+                }
+                updateHudFrame(player, currentHud, yaw, zOffset = currentZOffset, interpolationTicks = 2)
+                currentHud.lastYaw = yaw
+
+                if (currentHud.flyInTicksLeft == 0) {
+                    currentHud.ready = true
+                }
+                continue // skip normal rotation / hover during fly-in
             }
 
-            val hudState = playerHuds[player.uniqueId] ?: continue
-
             // ── Update rotation if yaw changed ──────────────────────────────
-            if (abs(yaw - hudState.lastYaw) > YAW_THRESHOLD) {
-                val visuals = buttonVisuals[nearest.id] ?: continue
+            if (abs(yaw - currentHud.lastYaw) > YAW_THRESHOLD) {
+                val visuals = buttonVisuals[mannequin.id] ?: continue
                 for (btn in hudButtons) {
-                    val entityId = hudState.entityIds[btn.name] ?: continue
+                    val entityId = currentHud.entityIds[btn.name] ?: continue
                     val vis = visuals[btn.name] ?: continue
-                    val bg = if (hudState.hoveredButton == btn.name) btn.bgHighlight else vis.bgColor
+                    val bg = if (currentHud.hoveredButton == btn.name) btn.bgHighlight else vis.bgColor
                     handler.updateHudTextDisplay(
                         viewer = player, entityId = entityId,
                         textJson = vis.textJson, bgColor = bg,
@@ -680,28 +783,28 @@ class MannequinManager(
                     )
                 }
                 // Rotate the backdrop frame alongside the buttons
-                updateHudFrame(player, hudState, yaw)
-                hudState.lastYaw = yaw
+                updateHudFrame(player, currentHud, yaw)
+                currentHud.lastYaw = yaw
             }
 
             // ── Hover detection ─────────────────────────────────────────────
-            val hovered = computeHoveredButton(player, nearest)
-            val prev = hudState.hoveredButton
+            val hovered = computeHoveredButton(player, mannequin)
+            val prev = currentHud.hoveredButton
 
             if (hovered != prev) {
                 // Un-highlight previous
                 if (prev != null) {
                     val prevBtn = buttonByName(prev)
-                    sendButtonBg(player, hudState, nearest.id, prev, prevBtn?.bgDefault ?: HUD_BG_DEFAULT)
+                    sendButtonBg(player, currentHud, mannequin.id, prev, prevBtn?.bgDefault ?: HUD_BG_DEFAULT)
                 }
                 // Highlight new
                 if (hovered != null) {
                     val hovBtn = buttonByName(hovered)
-                    sendButtonBg(player, hudState, nearest.id, hovered, hovBtn?.bgHighlight ?: HUD_BG_HIGHLIGHT)
-                    val ph = basePlaceholders(player, nearest).apply { put("button", hovered) }
+                    sendButtonBg(player, currentHud, mannequin.id, hovered, hovBtn?.bgHighlight ?: HUD_BG_HIGHLIGHT)
+                    val ph = basePlaceholders(player, mannequin).apply { put("button", hovered) }
                     fireTrigger("hover", ph)
                 }
-                hudState.hoveredButton = hovered
+                currentHud.hoveredButton = hovered
             }
         }
     }
@@ -781,7 +884,12 @@ class MannequinManager(
 
     /**
      * Called when a player interacts with (left/right click) the Interaction entity.
-     * Uses the hover state to determine which button was targeted.
+     *
+     * - If the player has no HUD (or it belongs to a different mannequin, or
+     *   it is flying away), the first click spawns the HUD with a fly-in
+     *   animation and does nothing else.
+     * - Subsequent clicks use the hover state to determine which button was
+     *   targeted and execute it.
      */
     fun handleInteract(entity: Entity, player: Player, backwards: Boolean) {
         if (entity !is org.bukkit.entity.Interaction) return
@@ -800,8 +908,23 @@ class MannequinManager(
         val mannequin = mannequins[manId] ?: return
         val state = controlState.getOrPut(manId) { ControlState() }
 
-        // Use the already-computed hover from the tick loop
-        val hoveredButton = playerHuds[player.uniqueId]?.hoveredButton
+        // ── Open HUD on first interaction ────────────────────────────────
+        val currentHud = playerHuds[player.uniqueId]
+        if (currentHud == null || currentHud.mannequinId != manId || currentHud.flyingAway) {
+            // Destroy any stale / wrong-mannequin / flying-away HUD first
+            if (currentHud != null) destroyPlayerHud(player)
+            val dx = player.location.x - mannequin.location.x
+            val dz = player.location.z - mannequin.location.z
+            val yaw = atan2(dx, dz).toFloat()
+            spawnPlayerHud(player, mannequin, yaw)
+            return // first click only opens the panel
+        }
+
+        // Ignore clicks while the HUD is still flying in
+        if (!currentHud.ready) return
+
+        // ── Execute button / mode action ─────────────────────────────────
+        val hoveredButton = currentHud.hoveredButton
 
         if (hoveredButton != null && hoveredButton in CLICKABLE_BUTTONS) {
             executeButton(hoveredButton, manId, mannequin, state, player, backwards)
@@ -928,14 +1051,14 @@ class MannequinManager(
                         selections = mannequin.selection.selections + (layer.id to flashSel)
                     )
                     val viewers = nearbyViewers(mannequin)
-                    render(mannequin, viewers)
+                    render(mannequin, viewers, forceInstant = true)
 
                     val restoreSel = flashSel.copy(channelColors = savedColors)
                     plugin.server.scheduler.runTaskLater(plugin, Runnable {
                         mannequin.selection = mannequin.selection.copy(
                             selections = mannequin.selection.selections + (layer.id to restoreSel)
                         )
-                        render(mannequin, nearbyViewers(mannequin))
+                        render(mannequin, nearbyViewers(mannequin), forceInstant = true)
                     }, 10L)
                     refreshDynamicLabels(manId, option, layer)
                     return // already rendered
