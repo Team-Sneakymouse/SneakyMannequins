@@ -85,7 +85,7 @@ object PixelProjector {
             val psH = if (overlay) (h + 1.0) / h * s else s
             val lx = x - x0
             val ly = (y0 + h - 1) - y
-            return PixelPose(cx + (lx - (w - 1) / 2.0) * psW, by + ly * psH, z, 0f, 0f, psW, psH)
+            return PixelPose(cx + (lx - (w - 1) / 2.0) * psW, by + (ly + 0.5) * psH, z, 0f, 0f, psW, psH)
         }
 
         fun faceBack(x0: Int, y0: Int, w: Int, h: Int, cx: Double, by: Double, z: Double, overlay: Boolean = false): PixelPose? {
@@ -94,7 +94,7 @@ object PixelProjector {
             val psH = if (overlay) (h + 1.0) / h * s else s
             val lx = x - x0
             val ly = (y0 + h - 1) - y
-            return PixelPose(cx - (lx - (w - 1) / 2.0) * psW, by + ly * psH, z, 180f, 0f, psW, psH)
+            return PixelPose(cx - (lx - (w - 1) / 2.0) * psW, by + (ly + 0.5) * psH, z, 180f, 0f, psW, psH)
         }
 
         fun faceLeft(x0: Int, y0: Int, w: Int, h: Int, planeX: Double, by: Double, depth: Double, overlay: Boolean = false): PixelPose? {
@@ -103,7 +103,7 @@ object PixelProjector {
             val psH = if (overlay) (h + 1.0) / h * s else s  // vertical axis
             val lz = x - x0
             val ly = (y0 + h - 1) - y
-            return PixelPose(planeX, by + ly * psH, depth - (lz - (w - 1) / 2.0) * psW, 90f, 0f, psW, psH)
+            return PixelPose(planeX, by + (ly + 0.5) * psH, depth - (lz - (w - 1) / 2.0) * psW, 90f, 0f, psW, psH)
         }
 
         fun faceRight(x0: Int, y0: Int, w: Int, h: Int, planeX: Double, by: Double, depth: Double, overlay: Boolean = false): PixelPose? {
@@ -112,7 +112,7 @@ object PixelProjector {
             val psH = if (overlay) (h + 1.0) / h * s else s
             val lz = x - x0
             val ly = (y0 + h - 1) - y
-            return PixelPose(planeX, by + ly * psH, depth + (lz - (w - 1) / 2.0) * psW, -90f, 0f, psW, psH)
+            return PixelPose(planeX, by + (ly + 0.5) * psH, depth + (lz - (w - 1) / 2.0) * psW, -90f, 0f, psW, psH)
         }
 
         fun faceLeftFlipped(x0: Int, y0: Int, w: Int, h: Int, planeX: Double, by: Double, depth: Double, overlay: Boolean = false): PixelPose? {
@@ -121,7 +121,7 @@ object PixelProjector {
             val psH = if (overlay) (h + 1.0) / h * s else s
             val lz = (x0 + w - 1) - x
             val ly = (y0 + h - 1) - y
-            return PixelPose(planeX, by + ly * psH, depth - (lz - (w - 1) / 2.0) * psW, 90f, 0f, psW, psH)
+            return PixelPose(planeX, by + (ly + 0.5) * psH, depth - (lz - (w - 1) / 2.0) * psW, 90f, 0f, psW, psH)
         }
 
         fun faceRightFlipped(x0: Int, y0: Int, w: Int, h: Int, planeX: Double, by: Double, depth: Double, overlay: Boolean = false): PixelPose? {
@@ -130,7 +130,7 @@ object PixelProjector {
             val psH = if (overlay) (h + 1.0) / h * s else s
             val lz = (x0 + w - 1) - x
             val ly = (y0 + h - 1) - y
-            return PixelPose(planeX, by + ly * psH, depth + (lz - (w - 1) / 2.0) * psW, -90f, 0f, psW, psH)
+            return PixelPose(planeX, by + (ly + 0.5) * psH, depth + (lz - (w - 1) / 2.0) * psW, -90f, 0f, psW, psH)
         }
 
         fun faceTop(x0: Int, y0: Int, w: Int, h: Int, cx: Double, topY: Double, depth: Double, overlay: Boolean = false): PixelPose? {
@@ -140,7 +140,7 @@ object PixelProjector {
             val lx = x - x0
             val lz = (y0 + h - 1) - y
             val shift = psH * 0.5
-            return PixelPose(cx + (lx - (w - 1) / 2.0) * psW, topY, depth - (lz - (h - 1) / 2.0) * psH + shift, 0f, -90f, psW, psH)
+            return PixelPose(cx + (lx - (w - 1) / 2.0) * psW, topY + 0.5 * s, depth - (lz - (h - 1) / 2.0) * psH + shift, 0f, -90f, psW, psH)
         }
 
         fun faceBottom(x0: Int, y0: Int, w: Int, h: Int, cx: Double, bottomY: Double, depth: Double, overlay: Boolean = false): PixelPose? {
@@ -150,7 +150,7 @@ object PixelProjector {
             val lx = x - x0
             val lz = y - y0
             val shift = psH * 0.5
-            return PixelPose(cx + (lx - (w - 1) / 2.0) * psW, bottomY, depth + (lz - (h - 1) / 2.0) * psH - shift, 0f, 90f, psW, psH)
+            return PixelPose(cx + (lx - (w - 1) / 2.0) * psW, bottomY + 0.5 * s, depth + (lz - (h - 1) / 2.0) * psH - shift, 0f, 90f, psW, psH)
         }
 
         val headY = 24.0 * s

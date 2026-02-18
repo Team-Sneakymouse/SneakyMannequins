@@ -76,19 +76,30 @@ class VolatileHandler1214(
             spawn = { proj, entityId ->
                 val display = TextDisplay(EntityType.TEXT_DISPLAY, level)
                 display.setPos(proj.x, proj.y, proj.z)
-                display.setYRot(proj.yaw)
-                display.setXRot(proj.pitch)
+                // Entity rotation stays at 0; face orientation lives in the
+                // transformation's left-rotation quaternion so the client
+                // renderer handles all visual positioning via the transform.
                 display.setBillboardConstraints(Display.BillboardConstraints.FIXED)
                 display.setShadowRadius(0f)
                 display.setShadowStrength(0f)
                 display.setViewRange(32f)
                 val sw = proj.scaleW   // horizontal pixel size
                 val sh = proj.scaleH   // vertical pixel size
+                val yawRad = Math.toRadians(-proj.yaw.toDouble()).toFloat()
+                val pitchRad = Math.toRadians(proj.pitch.toDouble()).toFloat()
+                val rotation = Quaternionf().rotateY(yawRad).rotateX(pitchRad)
+
+                // The TextDisplay background is rendered slightly to the right of where
+                // we expect it. Compensate with a small leftward nudge in local-X.
+                // The value 0.025 was determined empirically.
+                val localXDir = Vector3f(1f, 0f, 0f)
+                rotation.transform(localXDir)
+                val nudge = -0.025f * sw
                 display.setTransformation(
                     com.mojang.math.Transformation(
-                        Vector3f(0f, 0f, 0f),
-                        Quaternionf(),
-                        Vector3f(sw * 2.1f, sh, sh), // widen X to match Y visual size
+                        Vector3f(nudge * localXDir.x, nudge * localXDir.y, nudge * localXDir.z),
+                        rotation,
+                        Vector3f(sw * 2f, sh, sh), // widen X to match Y visual size
                         Quaternionf()
                     )
                 )
@@ -106,8 +117,8 @@ class VolatileHandler1214(
                     display.x,
                     display.y,
                     display.z,
-                    display.xRot,
-                    display.yRot,
+                    0f,   // no entity pitch — orientation is in the transformation
+                    0f,   // no entity yaw
                     EntityType.TEXT_DISPLAY,
                     0,
                     Vec3.ZERO,
