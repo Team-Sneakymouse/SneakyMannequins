@@ -13,7 +13,9 @@ enum class RenderMode { INSTANT, BUILD }
 data class RenderSettings(
     val mode: RenderMode = RenderMode.INSTANT,
     val tickInterval: Int = 1,
-    val skipChance: Double = 0.5
+    val skipChance: Double = 0.5,
+    /** Max pixels per build step that fly in from a distance (0 = disabled). */
+    val flyInCount: Int = 0
 )
 
 /**
@@ -122,7 +124,8 @@ class AnimationManager(
             mannequinId = mannequinId,
             projected = projected,
             tickInterval = settings.tickInterval,
-            skipChance = settings.skipChance
+            skipChance = settings.skipChance,
+            flyInCount = settings.flyInCount
         )
         if (!anim.isComplete()) {
             playerAnims.add(anim)
@@ -151,9 +154,15 @@ class AnimationManager(
             val iter = anims.iterator()
             while (iter.hasNext()) {
                 val anim = iter.next()
-                val pixels = anim.step()
-                if (pixels.isNotEmpty()) {
-                    handler.applyProjectedPixels(player, anim.mannequinId, pixels)
+                val result = anim.step()
+                if (result.pixels.isNotEmpty()) {
+                    if (result.flyInOffsets.isNotEmpty()) {
+                        handler.applyProjectedPixelsAnimated(
+                            player, anim.mannequinId, result.pixels, result.flyInOffsets
+                        )
+                    } else {
+                        handler.applyProjectedPixels(player, anim.mannequinId, result.pixels)
+                    }
                 }
                 if (anim.isComplete()) {
                     iter.remove()

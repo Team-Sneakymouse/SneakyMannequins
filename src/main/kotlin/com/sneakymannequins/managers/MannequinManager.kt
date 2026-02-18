@@ -116,7 +116,8 @@ class MannequinManager(
         val mode = runCatching { RenderMode.valueOf(modeStr) }.getOrDefault(RenderMode.INSTANT)
         val interval = plugin.config.getInt("$path.tick-interval", 1).coerceAtLeast(1)
         val skip = plugin.config.getDouble("$path.skip-chance", 0.5).coerceIn(0.0, 1.0)
-        return RenderSettings(mode, interval, skip)
+        val flyIn = plugin.config.getInt("$path.fly-in-count", 0).coerceAtLeast(0)
+        return RenderSettings(mode, interval, skip, flyIn)
     }
 
     /** Per-mannequin canonical button visuals. */

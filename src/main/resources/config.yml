@@ -53,12 +53,17 @@ rendering:
     # Per-column chance (0.0–1.0) to do nothing on a given tick,
     # adding organic randomness to the build-up.
     skip-chance: 0.5
+    # Max pixels per build step that "fly in" from a random distant position.
+    # Each fly-in pixel starts 2–5 blocks away and interpolates to its target
+    # over tick-interval ticks.  Set to 0 to disable.
+    fly-in-count: 5
 
   # Settings for when an already-visible mannequin is updated.
   update:
     mode: BUILD
     tick-interval: 1
     skip-chance: 0.5
+    fly-in-count: 5
 
 # Command triggers – console commands executed when certain mannequin events occur.
 # Available placeholders (replaced before dispatch):

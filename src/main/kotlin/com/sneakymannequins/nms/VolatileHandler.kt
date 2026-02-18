@@ -1,6 +1,7 @@
 package com.sneakymannequins.nms
 
 import com.sneakymannequins.model.PixelChange
+import com.sneakymannequins.render.FlyInOffset
 import com.sneakymannequins.render.ProjectedPixel
 import org.bukkit.Location
 import org.bukkit.entity.Player
@@ -30,6 +31,24 @@ interface VolatileHandler {
         mannequinId: UUID,
         projected: Collection<ProjectedPixel>
     )
+
+    /**
+     * Like [applyProjectedPixels], but pixels whose [ProjectedPixel.index]
+     * appears in [flyInOffsets] are spawned at a distant offset position and
+     * then interpolated to their correct location over the specified number
+     * of ticks.
+     *
+     * The default implementation ignores fly-in offsets and falls through to
+     * [applyProjectedPixels].
+     */
+    fun applyProjectedPixelsAnimated(
+        viewer: Player,
+        mannequinId: UUID,
+        projected: Collection<ProjectedPixel>,
+        flyInOffsets: Map<Int, FlyInOffset>
+    ) {
+        applyProjectedPixels(viewer, mannequinId, projected)
+    }
 
     fun destroyMannequin(viewer: Player, mannequinId: UUID)
 

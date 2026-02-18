@@ -3,6 +3,35 @@ package com.sneakymannequins.render
 import java.util.UUID
 
 /**
+ * A transformation offset for a pixel that should "fly in" from a
+ * random distant position and interpolate to its final location.
+ */
+data class FlyInOffset(
+    val offsetX: Float,
+    val offsetY: Float,
+    val offsetZ: Float,
+    /** Number of client ticks over which the entity interpolates to its target position. */
+    val interpolationTicks: Int
+)
+
+/**
+ * Result of a single [BuildAnimation.step].
+ *
+ * @property pixels         All pixels that should be delivered this step.
+ * @property flyInOffsets   Subset of [pixels] (keyed by [ProjectedPixel.index]) that
+ *                          should spawn at a random offset and interpolate to their
+ *                          target position over [FlyInOffset.interpolationTicks] ticks.
+ */
+data class StepResult(
+    val pixels: List<ProjectedPixel>,
+    val flyInOffsets: Map<Int, FlyInOffset>
+) {
+    companion object {
+        val EMPTY = StepResult(emptyList(), emptyMap())
+    }
+}
+
+/**
  * Tracks the state of a bottom-to-top BUILD animation for a single
  * mannequin viewed by a single player.
  *
@@ -22,6 +51,10 @@ import java.util.UUID
  * can advance by at most 1 band per step.  This creates a visible rising
  * wave: feet first, then legs, body, arms, and finally the head.  The
  * skip-chance adds organic stagger within each tier.
+ *
+ * **Fly-in effect**: each step, up to [flyInCount] randomly-chosen pixels
+ * are tagged with a [FlyInOffset].  These pixels spawn at a distant
+ * position and interpolate to their target over [tickInterval] ticks.
  */
 class BuildAnimation private constructor(
     val mannequinId: UUID,
@@ -30,6 +63,7 @@ class BuildAnimation private constructor(
     private val cancelled: MutableSet<Int>,
     private val tickInterval: Int,
     private val skipChance: Double,
+    private val flyInCount: Int,
     /** The absolute lowest Y-band key across all columns / bands. */
     private val globalMinBand: Int
 ) {
@@ -73,12 +107,12 @@ class BuildAnimation private constructor(
     /**
      * Advance the animation by one server tick.
      *
-     * @return the pixels that should be sent this tick (may be empty if the
-     *         interval hasn't elapsed yet, or every column rolled a skip).
+     * @return a [StepResult] with the pixels to send and any fly-in offsets.
+     *         [StepResult.EMPTY] if nothing to do this tick.
      */
-    fun step(): List<ProjectedPixel> {
+    fun step(): StepResult {
         tickCounter++
-        if (tickCounter < tickInterval) return emptyList()
+        if (tickCounter < tickInterval) return StepResult.EMPTY
         tickCounter = 0
 
         // Snapshot the wave front from the *previous* step.
@@ -115,7 +149,40 @@ class BuildAnimation private constructor(
                 highWaterBand = band.yKey
             }
         }
-        return result
+
+        if (result.isEmpty()) return StepResult.EMPTY
+
+        // ── Fly-in selection ────────────────────────────────────────────
+        val flyInOffsets = mutableMapOf<Int, FlyInOffset>()
+        if (flyInCount > 0) {
+            val chosen = if (result.size <= flyInCount) {
+                result
+            } else {
+                result.shuffled(random).take(flyInCount)
+            }
+            for (pixel in chosen) {
+                flyInOffsets[pixel.index] = randomFlyInOffset()
+            }
+        }
+
+        return StepResult(result, flyInOffsets)
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────────
+
+    /**
+     * Generate a random fly-in offset.
+     * X / Z: ±[1, 3] (random sign), Y: [1, 3] (always up).
+     */
+    private fun randomFlyInOffset(): FlyInOffset {
+        val xSign = if (random.nextBoolean()) 1f else -1f
+        val zSign = if (random.nextBoolean()) 1f else -1f
+        return FlyInOffset(
+            offsetX = xSign * (1f + random.nextFloat() * 2f),
+            offsetY = 1f + random.nextFloat() * 2f,
+            offsetZ = zSign * (1f + random.nextFloat() * 2f),
+            interpolationTicks = tickInterval * 2
+        )
     }
 
     // ── Factory ─────────────────────────────────────────────────────────────────
@@ -132,7 +199,8 @@ class BuildAnimation private constructor(
             mannequinId: UUID,
             projected: List<ProjectedPixel>,
             tickInterval: Int,
-            skipChance: Double
+            skipChance: Double,
+            flyInCount: Int = 0
         ): BuildAnimation {
             // Step 1: group pixels into (column, Y-band) buckets
             val grouped = mutableMapOf<ColumnKey, MutableMap<Int, MutableList<ProjectedPixel>>>()
@@ -167,6 +235,7 @@ class BuildAnimation private constructor(
                 cancelled = mutableSetOf(),
                 tickInterval = tickInterval,
                 skipChance = skipChance,
+                flyInCount = flyInCount,
                 globalMinBand = globalMinBand
             )
         }

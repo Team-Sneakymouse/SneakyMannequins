@@ -4,6 +4,7 @@ import com.sneakymannequins.SneakyMannequins
 import com.sneakymannequins.model.PixelChange
 import com.sneakymannequins.nms.VolatileHandler
 import com.sneakymannequins.nms.PixelRenderManager
+import com.sneakymannequins.render.FlyInOffset
 import com.sneakymannequins.render.PixelProjector
 import com.sneakymannequins.render.ProjectedPixel
 import net.minecraft.network.protocol.game.ClientboundAddEntityPacket
@@ -57,13 +58,22 @@ class VolatileHandler1214(
         mannequinId: UUID,
         projected: Collection<ProjectedPixel>
     ) {
+        applyProjectedPixelsAnimated(viewer, mannequinId, projected, emptyMap())
+    }
+
+    override fun applyProjectedPixelsAnimated(
+        viewer: Player,
+        mannequinId: UUID,
+        projected: Collection<ProjectedPixel>,
+        flyInOffsets: Map<Int, FlyInOffset>
+    ) {
         val handle = (viewer as CraftPlayer).handle as ServerPlayer
         val level = handle.serverLevel()
         val connection = handle.connection
 
         if (plugin.config.getBoolean("plugin.debug", false)) {
             val visibleCount = projected.size
-            plugin.logger.info("[NMS] applyPixelChanges viewer=${viewer.name} mannequin=$mannequinId projected=$visibleCount")
+            plugin.logger.info("[NMS] applyPixelChanges viewer=${viewer.name} mannequin=$mannequinId projected=$visibleCount flyIns=${flyInOffsets.size}")
             projected.take(3).forEach {
                 plugin.logger.info("[NMS]   proj idx=${it.index} pos=(${it.x},${it.y},${it.z}) yaw=${it.yaw} argb=${it.argb.toString(16)}")
             }
@@ -95,14 +105,33 @@ class VolatileHandler1214(
                 val localXDir = Vector3f(1f, 0f, 0f)
                 rotation.transform(localXDir)
                 val nudge = -0.025f * sw
-                display.setTransformation(
-                    com.mojang.math.Transformation(
-                        Vector3f(nudge * localXDir.x, nudge * localXDir.y, nudge * localXDir.z),
-                        rotation,
-                        Vector3f(sw * 2f, sh, sh), // widen X to match Y visual size
-                        Quaternionf()
-                    )
+
+                val baseTranslation = Vector3f(
+                    nudge * localXDir.x,
+                    nudge * localXDir.y,
+                    nudge * localXDir.z
                 )
+                val scale = Vector3f(sw * 2f, sh, sh) // widen X to match Y visual size
+
+                val flyIn = flyInOffsets[proj.index]
+                if (flyIn != null) {
+                    // ── Fly-in spawn: start at a distant offset, then interpolate ──
+
+                    // 1) Spawn with offset translation (instant — duration 0)
+                    val offsetTranslation = Vector3f(baseTranslation).add(
+                        flyIn.offsetX, flyIn.offsetY, flyIn.offsetZ
+                    )
+                    display.setTransformation(
+                        com.mojang.math.Transformation(offsetTranslation, rotation, scale, Quaternionf())
+                    )
+                    display.setTransformationInterpolationDelay(0)
+                    display.setTransformationInterpolationDuration(0)
+                } else {
+                    // ── Normal spawn ──
+                    display.setTransformation(
+                        com.mojang.math.Transformation(baseTranslation, rotation, scale, Quaternionf())
+                    )
+                }
 
                 val argb = proj.argb
                 display.setText(Component.literal(" "))
@@ -126,6 +155,26 @@ class VolatileHandler1214(
                 )
                 connection.send(spawnPacket)
                 connection.send(ClientboundSetEntityDataPacket(entityId, display.entityData.packAll()))
+
+                if (flyIn != null) {
+                    // 2) Schedule the target transformation for the next tick so the
+                    //    client has a frame to register the offset as the "old" position
+                    //    before interpolation begins.  We reuse the original `display`
+                    //    object (captured by the lambda) so packAll() re-sends all
+                    //    properties with the corrected transformation.
+                    val interpTicks = flyIn.interpolationTicks
+                    plugin.server.scheduler.scheduleSyncDelayedTask(plugin, Runnable {
+                        if (!viewer.isOnline) return@Runnable
+                        display.setTransformation(
+                            com.mojang.math.Transformation(baseTranslation, rotation, scale, Quaternionf())
+                        )
+                        display.setTransformationInterpolationDelay(0)
+                        display.setTransformationInterpolationDuration(interpTicks)
+                        val conn = (viewer as CraftPlayer).handle.connection
+                        conn.send(ClientboundSetEntityDataPacket(entityId, display.entityData.packAll()))
+                    }, 1L)
+                }
+
                 if (plugin.config.getBoolean("plugin.debug", false) && proj.index == 0) {
                     plugin.logger.info("[NMS] spawned first pixel entityId=$entityId pos=(${proj.x},${proj.y},${proj.z}) argb=${argb.toString(16)}")
                 }
