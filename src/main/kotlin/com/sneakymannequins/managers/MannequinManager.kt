@@ -413,7 +413,7 @@ class MannequinManager(
         return diff.size
     }
 
-    private fun renderFull(mannequin: Mannequin, viewers: Collection<Player>, isFirstSeen: Boolean = false) {
+    private fun renderFull(mannequin: Mannequin, viewers: Collection<Player>, isFirstSeen: Boolean = false, forceInstant: Boolean = false) {
         val definitions = layerManager.definitionsInOrder()
         val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin), optionResolver = optionResolver)
         mannequin.lastFrame = PixelFrame.fromImage(composed)
@@ -434,7 +434,8 @@ class MannequinManager(
             slimArms = isSlimModel(mannequin),
             tPose = poseState[mannequin.id] == true
         )
-        val settings = readRenderSettings(isFirstSeen)
+        val settings = if (forceInstant) RenderSettings(RenderMode.INSTANT)
+                        else readRenderSettings(isFirstSeen)
         viewers.forEach { viewer -> animationManager.deliver(viewer, mannequin.id, projected, settings) }
     }
 
@@ -998,6 +999,7 @@ class MannequinManager(
                 val viewers = nearbyViewers(mannequin)
                 animationManager.cancelMannequin(mannequin.id)
                 viewers.forEach { v -> handler.destroyMannequin(v, mannequin.id) }
+                renderFull(mannequin, viewers, forceInstant = true)
                 return
             }
             "random" -> {
