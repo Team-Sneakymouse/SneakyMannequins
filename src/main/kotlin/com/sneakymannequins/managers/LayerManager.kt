@@ -35,12 +35,12 @@ class LayerManager(
         }
 
         loadPalettes(root.getConfigurationSection("palettes"))
-        defaultPaletteSpec = parsePaletteSpec(root, prefix = "default-")
 
         val definitions = root.getConfigurationSection("definitions") ?: run {
             plugin.logger.warning("No layer definitions found in config.")
             return
         }
+        defaultPaletteSpec = parsePaletteSpec(definitions)
         val configuredOrder = root.getStringList("order")
         if (configuredOrder.isNotEmpty()) {
             layerOrder.addAll(configuredOrder)
@@ -897,15 +897,7 @@ class LayerManager(
         val allowMask = getBoolean("allow-color-mask", false)
         val directory = dataFolder.resolve(getString("directory", "layers/$id") ?: "layers/$id").normalize()
 
-        // Parse the layer-level palette spec.
-        // Backward-compat: "default-palettes" is treated as the plain "palettes" category.
-        var spec = parsePaletteSpec(this)
-        if (spec.palettes == null) {
-            val legacy = getStringList("default-palettes")
-            if (legacy.isNotEmpty()) {
-                spec = spec.copy(palettes = legacy.map { PaletteRef(it) })
-            }
-        }
+        val spec = parsePaletteSpec(this)
 
         return LayerDefinition(
             id = id,

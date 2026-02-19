@@ -38,6 +38,8 @@ private data class ControlState(
     val partIndex: MutableMap<String, Int> = mutableMapOf(),
     val colorIndex: MutableMap<String, Int> = mutableMapOf(),
     val channelIndex: MutableMap<String, Int> = mutableMapOf(),
+    /** Per-layer selected palette index (into the resolved palette list). -1 = "All" (use every palette). */
+    val paletteIndex: MutableMap<String, Int> = mutableMapOf(),
     var mode: ControlMode = ControlMode.NONE
 )
 
@@ -151,10 +153,10 @@ class MannequinManager(
         private const val HUD_DISMISS_RANGE = 8.0                   // dismiss HUD when player is this far (blocks)
 
         /** Canonical ordered list of button names. */
-        private val BUTTON_ORDER = listOf("status", "model", "pose", "random", "layer", "part", "channel", "color")
+        private val BUTTON_ORDER = listOf("status", "model", "pose", "layer", "random", "part", "channel", "palette", "color")
 
         /** Button names that respond to clicks.  "status" is display-only. */
-        private val CLICKABLE_BUTTONS = setOf("model", "pose", "random", "layer", "part", "channel", "color")
+        private val CLICKABLE_BUTTONS = setOf("model", "pose", "random", "layer", "part", "channel", "palette", "color")
 
         /** Hardcoded defaults used when a key is absent from config. */
         private data class BtnDefault(val text: String, val activeText: String?, val tx: Float, val ty: Float, val tz: Float, val lineWidth: Int)
@@ -162,10 +164,11 @@ class MannequinManager(
             "status"  to BtnDefault("<white>{message}", null,            0.0f,  2.8f, -2.0f, 256),
             "model"   to BtnDefault("<white>Model",    null,           -1.1f,  2.2f, -2.0f, 200),
             "pose"    to BtnDefault("<white>Pose",     null,           -1.1f,  1.7f, -2.0f, 200),
-            "random"  to BtnDefault("<white>Random",   null,           -1.1f,  1.2f, -2.0f, 200),
-            "layer"   to BtnDefault("<white>Layer",    null,            1.1f,  2.2f, -2.0f, 200),
-            "part"    to BtnDefault("<white>Part",     "<yellow>Part",  1.1f,  1.7f, -2.0f, 200),
-            "channel" to BtnDefault("<white>Channel",  null,            1.1f,  1.2f, -2.0f, 200),
+            "layer"   to BtnDefault("<white>Layer",    null,           -1.1f,  1.2f, -2.0f, 200),
+            "random"  to BtnDefault("<white>Random",   null,           -1.1f,  0.7f, -2.0f, 200),
+            "part"    to BtnDefault("<white>Part",     "<yellow>Part",  1.1f,  2.2f, -2.0f, 200),
+            "channel" to BtnDefault("<white>Channel",  null,            1.1f,  1.7f, -2.0f, 200),
+            "palette" to BtnDefault("<white>Palette",  null,            1.1f,  1.2f, -2.0f, 200),
             "color"   to BtnDefault("<white>Color",    "<yellow>Color", 1.1f,  0.7f, -2.0f, 200),
         )
 
@@ -1029,6 +1032,7 @@ class MannequinManager(
                 state.colorIndex[newLayer.id] = 0
                 state.mode = ControlMode.PART
                 val option = freshOption(newLayer.id, mannequin)
+                validatePaletteIndex(state, newLayer, option, player)
                 refreshDynamicLabels(manId, option, newLayer)
             }
             "part" -> {
@@ -1078,6 +1082,25 @@ class MannequinManager(
                     updateStatus(manId, "Channel: Locked")
                 }
                 refreshDynamicLabels(manId, option, layer)
+            }
+            "palette" -> {
+                val option = freshOption(layer.id, mannequin)
+                val palIds = if (option != null) layerManager.resolvePalettes(layer, option, player) else emptyList()
+                if (palIds.isEmpty()) {
+                    updateStatus(manId, "Palette: N/A")
+                } else {
+                    // Cycle: All → palette0 → palette1 → … → All …
+                    val current = state.paletteIndex.getOrDefault(layer.id, -1)
+                    val delta = if (backwards) -1 else 1
+                    // Range is [-1, palIds.lastIndex], total size = palIds.size + 1
+                    val total = palIds.size + 1
+                    val next = ((current + 1) + delta + total) % total - 1 // back to [-1 .. size-1]
+                    state.paletteIndex[layer.id] = next
+                    state.colorIndex[layer.id] = 0 // reset colour selection when palette changes
+                    val label = if (next == -1) "All" else prettyName(palIds[next])
+                    updateStatus(manId, "Palette: $label")
+                }
+                refreshDynamicLabels(manId, freshOption(layer.id, mannequin), layer)
             }
             "color" -> {
                 if (state.mode == ControlMode.COLOR) {
@@ -1159,6 +1182,23 @@ class MannequinManager(
         pushButtonToViewers(mannequinId, "color")
     }
 
+    // ── Palette validation ────────────────────────────────────────────────────────
+
+    /**
+     * If the player had a specific palette selected (-1 = All, 0+ = index into the
+     * resolved list), check whether that palette still exists in the new context.
+     * If not, reset to -1 (All).
+     */
+    private fun validatePaletteIndex(state: ControlState, layer: LayerDefinition, option: LayerOption?, player: Player) {
+        val prev = state.paletteIndex[layer.id] ?: return // never selected → nothing to validate
+        if (prev == -1) return // "All" is always valid
+        val palIds = if (option != null) layerManager.resolvePalettes(layer, option, player) else emptyList()
+        if (prev !in palIds.indices) {
+            state.paletteIndex[layer.id] = -1
+            state.colorIndex[layer.id] = 0 // palette changed, reset colour
+        }
+    }
+
     // ── Part / Colour cycling ───────────────────────────────────────────────────
 
     private fun cyclePart(layer: LayerDefinition, mannequin: Mannequin, state: ControlState, player: Player, backwards: Boolean): String? {
@@ -1173,6 +1213,7 @@ class MannequinManager(
         )
         state.channelIndex[layer.id] = 0
         state.colorIndex[layer.id] = 0
+        validatePaletteIndex(state, layer, chosen, player)
         refreshDynamicLabels(mannequin.id, chosen, layer)
 
         // Fire per-layer part-change trigger
@@ -1189,8 +1230,11 @@ class MannequinManager(
     private fun cycleColor(layer: LayerDefinition, mannequin: Mannequin, state: ControlState, player: Player, backwards: Boolean): String? {
         val current = mannequin.selection.selections[layer.id]
         val option = freshOption(layer.id, mannequin) ?: return "Color: N/A"
-        val paletteIds = layerManager.resolvePalettes(layer, option, player)
-        val colors = paletteIds.flatMap { palId -> layerManager.palette(palId)?.colors.orEmpty() }
+        val allPaletteIds = layerManager.resolvePalettes(layer, option, player)
+        val selectedPalIdx = state.paletteIndex.getOrDefault(layer.id, -1)
+        val activePaletteIds = if (selectedPalIdx in allPaletteIds.indices)
+            listOf(allPaletteIds[selectedPalIdx]) else allPaletteIds
+        val colors = activePaletteIds.flatMap { palId -> layerManager.palette(palId)?.colors.orEmpty() }
         val optionsList = listOf("Default") + colors.map { prettyName(it.name) }
         if (optionsList.isEmpty()) return "Color: N/A"
         val delta = if (backwards) -1 else 1

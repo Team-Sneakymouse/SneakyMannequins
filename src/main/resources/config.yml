@@ -146,6 +146,7 @@ hud-buttons:
       z: -2.0
     line-width: 256
 
+  # Left column
   model:
     text: "<white>Model"
     translation:
@@ -160,26 +161,34 @@ hud-buttons:
       y: 1.7
       z: -2.0
 
-  random:
-    text: "<white>Random"
+  layer:
+    text: "<white>Layer"
     translation:
       x: -1.1
       y: 1.2
       z: -2.0
 
-  layer:
-    text: "<white>Layer"
+  random:
+    text: "<white>Random"
     translation:
-      x: 1.1
-      y: 2.2
+      x: -1.1
+      y: 0.7
       z: -2.0
 
+  # Right column
   part:
     text: "<white>Part"
     active-text: "<yellow>Part"
     translation:
       x: 1.1
-      y: 1.7
+      y: 2.2
+      z: -2.0
+
+  palette:
+    text: "<white>Palette"
+    translation:
+      x: 1.1
+      y: 1.2
       z: -2.0
 
   channel:
@@ -187,7 +196,7 @@ hud-buttons:
     disabled-text: "<gray>Channel"
     translation:
       x: 1.1
-      y: 1.2
+      y: 1.7
       z: -2.0
 
   color:
@@ -224,21 +233,6 @@ hud-frame:
 
 # Layer configuration
 layers:
-  # Default palette assignments – applied to ALL layers unless overridden.
-  # Three categories processed in order: first → palettes → last.
-  # Lower-level definitions (layer / part) fully replace higher-level ones
-  # within the same category.  Duplicate palettes across categories are
-  # collapsed (first occurrence wins).
-  #
-  # Each entry is either a plain palette id or a map with optional permission:
-  #   - primary                         # available to everyone
-  #   - palette: neon                   # same as above
-  #     permission: group.admin         # only if player has this perm
-  default-palettes-first: []
-  default-palettes:
-    - greyscale
-  default-palettes-last: []
-
   palettes:
     # ── Natural / earthy tones ──
     earth:
@@ -399,6 +393,21 @@ layers:
     - hair
 
   definitions:
+    # Default palette assignments – applied to ALL layers unless overridden.
+    # Three categories processed in order: first → palettes → last.
+    # Lower-level definitions (layer / part) fully replace higher-level ones
+    # within the same category.  Duplicate palettes across categories are
+    # collapsed (first occurrence wins).
+    #
+    # Each entry is either a plain palette id or a map with optional permission:
+    #   - primary                         # available to everyone
+    #   - palette: neon                   # same as above
+    #     permission: group.admin         # only if player has this perm
+    palettes-first: []
+    palettes:
+      - greyscale
+    palettes-last: []
+
     hair:
       display-name: "Hair"
       directory: "layers/Hair"
