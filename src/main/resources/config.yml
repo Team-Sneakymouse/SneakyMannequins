@@ -186,6 +186,7 @@ hud-buttons:
 
   palette:
     text: "<white>Palette"
+    disabled-text: "<gray>Palette"
     translation:
       x: 1.1
       y: 1.2

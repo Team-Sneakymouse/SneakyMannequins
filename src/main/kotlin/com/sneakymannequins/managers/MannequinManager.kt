@@ -1170,6 +1170,17 @@ class MannequinManager(
             }
         }
 
+        val palBtn = buttonByName("palette")
+        visuals["palette"]?.let {
+            val palCount = if (option != null && layer != null)
+                layerManager.resolvePalettes(layer, option, null).size else 0
+            it.textJson = if (palCount <= 1 && palBtn?.disabledTextJson != null) {
+                palBtn.disabledTextJson
+            } else {
+                palBtn?.textJson ?: textToJson("Palette")
+            }
+        }
+
         val colorBtn = buttonByName("color")
         visuals["color"]?.let {
             it.textJson = if (mode == ControlMode.COLOR && colorBtn?.activeTextJson != null) {
@@ -1181,6 +1192,7 @@ class MannequinManager(
 
         pushButtonToViewers(mannequinId, "channel")
         pushButtonToViewers(mannequinId, "part")
+        pushButtonToViewers(mannequinId, "palette")
         pushButtonToViewers(mannequinId, "color")
     }
 
