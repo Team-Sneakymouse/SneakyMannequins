@@ -75,8 +75,17 @@ object PixelProjector {
     )
 
     private fun mapSkinPixelToModel(x: Int, y: Int, s: Double, slimArms: Boolean, tPose: Boolean = false): PixelPose? {
-        // Overlay gap: vanilla adds 0.5 pixels on each side (uniform across all parts)
-        val og = 0.5 * s
+        // Overlay gap: vanilla adds 0.5 pixels on each side.
+        // Adjacent outer layers overlap by ~1 pixel.  Tiny per-part increments
+        // give the renderer a clear depth ordering and prevent Z-fighting.
+        //   legs (innermost) → arms → torso (outermost, jacket covers pants/shoulders)
+        // Head never overlaps other overlay parts, so it stays at base.
+        val ogHead     = 0.5    * s
+        val ogRightLeg = 0.5    * s
+        val ogLeftLeg  = 0.5001 * s
+        val ogRightArm = 0.5002 * s
+        val ogLeftArm  = 0.5002 * s
+        val ogBody     = 0.5003 * s
 
         // --- Face helper functions ---
         // overlay = true → pixel spacing uses per-axis overlay scale, computed from face dimensions:
@@ -151,12 +160,12 @@ object PixelProjector {
         faceTop(8, 0, 8, 8, 0.0, headY + 8.0 * s, 0.0)?.let { return it }
         faceBottom(16, 0, 8, 8, 0.0, headY, 0.0)?.let { return it }
         // Hat overlay
-        faceFront(40, 8, 8, 8, 0.0, headY - og, 4.0 * s + og, overlay = true)?.let { return it }
-        faceBack(56, 8, 8, 8, 0.0, headY - og, -4.0 * s - og, overlay = true)?.let { return it }
-        faceLeftFlipped(32, 8, 8, 8, -4.0 * s - og, headY - og, 0.0, overlay = true)?.let { return it }
-        faceRightFlipped(48, 8, 8, 8, 4.0 * s + og, headY - og, 0.0, overlay = true)?.let { return it }
-        faceTop(40, 0, 8, 8, 0.0, headY + 8.0 * s + og, 0.0, overlay = true)?.let { return it }
-        faceBottom(48, 0, 8, 8, 0.0, headY - og, 0.0, overlay = true)?.let { return it }
+        faceFront(40, 8, 8, 8, 0.0, headY - ogHead, 4.0 * s + ogHead, overlay = true)?.let { return it }
+        faceBack(56, 8, 8, 8, 0.0, headY - ogHead, -4.0 * s - ogHead, overlay = true)?.let { return it }
+        faceLeftFlipped(32, 8, 8, 8, -4.0 * s - ogHead, headY - ogHead, 0.0, overlay = true)?.let { return it }
+        faceRightFlipped(48, 8, 8, 8, 4.0 * s + ogHead, headY - ogHead, 0.0, overlay = true)?.let { return it }
+        faceTop(40, 0, 8, 8, 0.0, headY + 8.0 * s + ogHead, 0.0, overlay = true)?.let { return it }
+        faceBottom(48, 0, 8, 8, 0.0, headY - ogHead, 0.0, overlay = true)?.let { return it }
 
         // ── Body (8w x 12h x 4d) ──
         faceFront(20, 20, 8, 12, 0.0, bodyY, 2.0 * s)?.let { return it }
@@ -166,12 +175,12 @@ object PixelProjector {
         faceTop(20, 16, 8, 4, 0.0, bodyY + 12.0 * s, 0.0)?.let { return it }
         faceBottom(28, 16, 8, 4, 0.0, bodyY, 0.0)?.let { return it }
         // Jacket overlay
-        faceFront(20, 36, 8, 12, 0.0, bodyY - og, 2.0 * s + og, overlay = true)?.let { return it }
-        faceBack(32, 36, 8, 12, 0.0, bodyY - og, -2.0 * s - og, overlay = true)?.let { return it }
-        faceLeftFlipped(16, 36, 4, 12, -4.0 * s - og, bodyY - og, 0.0, overlay = true)?.let { return it }
-        faceRightFlipped(28, 36, 4, 12, 4.0 * s + og, bodyY - og, 0.0, overlay = true)?.let { return it }
-        faceTop(20, 32, 8, 4, 0.0, bodyY + 12.0 * s + og, 0.0, overlay = true)?.let { return it }
-        faceBottom(28, 32, 8, 4, 0.0, bodyY - og, 0.0, overlay = true)?.let { return it }
+        faceFront(20, 36, 8, 12, 0.0, bodyY - ogBody, 2.0 * s + ogBody, overlay = true)?.let { return it }
+        faceBack(32, 36, 8, 12, 0.0, bodyY - ogBody, -2.0 * s - ogBody, overlay = true)?.let { return it }
+        faceLeftFlipped(16, 36, 4, 12, -4.0 * s - ogBody, bodyY - ogBody, 0.0, overlay = true)?.let { return it }
+        faceRightFlipped(28, 36, 4, 12, 4.0 * s + ogBody, bodyY - ogBody, 0.0, overlay = true)?.let { return it }
+        faceTop(20, 32, 8, 4, 0.0, bodyY + 12.0 * s + ogBody, 0.0, overlay = true)?.let { return it }
+        faceBottom(28, 32, 8, 4, 0.0, bodyY - ogBody, 0.0, overlay = true)?.let { return it }
 
         // ── Arms ──
 
@@ -196,7 +205,7 @@ object PixelProjector {
             ArmSpec(4, 4, 6.0 * s, 8.0 * s, 4.0 * s, 44, 60)
         }
 
-        fun renderRightArm(spec: ArmSpec): PixelPose? {
+        fun renderRightArm(spec: ArmSpec, og: Double): PixelPose? {
             // Base
             return faceFront(44, 20, spec.frontWidth, 12, spec.centerX, bodyY, 2.0 * s)
                 ?: faceBack(spec.backBaseX, 20, spec.frontWidth, 12, spec.centerX, bodyY, -2.0 * s)
@@ -213,7 +222,7 @@ object PixelProjector {
                 ?: faceBottom(48, 32, spec.topWidth, 4, spec.centerX, bodyY - og, 0.0, overlay = true)
         }
 
-        fun renderLeftArm(spec: ArmSpec): PixelPose? {
+        fun renderLeftArm(spec: ArmSpec, og: Double): PixelPose? {
             val outerBaseUvX = if (spec.frontWidth == 3) 39 else 40
             val outerOverlayUvX = if (spec.frontWidth == 3) 55 else 56
             // Base
@@ -239,17 +248,17 @@ object PixelProjector {
             val lPivotX = leftArm.innerX + 1.0 * s     //  5*s for default
 
             // Right arm: -90° CW in XY → extends outward to negative X
-            renderRightArm(rightArm)?.let { pose ->
+            renderRightArm(rightArm, ogRightArm)?.let { pose ->
                 return rotateArmPose(pose, rPivotX, shoulderY, clockwise = true)
             }
 
             // Left arm: +90° CCW in XY → extends outward to positive X
-            renderLeftArm(leftArm)?.let { pose ->
+            renderLeftArm(leftArm, ogLeftArm)?.let { pose ->
                 return rotateArmPose(pose, lPivotX, shoulderY, clockwise = false)
             }
         } else {
-            renderRightArm(rightArm)?.let { return it }
-            renderLeftArm(leftArm)?.let { return it }
+            renderRightArm(rightArm, ogRightArm)?.let { return it }
+            renderLeftArm(leftArm, ogLeftArm)?.let { return it }
         }
 
         // ── Right leg (4x12x4) ──
@@ -260,12 +269,12 @@ object PixelProjector {
         faceTop(4, 16, 4, 4, -2.0 * s, legY + 12.0 * s, 0.0)?.let { return it }
         faceBottom(8, 16, 4, 4, -2.0 * s, legY, 0.0)?.let { return it }
         // Right leg overlay
-        faceFront(4, 36, 4, 12, -2.0 * s, legY - og, 2.0 * s + og, overlay = true)?.let { return it }
-        faceBack(12, 36, 4, 12, -2.0 * s, legY - og, -2.0 * s - og, overlay = true)?.let { return it }
-        faceLeftFlipped(0, 36, 4, 12, -4.0 * s - og, legY - og, 0.0, overlay = true)?.let { return it }
-        faceRightFlipped(8, 36, 4, 12, 0.0 + og, legY - og, 0.0, overlay = true)?.let { return it }
-        faceTop(4, 32, 4, 4, -2.0 * s, legY + 12.0 * s + og, 0.0, overlay = true)?.let { return it }
-        faceBottom(8, 32, 4, 4, -2.0 * s, legY - og, 0.0, overlay = true)?.let { return it }
+        faceFront(4, 36, 4, 12, -2.0 * s, legY - ogRightLeg, 2.0 * s + ogRightLeg, overlay = true)?.let { return it }
+        faceBack(12, 36, 4, 12, -2.0 * s, legY - ogRightLeg, -2.0 * s - ogRightLeg, overlay = true)?.let { return it }
+        faceLeftFlipped(0, 36, 4, 12, -4.0 * s - ogRightLeg, legY - ogRightLeg, 0.0, overlay = true)?.let { return it }
+        faceRightFlipped(8, 36, 4, 12, 0.0 + ogRightLeg, legY - ogRightLeg, 0.0, overlay = true)?.let { return it }
+        faceTop(4, 32, 4, 4, -2.0 * s, legY + 12.0 * s + ogRightLeg, 0.0, overlay = true)?.let { return it }
+        faceBottom(8, 32, 4, 4, -2.0 * s, legY - ogRightLeg, 0.0, overlay = true)?.let { return it }
 
         // ── Left leg (4x12x4) ──
         faceFront(20, 52, 4, 12, 2.0 * s, legY, 2.0 * s)?.let { return it }
@@ -275,12 +284,12 @@ object PixelProjector {
         faceTop(20, 48, 4, 4, 2.0 * s, legY + 12.0 * s, 0.0)?.let { return it }
         faceBottom(24, 48, 4, 4, 2.0 * s, legY, 0.0)?.let { return it }
         // Left leg overlay
-        faceFront(4, 52, 4, 12, 2.0 * s, legY - og, 2.0 * s + og, overlay = true)?.let { return it }
-        faceBack(12, 52, 4, 12, 2.0 * s, legY - og, -2.0 * s - og, overlay = true)?.let { return it }
-        faceLeftFlipped(0, 52, 4, 12, 0.0 - og, legY - og, 0.0, overlay = true)?.let { return it }
-        faceRightFlipped(8, 52, 4, 12, 4.0 * s + og, legY - og, 0.0, overlay = true)?.let { return it }
-        faceTop(4, 48, 4, 4, 2.0 * s, legY + 12.0 * s + og, 0.0, overlay = true)?.let { return it }
-        faceBottom(8, 48, 4, 4, 2.0 * s, legY - og, 0.0, overlay = true)?.let { return it }
+        faceFront(4, 52, 4, 12, 2.0 * s, legY - ogLeftLeg, 2.0 * s + ogLeftLeg, overlay = true)?.let { return it }
+        faceBack(12, 52, 4, 12, 2.0 * s, legY - ogLeftLeg, -2.0 * s - ogLeftLeg, overlay = true)?.let { return it }
+        faceLeftFlipped(0, 52, 4, 12, 0.0 - ogLeftLeg, legY - ogLeftLeg, 0.0, overlay = true)?.let { return it }
+        faceRightFlipped(8, 52, 4, 12, 4.0 * s + ogLeftLeg, legY - ogLeftLeg, 0.0, overlay = true)?.let { return it }
+        faceTop(4, 48, 4, 4, 2.0 * s, legY + 12.0 * s + ogLeftLeg, 0.0, overlay = true)?.let { return it }
+        faceBottom(8, 48, 4, 4, 2.0 * s, legY - ogLeftLeg, 0.0, overlay = true)?.let { return it }
 
         return null
     }
