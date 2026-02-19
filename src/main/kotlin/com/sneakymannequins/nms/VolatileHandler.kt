@@ -33,19 +33,23 @@ interface VolatileHandler {
     )
 
     /**
-     * Like [applyProjectedPixels], but pixels whose [ProjectedPixel.index]
-     * appears in [flyInOffsets] are spawned at a distant offset position and
-     * then interpolated to their correct location over the specified number
-     * of ticks.
+     * Like [applyProjectedPixels], but with extra animation data:
      *
-     * The default implementation ignores fly-in offsets and falls through to
+     * - Pixels in [flyInOffsets] are spawned at a distant offset position
+     *   (with rotation) and interpolated to their correct location.
+     * - Pixels in [riseUpIndices] get a small "rise-up from below" effect
+     *   rather than popping into existence.
+     *
+     * The default implementation ignores animation data and falls through to
      * [applyProjectedPixels].
      */
     fun applyProjectedPixelsAnimated(
         viewer: Player,
         mannequinId: UUID,
         projected: Collection<ProjectedPixel>,
-        flyInOffsets: Map<Int, FlyInOffset>
+        flyInOffsets: Map<Int, FlyInOffset>,
+        riseUpIndices: Set<Int> = emptySet(),
+        riseUpTicks: Int = 6
     ) {
         applyProjectedPixels(viewer, mannequinId, projected)
     }

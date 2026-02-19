@@ -58,14 +58,16 @@ class VolatileHandler1214(
         mannequinId: UUID,
         projected: Collection<ProjectedPixel>
     ) {
-        applyProjectedPixelsAnimated(viewer, mannequinId, projected, emptyMap())
+        applyProjectedPixelsAnimated(viewer, mannequinId, projected, emptyMap(), emptySet())
     }
 
     override fun applyProjectedPixelsAnimated(
         viewer: Player,
         mannequinId: UUID,
         projected: Collection<ProjectedPixel>,
-        flyInOffsets: Map<Int, FlyInOffset>
+        flyInOffsets: Map<Int, FlyInOffset>,
+        riseUpIndices: Set<Int>,
+        riseUpTicks: Int
     ) {
         val handle = (viewer as CraftPlayer).handle as ServerPlayer
         val level = handle.serverLevel()
@@ -114,15 +116,30 @@ class VolatileHandler1214(
                 val scale = Vector3f(sw * 2f, sh, sh) // widen X to match Y visual size
 
                 val flyIn = flyInOffsets[proj.index]
-                if (flyIn != null) {
-                    // ── Fly-in spawn: start at a distant offset, then interpolate ──
+                val isRiseUp = proj.index in riseUpIndices
 
-                    // 1) Spawn with offset translation (instant — duration 0)
+                if (flyIn != null) {
+                    // ── Fly-in spawn: start at a distant offset with tumble rotation ──
+
+                    // 1) Spawn with offset translation + random rotation (instant — duration 0)
                     val offsetTranslation = Vector3f(baseTranslation).add(
                         flyIn.offsetX, flyIn.offsetY, flyIn.offsetZ
                     )
+                    // Compose the pixel's base rotation with random tumble angles
+                    val tumbledRotation = Quaternionf(rotation)
+                        .rotateX(flyIn.rotX)
+                        .rotateY(flyIn.rotY)
+                        .rotateZ(flyIn.rotZ)
                     display.setTransformation(
-                        com.mojang.math.Transformation(offsetTranslation, rotation, scale, Quaternionf())
+                        com.mojang.math.Transformation(offsetTranslation, tumbledRotation, scale, Quaternionf())
+                    )
+                    display.setTransformationInterpolationDelay(0)
+                    display.setTransformationInterpolationDuration(0)
+                } else if (isRiseUp) {
+                    // ── Rise-up spawn: start slightly below final position ──
+                    val riseOffset = Vector3f(baseTranslation).add(0f, -sh * 1.5f, 0f)
+                    display.setTransformation(
+                        com.mojang.math.Transformation(riseOffset, rotation, scale, Quaternionf())
                     )
                     display.setTransformationInterpolationDelay(0)
                     display.setTransformationInterpolationDuration(0)
@@ -156,13 +173,13 @@ class VolatileHandler1214(
                 connection.send(spawnPacket)
                 connection.send(ClientboundSetEntityDataPacket(entityId, display.entityData.packAll()))
 
-                if (flyIn != null) {
+                if (flyIn != null || isRiseUp) {
                     // 2) Schedule the target transformation for the next tick so the
                     //    client has a frame to register the offset as the "old" position
                     //    before interpolation begins.  We reuse the original `display`
                     //    object (captured by the lambda) so packAll() re-sends all
                     //    properties with the corrected transformation.
-                    val interpTicks = flyIn.interpolationTicks
+                    val interpTicks = flyIn?.interpolationTicks ?: riseUpTicks
                     plugin.server.scheduler.scheduleSyncDelayedTask(plugin, Runnable {
                         if (!viewer.isOnline) return@Runnable
                         display.setTransformation(

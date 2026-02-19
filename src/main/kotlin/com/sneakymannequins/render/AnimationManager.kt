@@ -156,9 +156,10 @@ class AnimationManager(
                 val anim = iter.next()
                 val result = anim.step()
                 if (result.pixels.isNotEmpty()) {
-                    if (result.flyInOffsets.isNotEmpty()) {
+                    if (result.flyInOffsets.isNotEmpty() || result.riseUpIndices.isNotEmpty()) {
                         handler.applyProjectedPixelsAnimated(
-                            player, anim.mannequinId, result.pixels, result.flyInOffsets
+                            player, anim.mannequinId, result.pixels,
+                            result.flyInOffsets, result.riseUpIndices, result.riseUpTicks
                         )
                     } else {
                         handler.applyProjectedPixels(player, anim.mannequinId, result.pixels)

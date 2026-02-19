@@ -1,15 +1,29 @@
 package com.sneakymannequins.render
 
 import java.util.UUID
+import kotlin.math.sqrt
 
 /**
  * A transformation offset for a pixel that should "fly in" from a
  * random distant position and interpolate to its final location.
+ *
+ * The fly-in direction is derived from the pixel's model-space column
+ * so that pixels arrive from the body-direction they belong to (e.g.
+ * front pixels fly in from the front, left-arm pixels from the left).
+ *
+ * Random rotation angles are also included so the pixel appears to
+ * tumble / gyrate as it flies in.
  */
 data class FlyInOffset(
     val offsetX: Float,
     val offsetY: Float,
     val offsetZ: Float,
+    /** Random rotation around X axis in radians (for tumbling). */
+    val rotX: Float,
+    /** Random rotation around Y axis in radians (for tumbling). */
+    val rotY: Float,
+    /** Random rotation around Z axis in radians (for tumbling). */
+    val rotZ: Float,
     /** Number of client ticks over which the entity interpolates to its target position. */
     val interpolationTicks: Int
 )
@@ -21,13 +35,18 @@ data class FlyInOffset(
  * @property flyInOffsets   Subset of [pixels] (keyed by [ProjectedPixel.index]) that
  *                          should spawn at a random offset and interpolate to their
  *                          target position over [FlyInOffset.interpolationTicks] ticks.
+ * @property riseUpIndices  Pixel indices that should use a small "rise-up" effect
+ *                          (translate from slightly below to their target position).
+ * @property riseUpTicks    Interpolation duration (client ticks) for the rise-up effect.
  */
 data class StepResult(
     val pixels: List<ProjectedPixel>,
-    val flyInOffsets: Map<Int, FlyInOffset>
+    val flyInOffsets: Map<Int, FlyInOffset>,
+    val riseUpIndices: Set<Int> = emptySet(),
+    val riseUpTicks: Int = 0
 ) {
     companion object {
-        val EMPTY = StepResult(emptyList(), emptyMap())
+        val EMPTY = StepResult(emptyList(), emptyMap(), emptySet(), 0)
     }
 }
 
@@ -154,33 +173,78 @@ class BuildAnimation private constructor(
 
         // ── Fly-in selection ────────────────────────────────────────────
         val flyInOffsets = mutableMapOf<Int, FlyInOffset>()
+        val riseUpIndices = mutableSetOf<Int>()
         if (flyInCount > 0) {
             val chosen = if (result.size <= flyInCount) {
                 result
             } else {
                 result.shuffled(random).take(flyInCount)
             }
+            val chosenIndices = chosen.mapTo(HashSet()) { it.index }
             for (pixel in chosen) {
-                flyInOffsets[pixel.index] = randomFlyInOffset()
+                flyInOffsets[pixel.index] = directionalFlyInOffset(pixel)
+            }
+            // Non-fly-in pixels get the rise-up effect
+            for (pixel in result) {
+                if (pixel.index !in chosenIndices) {
+                    riseUpIndices.add(pixel.index)
+                }
             }
         }
 
-        return StepResult(result, flyInOffsets)
+        return StepResult(result, flyInOffsets, riseUpIndices, riseUpTicks = tickInterval * 2)
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
 
     /**
-     * Generate a random fly-in offset.
-     * X / Z: ±[1, 3] (random sign), Y: [1, 3] (always up).
+     * Generate a fly-in offset whose horizontal direction is based on the
+     * pixel's model-space position.  The pixel flies in from the outward
+     * direction of its body part (e.g. a front-center pixel flies in from
+     * the front, a left-arm pixel flies in from the left).
+     *
+     * A random magnitude (distance) and upward Y offset are applied, as
+     * well as random rotation angles for a tumbling / gyrating effect.
      */
-    private fun randomFlyInOffset(): FlyInOffset {
-        val xSign = if (random.nextBoolean()) 1f else -1f
-        val zSign = if (random.nextBoolean()) 1f else -1f
+    private fun directionalFlyInOffset(pixel: ProjectedPixel): FlyInOffset {
+        val mx = pixel.modelX.toFloat()
+        val mz = pixel.modelZ.toFloat()
+        val len = sqrt(mx * mx + mz * mz)
+
+        // Normalised outward direction (from center-of-body toward this pixel).
+        // Fall back to a random direction if the pixel is at dead center.
+        val dirX: Float
+        val dirZ: Float
+        if (len > 0.001f) {
+            dirX = mx / len
+            dirZ = mz / len
+        } else {
+            val angle = random.nextFloat() * (2f * Math.PI.toFloat())
+            dirX = kotlin.math.cos(angle)
+            dirZ = kotlin.math.sin(angle)
+        }
+
+        // Random distance along that direction: [1, 3] blocks
+        val distance = 1f + random.nextFloat() * 2f
+        // Small random perpendicular jitter (±0.5) so not every pixel in the
+        // same column follows the exact same line.
+        val perpX = -dirZ   // perpendicular in 2D
+        val perpZ =  dirX
+        val jitter = (random.nextFloat() - 0.5f) * 1.0f
+
+        // Random rotation angles (±π) for tumbling
+        val pi = Math.PI.toFloat()
+        val rotX = (random.nextFloat() * 2f - 1f) * pi
+        val rotY = (random.nextFloat() * 2f - 1f) * pi
+        val rotZ = (random.nextFloat() * 2f - 1f) * pi
+
         return FlyInOffset(
-            offsetX = xSign * (1f + random.nextFloat() * 2f),
+            offsetX = dirX * distance + perpX * jitter,
             offsetY = 1f + random.nextFloat() * 2f,
-            offsetZ = zSign * (1f + random.nextFloat() * 2f),
+            offsetZ = dirZ * distance + perpZ * jitter,
+            rotX = rotX,
+            rotY = rotY,
+            rotZ = rotZ,
             interpolationTicks = tickInterval * 2
         )
     }
