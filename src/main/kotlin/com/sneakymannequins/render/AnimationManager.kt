@@ -2,6 +2,7 @@ package com.sneakymannequins.render
 
 import com.sneakymannequins.SneakyMannequins
 import com.sneakymannequins.nms.VolatileHandler
+import org.bukkit.attribute.Attribute
 import org.bukkit.entity.Player
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -72,9 +73,13 @@ class AnimationManager(
 
         when (settings.mode) {
             RenderMode.INSTANT -> {
-                handler.applyProjectedPixels(viewer, mannequinId, projected)
+                // Scale at delivery time so each viewer sees the correct size.
+                val scaled = scaleForViewer(projected, viewer)
+                handler.applyProjectedPixels(viewer, mannequinId, scaled)
             }
             RenderMode.BUILD -> {
+                // BUILD pixels are stored unscaled; scaling happens per-tick in
+                // tick() so the viewer's current scale is always respected.
                 queueBuild(viewer, mannequinId, projected, settings)
             }
         }
@@ -151,18 +156,21 @@ class AnimationManager(
                 continue
             }
 
+            val viewerScale = viewerScale(player)
             val iter = anims.iterator()
             while (iter.hasNext()) {
                 val anim = iter.next()
                 val result = anim.step()
                 if (result.pixels.isNotEmpty()) {
+                    val scaled = if (viewerScale == 1.0) result.pixels
+                                 else result.pixels.map { it.scaled(viewerScale) }
                     if (result.flyInOffsets.isNotEmpty() || result.riseUpIndices.isNotEmpty()) {
                         handler.applyProjectedPixelsAnimated(
-                            player, anim.mannequinId, result.pixels,
+                            player, anim.mannequinId, scaled,
                             result.flyInOffsets, result.riseUpIndices, result.riseUpTicks
                         )
                     } else {
-                        handler.applyProjectedPixels(player, anim.mannequinId, result.pixels)
+                        handler.applyProjectedPixels(player, anim.mannequinId, scaled)
                     }
                 }
                 if (anim.isComplete()) {
@@ -173,6 +181,25 @@ class AnimationManager(
 
         stale.forEach { animations.remove(it) }
         animations.entries.removeIf { it.value.isEmpty() }
+    }
+
+    // ── Viewer scale ─────────────────────────────────────────────────────────────
+
+    /** Read the observer's [Attribute.SCALE] value (defaults to 1.0). */
+    private fun viewerScale(player: Player): Double =
+        player.getAttribute(Attribute.SCALE)?.value ?: 1.0
+
+    /**
+     * Scale every projected pixel for the given viewer.  Returns the original
+     * list unchanged when the viewer's scale is 1.0 (the common case).
+     */
+    private fun scaleForViewer(
+        pixels: List<ProjectedPixel>,
+        viewer: Player
+    ): List<ProjectedPixel> {
+        val scale = viewerScale(viewer)
+        if (scale == 1.0) return pixels
+        return pixels.map { it.scaled(scale) }
     }
 }
 

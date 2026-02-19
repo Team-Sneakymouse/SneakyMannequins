@@ -20,8 +20,27 @@ data class ProjectedPixel(
     val scaleH: Float,  // vertical pixel size (world units)
     val visible: Boolean,
     val modelX: Double = 0.0,  // pre-rotation model-space X (for column grouping)
-    val modelZ: Double = 0.0   // pre-rotation model-space Z (for column grouping)
-)
+    val modelZ: Double = 0.0,  // pre-rotation model-space Z (for column grouping)
+    val originX: Double = 0.0, // mannequin origin (for per-viewer scale)
+    val originY: Double = 0.0,
+    val originZ: Double = 0.0
+) {
+    /**
+     * Return a copy of this pixel with positions and sizes scaled relative to
+     * the mannequin origin by [factor].  A factor of 1.0 returns this unchanged.
+     */
+    fun scaled(factor: Double): ProjectedPixel {
+        if (factor == 1.0) return this
+        val f = factor.toFloat()
+        return copy(
+            x = originX + (x - originX) * factor,
+            y = originY + (y - originY) * factor,
+            z = originZ + (z - originZ) * factor,
+            scaleW = scaleW * f,
+            scaleH = scaleH * f
+        )
+    }
+}
 
 /**
  * Projects 64x64 skin pixels onto a 3D player model with per-face orientation,
@@ -63,7 +82,10 @@ object PixelProjector {
                 scaleH = (pose.scaleH * scaleMultiplier).toFloat(),
                 visible = isVisible,
                 modelX = pose.x,
-                modelZ = pose.z
+                modelZ = pose.z,
+                originX = origin.x,
+                originY = origin.y,
+                originZ = origin.z
             )
         }
     }
