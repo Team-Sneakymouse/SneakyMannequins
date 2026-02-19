@@ -25,8 +25,12 @@ plugin:
     # Available: HSB (k-means in hue/saturation/brightness — best all-rounder),
     #            HUE (largest hue gap — fast, good when colours are clearly different hues),
     #            RGB (k-means in RGB space — classic Euclidean colour distance)
-    # Can be overridden per part with: /mannequin remask <strategy> <layer> <part>
+    # Can be overridden per part with: /mannequin remask <layer> <part> [strategy] [channels]
     default-strategy: HSB
+    # Default number of colour channels (masks) to generate per part.
+    # Each channel gets its own recolourable mask.  Min 1, max 8.
+    # Can be overridden per part with the remask command.
+    default-channels: 2
     # Pixels below this saturation (0.0-1.0) are considered neutral and excluded from masks
     # (catches greys, whites, near-whites whose hue is meaningless)
     neutral-saturation: 0.02

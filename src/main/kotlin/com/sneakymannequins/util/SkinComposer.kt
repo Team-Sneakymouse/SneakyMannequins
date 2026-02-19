@@ -1,5 +1,6 @@
 package com.sneakymannequins.util
 
+import com.sneakymannequins.model.LayerOption
 import com.sneakymannequins.model.SkinSelection
 import com.sneakymannequins.model.LayerDefinition
 import java.awt.Color
@@ -12,23 +13,40 @@ private const val SKIN_SIZE = 64
  */
 object SkinComposer {
 
-    fun compose(layers: List<LayerDefinition>, selection: SkinSelection, useSlimModel: Boolean): BufferedImage {
+    /**
+     * @param optionResolver  optional function that resolves the current (fresh)
+     *        [LayerOption] for a given layer ID and selection option ID. If
+     *        provided, mask paths are read from the resolved option instead of
+     *        the potentially stale one stored in the selection.
+     */
+    fun compose(
+        layers: List<LayerDefinition>,
+        selection: SkinSelection,
+        useSlimModel: Boolean,
+        optionResolver: ((layerId: String, optionId: String) -> LayerOption?)? = null
+    ): BufferedImage {
         val output = BufferedImage(SKIN_SIZE, SKIN_SIZE, BufferedImage.TYPE_INT_ARGB)
         val graphics = output.createGraphics()
 
         layers.forEach { layer ->
             val sel = selection.selections[layer.id] ?: return@forEach
-            val chosen = sel.option ?: return@forEach
+            val selOption = sel.option ?: return@forEach
+            // Resolve fresh option (with up-to-date masks) if a resolver is provided
+            val chosen = optionResolver?.invoke(layer.id, selOption.id) ?: selOption
             val sourceImage = when {
                 useSlimModel && chosen.imageSlim != null -> chosen.imageSlim
                 else -> chosen.imageDefault ?: chosen.imageSlim
             } ?: return@forEach
 
-            // Apply each channel's color independently, then composite
+            // Apply each channel's color independently, then composite.
+            // Skip channels whose mask file is missing — tinting without a
+            // mask would recolour every pixel instead of just the channel.
             var source = sourceImage
             if (layer.allowColorMask && sel.channelColors.isNotEmpty()) {
                 for ((channelIdx, color) in sel.channelColors) {
-                    val maskImage = chosen.masks[channelIdx]?.let { javax.imageio.ImageIO.read(it.toFile()) }
+                    val maskPath = chosen.masks[channelIdx] ?: continue
+                    val maskImage = try { javax.imageio.ImageIO.read(maskPath.toFile()) } catch (_: Exception) { null }
+                        ?: continue
                     source = applyColorMask(source, color, maskImage)
                 }
             }

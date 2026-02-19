@@ -194,6 +194,19 @@ class MannequinManager(
     /** Look up a button config by name. */
     private fun buttonByName(name: String): HudButton? = hudButtons.firstOrNull { it.name == name }
 
+    /**
+     * Resolve the current (fresh) [LayerOption] for a layer on a mannequin.
+     * The mannequin's selection may hold a stale reference after a layer
+     * reload / remask, so we always look up the option by ID from the layer
+     * manager and fall back to the stale copy only if it was removed.
+     */
+    private fun freshOption(layerId: String, mannequin: Mannequin): LayerOption? {
+        val selOption = mannequin.selection.selections[layerId]?.option
+        val opts = layerManager.optionsFor(layerId)
+        return if (selOption != null) opts.find { it.id == selOption.id } ?: selOption
+        else opts.firstOrNull()
+    }
+
     /** Read the hud-buttons config section and build the button list. */
     private fun loadHudButtons(): List<HudButton> {
         val globalBgDef = parseArgb(plugin.config.getString("hud-buttons.bg-default")) ?: HUD_BG_DEFAULT
@@ -368,9 +381,15 @@ class MannequinManager(
         }
     }
 
+    /** Resolves the current (fresh) [LayerOption] for a layer+option ID,
+     *  so the composer always reads up-to-date mask paths after a remask. */
+    private val optionResolver: (String, String) -> com.sneakymannequins.model.LayerOption? = { layerId, optionId ->
+        layerManager.optionsFor(layerId).find { it.id == optionId }
+    }
+
     fun render(mannequin: Mannequin, viewers: Collection<Player>, forceInstant: Boolean = false): Int {
         val definitions = layerManager.definitionsInOrder()
-        val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin))
+        val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin), optionResolver = optionResolver)
         val nextFrame = PixelFrame.fromImage(composed)
         val diff = mannequin.lastFrame.diff(nextFrame)
         mannequin.lastFrame = nextFrame
@@ -393,7 +412,7 @@ class MannequinManager(
 
     private fun renderFull(mannequin: Mannequin, viewers: Collection<Player>, isFirstSeen: Boolean = false) {
         val definitions = layerManager.definitionsInOrder()
-        val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin))
+        val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin), optionResolver = optionResolver)
         mannequin.lastFrame = PixelFrame.fromImage(composed)
         val changes = mutableListOf<PixelChange>()
         for (x in 0 until composed.width) {
@@ -985,8 +1004,8 @@ class MannequinManager(
                     // Confirmed — randomise and keep the window open
                     randomConfirm[player.uniqueId] = now + 5000L
                     randomize(mannequin)
-                    val option = mannequin.selection.selections.values.firstOrNull()?.option
                     val layer = layers.firstOrNull()
+                    val option = if (layer != null) freshOption(layer.id, mannequin) else null
                     if (layer != null) refreshDynamicLabels(manId, option, layer)
                     updateStatus(manId, "Randomised!")
                     val viewers = nearbyViewers(mannequin)
@@ -1009,8 +1028,7 @@ class MannequinManager(
                 state.channelIndex[newLayer.id] = 0
                 state.colorIndex[newLayer.id] = 0
                 state.mode = ControlMode.PART
-                val option = mannequin.selection.selections[newLayer.id]?.option
-                    ?: layerManager.optionsFor(newLayer.id).firstOrNull()
+                val option = freshOption(newLayer.id, mannequin)
                 refreshDynamicLabels(manId, option, newLayer)
             }
             "part" -> {
@@ -1018,18 +1036,12 @@ class MannequinManager(
                     cyclePart(layer, mannequin, state, player, backwards)?.let { updateStatus(manId, it) }
                 } else {
                     state.mode = ControlMode.PART
-                    refreshDynamicLabels(
-                        manId,
-                        mannequin.selection.selections[layer.id]?.option
-                            ?: layerManager.optionsFor(layer.id).firstOrNull(),
-                        layer
-                    )
+                    refreshDynamicLabels(manId, freshOption(layer.id, mannequin), layer)
                     updateStatus(manId, "Mode: Part")
                 }
             }
             "channel" -> {
-                val option = mannequin.selection.selections[layer.id]?.option
-                    ?: layerManager.optionsFor(layer.id).firstOrNull()
+                val option = freshOption(layer.id, mannequin)
                 val channels = option?.masks?.keys?.sorted() ?: emptyList()
                 val channelDisabled = channels.size <= 1
                 if (channels.isEmpty()) {
@@ -1072,12 +1084,7 @@ class MannequinManager(
                     cycleColor(layer, mannequin, state, player, backwards)?.let { updateStatus(manId, it) }
                 } else {
                     state.mode = ControlMode.COLOR
-                    refreshDynamicLabels(
-                        manId,
-                        mannequin.selection.selections[layer.id]?.option
-                            ?: layerManager.optionsFor(layer.id).firstOrNull(),
-                        layer
-                    )
+                    refreshDynamicLabels(manId, freshOption(layer.id, mannequin), layer)
                     updateStatus(manId, "Mode: Color")
                 }
             }
@@ -1181,7 +1188,7 @@ class MannequinManager(
 
     private fun cycleColor(layer: LayerDefinition, mannequin: Mannequin, state: ControlState, player: Player, backwards: Boolean): String? {
         val current = mannequin.selection.selections[layer.id]
-        val option = current?.option ?: layerManager.optionsFor(layer.id).firstOrNull() ?: return "Color: N/A"
+        val option = freshOption(layer.id, mannequin) ?: return "Color: N/A"
         val palettes = option.allowedPalettes.ifEmpty { layer.defaultPalettes }
         val colors = palettes.flatMap { palId -> layerManager.palette(palId)?.colors.orEmpty() }
         val optionsList = listOf("Default") + colors.map { prettyName(it.name) }

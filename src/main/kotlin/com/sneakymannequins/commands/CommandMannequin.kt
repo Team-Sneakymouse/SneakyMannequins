@@ -50,6 +50,10 @@ class CommandMannequin(
                 LayerManager.STRATEGY_NAMES
                     .filter { it.startsWith(args[3], ignoreCase = true) }.toMutableList()
             } else mutableListOf()
+            5 -> if (args[0].equals("remask", true)) {
+                (1..8).map { it.toString() }
+                    .filter { it.startsWith(args[4], ignoreCase = true) }.toMutableList()
+            } else mutableListOf()
             else -> mutableListOf()
         }
     }
@@ -87,10 +91,10 @@ class CommandMannequin(
     }
 
     private fun handleRemask(sender: CommandSender, args: Array<out String>) {
-        // /mannequin remask <layer> <part> [strategy]
+        // /mannequin remask <layer> <part> [strategy] [channels]
         if (args.size < 3) {
             sender.sendMessage(TextUtility.convertToComponent(
-                "&cUsage: /mannequin remask <layer> <part> [${LayerManager.STRATEGY_NAMES.joinToString("|")}]"
+                "&cUsage: /mannequin remask <layer> <part> [${LayerManager.STRATEGY_NAMES.joinToString("|")}] [channels]"
             ))
             return
         }
@@ -108,10 +112,20 @@ class CommandMannequin(
             }
         } else null
 
+        val channelsArg: Int? = if (args.size >= 5) {
+            val n = args[4].toIntOrNull()
+            if (n == null || n < 1 || n > 8) {
+                sender.sendMessage(TextUtility.convertToComponent("&cChannels must be a number between 1 and 8."))
+                return
+            }
+            n
+        } else null
+
         val label = strategy?.name ?: "default"
-        sender.sendMessage(TextUtility.convertToComponent("&7Remasking '$partId' in '$layerId' with $label..."))
+        val channelsLabel = channelsArg?.toString() ?: "default"
+        sender.sendMessage(TextUtility.convertToComponent("&7Remasking '$partId' in '$layerId' with $label strategy, $channelsLabel channels..."))
         try {
-            val result = layerManager.remask(strategy = strategy, layerId = layerId, partId = partId)
+            val result = layerManager.remask(strategy = strategy, layerId = layerId, partId = partId, channels = channelsArg)
             sender.sendMessage(TextUtility.convertToComponent("&a$result"))
         } catch (e: Exception) {
             sender.sendMessage(TextUtility.convertToComponent("&cRemask failed: ${e.message}"))
