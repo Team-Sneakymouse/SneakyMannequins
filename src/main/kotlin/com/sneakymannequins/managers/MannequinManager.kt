@@ -1189,8 +1189,8 @@ class MannequinManager(
     private fun cycleColor(layer: LayerDefinition, mannequin: Mannequin, state: ControlState, player: Player, backwards: Boolean): String? {
         val current = mannequin.selection.selections[layer.id]
         val option = freshOption(layer.id, mannequin) ?: return "Color: N/A"
-        val palettes = option.allowedPalettes.ifEmpty { layer.defaultPalettes }
-        val colors = palettes.flatMap { palId -> layerManager.palette(palId)?.colors.orEmpty() }
+        val paletteIds = layerManager.resolvePalettes(layer, option, player)
+        val colors = paletteIds.flatMap { palId -> layerManager.palette(palId)?.colors.orEmpty() }
         val optionsList = listOf("Default") + colors.map { prettyName(it.name) }
         if (optionsList.isEmpty()) return "Color: N/A"
         val delta = if (backwards) -1 else 1

@@ -5,7 +5,10 @@ import com.sneakymannequins.model.ColorPalette
 import com.sneakymannequins.model.NamedColor
 import com.sneakymannequins.model.LayerDefinition
 import com.sneakymannequins.model.LayerOption
+import com.sneakymannequins.model.PaletteRef
+import com.sneakymannequins.model.PaletteSpec
 import org.bukkit.configuration.ConfigurationSection
+import org.bukkit.entity.Player
 import java.awt.Color
 import java.nio.file.Files
 import java.nio.file.Path
@@ -19,17 +22,20 @@ class LayerManager(
     private val loadedLayers = mutableMapOf<String, Pair<LayerDefinition, List<LayerOption>>>()
     private val layerOrder = mutableListOf<String>()
     private val palettes = mutableMapOf<String, ColorPalette>()
+    private var defaultPaletteSpec = PaletteSpec.INHERIT
 
     fun reload() {
         loadedLayers.clear()
         layerOrder.clear()
         palettes.clear()
+        defaultPaletteSpec = PaletteSpec.INHERIT
         val root = plugin.config.getConfigurationSection("layers") ?: run {
             plugin.logger.warning("No 'layers' section found in config.")
             return
         }
 
         loadPalettes(root.getConfigurationSection("palettes"))
+        defaultPaletteSpec = parsePaletteSpec(root, prefix = "default-")
 
         val definitions = root.getConfigurationSection("definitions") ?: run {
             plugin.logger.warning("No layer definitions found in config.")
@@ -154,9 +160,9 @@ class LayerManager(
         }
 
         return grouped.values.mapNotNull { agg ->
-            val allowedPalettes = optionConfig?.getStringList("${agg.id}.palettes")
-                ?.takeIf { it.isNotEmpty() }
-                ?: definition.defaultPalettes
+            val optSpec = optionConfig?.getConfigurationSection(agg.id)
+                ?.let { parsePaletteSpec(it) }
+                ?: PaletteSpec.INHERIT
 
             val defaultPath = agg.defaultPath ?: agg.sharedPath
             val slimPath = agg.slimPath ?: agg.sharedPath
@@ -177,7 +183,7 @@ class LayerManager(
                 fileSlim = slimPath,
                 imageDefault = defaultImage,
                 imageSlim = slimImage,
-                allowedPalettes = allowedPalettes,
+                paletteSpec = optSpec,
                 masks = masks
             )
         }
@@ -187,9 +193,9 @@ class LayerManager(
         val base = path.nameWithoutExtension
         val id = slugify(base)
         val displayName = toDisplayName(base)
-        val allowedPalettes = optionConfig?.getStringList("$id.palettes")
-            ?.takeIf { it.isNotEmpty() }
-            ?: definition.defaultPalettes
+        val optSpec = optionConfig?.getConfigurationSection(id)
+            ?.let { parsePaletteSpec(it) }
+            ?: PaletteSpec.INHERIT
 
         val image = loadImage(path, definition.id) ?: return null
         return LayerOption(
@@ -199,7 +205,7 @@ class LayerManager(
             fileSlim = path,
             imageDefault = image,
             imageSlim = image,
-            allowedPalettes = allowedPalettes
+            paletteSpec = optSpec
         )
     }
 
@@ -807,18 +813,106 @@ class LayerManager(
     }
 
 
+    // ── Palette spec parsing ──────────────────────────────────────────────
+
+    /**
+     * Parse a [PaletteSpec] from the given config section.
+     * Looks for keys `${prefix}palettes-first`, `${prefix}palettes`,
+     * `${prefix}palettes-last`.  Each value is a list whose entries may be
+     * plain strings (`"neon"`) or maps (`{palette: "neon", permission: "group.admin"}`).
+     * Returns `null` fields for any key that is absent.
+     */
+    private fun parsePaletteSpec(section: ConfigurationSection, prefix: String = ""): PaletteSpec {
+        fun readRefs(key: String): List<PaletteRef>? {
+            if (!section.contains(key)) return null
+            return parsePaletteRefList(section, key)
+        }
+        return PaletteSpec(
+            first = readRefs("${prefix}palettes-first"),
+            palettes = readRefs("${prefix}palettes"),
+            last = readRefs("${prefix}palettes-last")
+        )
+    }
+
+    /**
+     * Parse a list at [key] whose entries may be plain strings or maps with
+     * `palette` and optional `permission` keys.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parsePaletteRefList(section: ConfigurationSection, key: String): List<PaletteRef> {
+        val raw = section.getList(key) ?: return emptyList()
+        return raw.mapNotNull { entry ->
+            when (entry) {
+                is String -> PaletteRef(entry)
+                is Map<*, *> -> {
+                    val map = entry as Map<String, Any?>
+                    val id = map["palette"]?.toString() ?: return@mapNotNull null
+                    val perm = map["permission"]?.toString()
+                    PaletteRef(id, perm)
+                }
+                else -> null
+            }
+        }
+    }
+
+    // ── Palette resolution ──────────────────────────────────────────────
+
+    /**
+     * Resolve the final ordered, deduplicated list of palette IDs available
+     * to a specific option on a specific layer for a given player.
+     *
+     * Resolution order per category (first / palettes / last):
+     *   part-level  →  layer-level  →  default-level
+     * The first non-null wins (empty list **is** non-null).
+     *
+     * Then the three resolved lists are concatenated (first + palettes + last)
+     * and deduplicated (first occurrence wins).  Entries whose permission
+     * the player lacks are silently removed.
+     */
+    fun resolvePalettes(layerId: String, optionId: String, player: Player?): List<String> {
+        val (layerDef, options) = loadedLayers[layerId] ?: return emptyList()
+        val option = options.firstOrNull { it.id == optionId } ?: return emptyList()
+        return resolvePalettes(layerDef, option, player)
+    }
+
+    fun resolvePalettes(layerDef: LayerDefinition, option: LayerOption, player: Player?): List<String> {
+        val def = defaultPaletteSpec
+        val lay = layerDef.paletteSpec
+        val opt = option.paletteSpec
+
+        val first   = opt.first    ?: lay.first    ?: def.first    ?: emptyList()
+        val middle  = opt.palettes ?: lay.palettes ?: def.palettes ?: emptyList()
+        val last    = opt.last     ?: lay.last     ?: def.last     ?: emptyList()
+
+        val seen = mutableSetOf<String>()
+        return (first + middle + last).filter { ref ->
+            val allowed = ref.permission == null || (player?.hasPermission(ref.permission) ?: true)
+            allowed && seen.add(ref.id)
+        }.map { it.id }
+    }
+
     private fun ConfigurationSection.toDefinition(dataFolder: Path): LayerDefinition {
         val id = this.name
         val displayName = getString("display-name", id) ?: id
         val allowMask = getBoolean("allow-color-mask", false)
-        val defaultPalettes = getStringList("default-palettes")
         val directory = dataFolder.resolve(getString("directory", "layers/$id") ?: "layers/$id").normalize()
+
+        // Parse the layer-level palette spec.
+        // Backward-compat: "default-palettes" is treated as the plain "palettes" category.
+        var spec = parsePaletteSpec(this)
+        if (spec.palettes == null) {
+            val legacy = getStringList("default-palettes")
+            if (legacy.isNotEmpty()) {
+                spec = spec.copy(palettes = legacy.map { PaletteRef(it) })
+            }
+        }
+
         return LayerDefinition(
             id = id,
             displayName = displayName,
             directory = directory,
             allowColorMask = allowMask,
-            defaultPalettes = defaultPalettes
+            paletteSpec = spec
         )
     }
 }

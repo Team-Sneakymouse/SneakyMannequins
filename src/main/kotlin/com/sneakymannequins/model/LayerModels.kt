@@ -5,6 +5,29 @@ import java.awt.image.BufferedImage
 import java.nio.file.Path
 
 /**
+ * Reference to a colour palette with an optional permission node.
+ * When [permission] is non-null the palette is only offered to
+ * players who have that permission.
+ */
+data class PaletteRef(val id: String, val permission: String? = null)
+
+/**
+ * Three-tier palette specification.  Can exist at default, layer, or part
+ * level.  A `null` list means "not specified at this level – inherit from
+ * above"; an **empty** list means "explicitly nothing".
+ */
+data class PaletteSpec(
+    val first: List<PaletteRef>? = null,
+    val palettes: List<PaletteRef>? = null,
+    val last: List<PaletteRef>? = null
+) {
+    companion object {
+        /** No categories specified – inherits everything. */
+        val INHERIT = PaletteSpec()
+    }
+}
+
+/**
  * Represents a single layer type (e.g., hat, eyes, jacket).
  */
 data class LayerDefinition(
@@ -12,7 +35,7 @@ data class LayerDefinition(
     val displayName: String,
     val directory: Path,
     val allowColorMask: Boolean,
-    val defaultPalettes: List<String>
+    val paletteSpec: PaletteSpec = PaletteSpec.INHERIT
 )
 
 /**
@@ -25,7 +48,7 @@ data class LayerOption(
     val fileSlim: Path?,
     val imageDefault: BufferedImage?,
     val imageSlim: BufferedImage?,
-    val allowedPalettes: List<String>,
+    val paletteSpec: PaletteSpec = PaletteSpec.INHERIT,
     val masks: Map<Int, Path> = emptyMap() // mask index -> file path (generated)
 )
 

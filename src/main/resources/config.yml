@@ -224,6 +224,21 @@ hud-frame:
 
 # Layer configuration
 layers:
+  # Default palette assignments – applied to ALL layers unless overridden.
+  # Three categories processed in order: first → palettes → last.
+  # Lower-level definitions (layer / part) fully replace higher-level ones
+  # within the same category.  Duplicate palettes across categories are
+  # collapsed (first occurrence wins).
+  #
+  # Each entry is either a plain palette id or a map with optional permission:
+  #   - primary                         # available to everyone
+  #   - palette: neon                   # same as above
+  #     permission: group.admin         # only if player has this perm
+  default-palettes-first: []
+  default-palettes:
+    - greyscale
+  default-palettes-last: []
+
   palettes:
     # ── Natural / earthy tones ──
     earth:
@@ -388,21 +403,27 @@ layers:
       display-name: "Hair"
       directory: "layers/Hair"
       allow-color-mask: true
-      default-palettes:
+      # Layer-level palettes (overrides default-palettes for this layer)
+      palettes:
         - hair
         - neon
         - pastel
-      # Optional per-option overrides:
+      # Optional per-option overrides (three categories available):
       # options:
       #   fedora:
-      #     palettes:
+      #     palettes:          # overrides layer "palettes" for this part
       #       - earth
+      #     palettes-first:    # overrides default "palettes-first" for this part
+      #       - greyscale
+      #     palettes-last:     # overrides default "palettes-last" for this part
+      #       - palette: neon
+      #         permission: group.admin
     
     shirt:
       display-name: "Shirt"
       directory: "layers/Shirt"
       allow-color-mask: true
-      default-palettes:
+      palettes:
         - primary
         - fabric
         - pastel
@@ -411,7 +432,7 @@ layers:
       display-name: "Pants"
       directory: "layers/Pants"
       allow-color-mask: true
-      default-palettes:
+      palettes:
         - fabric
         - earth
         - greyscale
@@ -420,6 +441,6 @@ layers:
       display-name: "Body"
       directory: "layers/Body"
       allow-color-mask: true
-      default-palettes:
+      palettes:
         - skin
         - jewel
