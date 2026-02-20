@@ -7,6 +7,10 @@ import com.sneakymannequins.model.LayerDefinition
 import com.sneakymannequins.model.LayerOption
 import com.sneakymannequins.model.PaletteRef
 import com.sneakymannequins.model.PaletteSpec
+import com.sneakymannequins.model.DetailMode
+import com.sneakymannequins.model.TextureDefinition
+import com.sneakymannequins.model.TextureRef
+import com.sneakymannequins.model.TextureSpec
 import org.bukkit.configuration.ConfigurationSection
 import org.bukkit.entity.Player
 import java.awt.Color
@@ -22,25 +26,31 @@ class LayerManager(
     private val loadedLayers = mutableMapOf<String, Pair<LayerDefinition, List<LayerOption>>>()
     private val layerOrder = mutableListOf<String>()
     private val palettes = mutableMapOf<String, ColorPalette>()
+    private val textures = mutableMapOf<String, TextureDefinition>()
     private var defaultPaletteSpec = PaletteSpec.INHERIT
+    private var defaultTextureSpec = TextureSpec.INHERIT
 
     fun reload() {
         loadedLayers.clear()
         layerOrder.clear()
         palettes.clear()
+        textures.clear()
         defaultPaletteSpec = PaletteSpec.INHERIT
+        defaultTextureSpec = TextureSpec.INHERIT
         val root = plugin.config.getConfigurationSection("layers") ?: run {
             plugin.logger.warning("No 'layers' section found in config.")
             return
         }
 
         loadPalettes(root.getConfigurationSection("palettes"))
+        loadTextures(root.getConfigurationSection("textures"))
 
         val definitions = root.getConfigurationSection("definitions") ?: run {
             plugin.logger.warning("No layer definitions found in config.")
             return
         }
         defaultPaletteSpec = parsePaletteSpec(definitions)
+        defaultTextureSpec = parseTextureSpec(definitions)
         val configuredOrder = root.getStringList("order")
         if (configuredOrder.isNotEmpty()) {
             layerOrder.addAll(configuredOrder)
@@ -68,6 +78,10 @@ class LayerManager(
         loadedLayers[layerId]?.second.orEmpty()
 
     fun palette(id: String): ColorPalette? = palettes[id]
+
+    fun texture(id: String): TextureDefinition? = textures[id]
+
+    // ── Palette loading ──────────────────────────────────────────────────
 
     private fun loadPalettes(section: ConfigurationSection?) {
         section ?: return
@@ -100,6 +114,86 @@ class LayerManager(
         }
     }
 
+    // ── Texture loading ──────────────────────────────────────────────────
+
+    private fun loadTextures(section: ConfigurationSection?) {
+        section ?: return
+        val dataDir = plugin.dataFolder.toPath()
+        section.getKeys(false).forEach { textureId ->
+            val texSection = section.getConfigurationSection(textureId)
+            if (texSection == null) {
+                plugin.logger.warning("Texture '$textureId' is not a valid section; skipping.")
+                return@forEach
+            }
+            val blendRaw = texSection.getString("blend")
+            val detailRaw = texSection.getString("detail")
+            val blendPath = blendRaw?.let { dataDir.resolve(it).normalize() }
+            val detailPath = detailRaw?.let { dataDir.resolve(it).normalize() }
+
+            val blendImage = blendPath?.let { p ->
+                if (!Files.exists(p)) {
+                    plugin.logger.warning("Texture '$textureId' blend map not found: $p")
+                    return@let null
+                }
+                try { ImageIO.read(p.toFile()) } catch (e: Exception) {
+                    plugin.logger.warning("Texture '$textureId' failed to read blend map: ${e.message}")
+                    null
+                }
+            }
+            val detailImage = detailPath?.let { p ->
+                if (!Files.exists(p)) {
+                    plugin.logger.warning("Texture '$textureId' detail map not found: $p")
+                    return@let null
+                }
+                try { ImageIO.read(p.toFile()) } catch (e: Exception) {
+                    plugin.logger.warning("Texture '$textureId' failed to read detail map: ${e.message}")
+                    null
+                }
+            }
+
+            // Auto-detect active sub-channels from the blend map (scan entire image)
+            val activeSubChannels = if (blendImage != null) detectSubChannels(blendImage) else emptySet()
+
+            // Detail mode: "add" (default) modulates on top, "replace" overwrites B/S
+            val detailModeStr = texSection.getString("detail-mode", "add")?.uppercase() ?: "ADD"
+            val detailMode = try { DetailMode.valueOf(detailModeStr) } catch (_: Exception) { DetailMode.ADD }
+
+            val displayName = toDisplayName(textureId)
+            textures[textureId] = TextureDefinition(
+                id = textureId,
+                displayName = displayName,
+                blendMapPath = blendPath,
+                detailMapPath = detailPath,
+                blendMapImage = blendImage,
+                detailMapImage = detailImage,
+                detailMode = detailMode,
+                activeSubChannels = activeSubChannels
+            )
+        }
+    }
+
+    /**
+     * Scan all pixels in the blend map and return the set of active
+     * sub-channel indices (0=R, 1=G, 2=B) that have at least one
+     * non-zero pixel in that colour channel.
+     */
+    private fun detectSubChannels(blendMap: java.awt.image.BufferedImage): Set<Int> {
+        val active = mutableSetOf<Int>()
+        for (x in 0 until blendMap.width) {
+            for (y in 0 until blendMap.height) {
+                val argb = blendMap.getRGB(x, y)
+                val r = argb shr 16 and 0xFF
+                val g = argb shr 8 and 0xFF
+                val b = argb and 0xFF
+                if (r > 0) active.add(0)
+                if (g > 0) active.add(1)
+                if (b > 0) active.add(2)
+                if (active.size == 3) return active // all found, short-circuit
+            }
+        }
+        return active
+    }
+
     private fun decodeColor(hex: String): Color? {
         return try {
             Color.decode("#${hex.trim('#')}")
@@ -107,6 +201,8 @@ class LayerManager(
             null
         }
     }
+
+    // ── Option loading ───────────────────────────────────────────────────
 
     private fun loadOptions(definition: LayerDefinition, optionConfig: ConfigurationSection?): List<LayerOption> {
         val directory = definition.directory
@@ -160,9 +256,9 @@ class LayerManager(
         }
 
         return grouped.values.mapNotNull { agg ->
-            val optSpec = optionConfig?.getConfigurationSection(agg.id)
-                ?.let { parsePaletteSpec(it) }
-                ?: PaletteSpec.INHERIT
+            val optSection = optionConfig?.getConfigurationSection(agg.id)
+            val optPaletteSpec = optSection?.let { parsePaletteSpec(it) } ?: PaletteSpec.INHERIT
+            val optTextureSpec = optSection?.let { parseTextureSpec(it) } ?: TextureSpec.INHERIT
 
             val defaultPath = agg.defaultPath ?: agg.sharedPath
             val slimPath = agg.slimPath ?: agg.sharedPath
@@ -183,19 +279,43 @@ class LayerManager(
                 fileSlim = slimPath,
                 imageDefault = defaultImage,
                 imageSlim = slimImage,
-                paletteSpec = optSpec,
+                paletteSpec = optPaletteSpec,
+                textureSpec = optTextureSpec,
                 masks = masks
             )
         }
+    }
+
+    /**
+     * Scan the directory for mask PNGs belonging to the given option aggregate.
+     */
+    private fun buildMaskMap(directory: Path, agg: OptionAggregate): Map<Int, Path> {
+        val baseNames = listOfNotNull(agg.defaultPath, agg.slimPath, agg.sharedPath).map { it.nameWithoutExtension }.toSet()
+        val pngs = Files.list(directory).use { stream ->
+            stream.iterator().asSequence()
+                .filter { Files.isRegularFile(it) && it.fileName.toString().lowercase().endsWith(".png") }
+                .filter { path ->
+                    val name = path.nameWithoutExtension.lowercase()
+                    baseNames.any { base -> name.startsWith("${base.lowercase()}_mask_") }
+                }
+                .toList()
+        }
+
+        return pngs.mapNotNull { path ->
+            val name = path.nameWithoutExtension
+            val idxPart = name.substringAfterLast("_mask_", missingDelimiterValue = "")
+            val idx = idxPart.toIntOrNull() ?: return@mapNotNull null
+            idx to path
+        }.toMap()
     }
 
     private fun loadOptionPair(path: Path, definition: LayerDefinition, optionConfig: ConfigurationSection?): LayerOption? {
         val base = path.nameWithoutExtension
         val id = slugify(base)
         val displayName = toDisplayName(base)
-        val optSpec = optionConfig?.getConfigurationSection(id)
-            ?.let { parsePaletteSpec(it) }
-            ?: PaletteSpec.INHERIT
+        val optSection = optionConfig?.getConfigurationSection(id)
+        val optPaletteSpec = optSection?.let { parsePaletteSpec(it) } ?: PaletteSpec.INHERIT
+        val optTextureSpec = optSection?.let { parseTextureSpec(it) } ?: TextureSpec.INHERIT
 
         val image = loadImage(path, definition.id) ?: return null
         return LayerOption(
@@ -205,27 +325,9 @@ class LayerManager(
             fileSlim = path,
             imageDefault = image,
             imageSlim = image,
-            paletteSpec = optSpec
+            paletteSpec = optPaletteSpec,
+            textureSpec = optTextureSpec
         )
-    }
-
-    private fun buildMaskMap(directory: Path, agg: OptionAggregate): Map<Int, Path> {
-        val baseNames = listOfNotNull(agg.defaultPath, agg.slimPath, agg.sharedPath).map { it.nameWithoutExtension }.toSet()
-        val maskFiles = Files.list(directory).use { stream ->
-            stream.iterator().asSequence()
-                .filter { Files.isRegularFile(it) && it.fileName.toString().lowercase().endsWith(".png") }
-                .filter { path ->
-                    val name = path.nameWithoutExtension.lowercase()
-                    baseNames.any { base -> name.startsWith("${base.lowercase()}_mask_") }
-                }
-                .toList()
-        }
-        return maskFiles.mapNotNull { path ->
-            val name = path.nameWithoutExtension
-            val idxPart = name.substringAfterLast("_mask_", missingDelimiterValue = "")
-            val idx = idxPart.toIntOrNull() ?: return@mapNotNull null
-            idx to path
-        }.toMap()
     }
 
     private fun loadImage(path: Path, layerId: String): java.awt.image.BufferedImage? {
@@ -362,36 +464,19 @@ class LayerManager(
 
     private fun isInUv(x: Int, y: Int): Boolean {
         // Vanilla 64x64 skin layout (both layers)
-        // Head: base 0..31 x 0..15, overlay 32..63 x 0..15
-        // Body: base 16..39 x 16..31, overlay 16..55 x 32..47
-        // Right arm: base 40..55 x 16..31, overlay 40..55 x 32..47
-        // Left arm:  same as right arm but 48..63 x 48..63 overlay (for legacy) omitted; use 32..47 x 48..63? (vanilla uses mirrored)
-        // Legs: base 0..15 x 16..31 and 0..15 x 32..47 overlay; left leg at 16..31 x 48..63 overlay region
-        // We’ll accept all standard second-layer regions:
         val regions = listOf(
-            // Head base
-            Rect(0, 0, 32, 16),
-            // Head overlay
-            Rect(32, 0, 64, 16),
-            // Body base
-            Rect(16, 16, 40, 32),
-            // Body overlay
-            Rect(16, 32, 56, 48),
-            // Right arm base
-            Rect(40, 16, 56, 32),
-            // Right arm overlay
-            Rect(40, 32, 56, 48),
-            // Left arm base/overlay area (mirrored; accept both)
-            Rect(32, 48, 48, 64),
-            Rect(48, 48, 64, 64),
-            // Right leg base
-            Rect(0, 16, 16, 32),
-            // Right leg overlay
-            Rect(0, 32, 16, 48),
-            // Left leg base
-            Rect(16, 48, 32, 64),
-            // Left leg overlay
-            Rect(0, 48, 16, 64)
+            Rect(0, 0, 32, 16),    // Head base
+            Rect(32, 0, 64, 16),   // Head overlay
+            Rect(16, 16, 40, 32),  // Body base
+            Rect(16, 32, 56, 48),  // Body overlay
+            Rect(40, 16, 56, 32),  // Right arm base
+            Rect(40, 32, 56, 48),  // Right arm overlay
+            Rect(32, 48, 48, 64),  // Left arm base/overlay
+            Rect(48, 48, 64, 64),  // Left arm overlay
+            Rect(0, 16, 16, 32),   // Right leg base
+            Rect(0, 32, 16, 48),   // Right leg overlay
+            Rect(16, 48, 32, 64),  // Left leg base
+            Rect(0, 48, 16, 64)    // Left leg overlay
         )
         return regions.any { it.contains(x, y) }
     }
@@ -402,20 +487,6 @@ class LayerManager(
 
     // ── Slim → default arm-column fix ─────────────────────────────────────
 
-    /**
-     * Describes one arm's UV region.  All four arm textures (right/left ×
-     * base/overlay) share the same internal layout, offset by [frontX].
-     *
-     * Relative to [frontX] (abbreviated `fx`):
-     * ```
-     * Top row (topY):   [Top fx..fx+2] [Bottom fx+3..fx+5]   (slim, 3px wide)
-     *                   [Top fx..fx+3] [Bottom fx+4..fx+7]   (default, 4px wide)
-     *
-     * Main row (mainY): [Front fx..fx+2] [Side fx+3..fx+6] [Back fx+7..fx+9]  (slim)
-     *                   [Front fx..fx+3] [Side fx+4..fx+7] [Back fx+8..fx+11] (default)
-     * ```
-     * The depth side faces (right side: fx-4..fx-1) are 4px in both models.
-     */
     private data class ArmRegion(
         val frontX: Int,
         val mainY: IntRange,
@@ -423,36 +494,15 @@ class LayerManager(
     )
 
     private val SLIM_ARM_REGIONS = listOf(
-        ArmRegion(frontX = 44, mainY = 20..31, topY = 16..19),   // right arm base
-        ArmRegion(frontX = 44, mainY = 36..47, topY = 32..35),   // right arm overlay
-        ArmRegion(frontX = 36, mainY = 52..63, topY = 48..51),   // left arm base
-        ArmRegion(frontX = 52, mainY = 52..63, topY = 48..51),   // left arm overlay
+        ArmRegion(frontX = 44, mainY = 20..31, topY = 16..19),
+        ArmRegion(frontX = 44, mainY = 36..47, topY = 32..35),
+        ArmRegion(frontX = 36, mainY = 52..63, topY = 48..51),
+        ArmRegion(frontX = 52, mainY = 52..63, topY = 48..51),
     )
 
-    /**
-     * Detect and fix slim arm-texture artefacts in a non-`_slim` asset.
-     *
-     * Two authoring styles are handled:
-     *
-     * **Type A – Default UV, 4th column empty.**
-     * The texture uses default-model UV positions but only fills 3 of the 4
-     * width-columns on each arm face.  Fix: stretch the 3rd column into the
-     * 4th for every affected face (front, top, bottom, back).
-     *
-     * **Type B – Shifted UV (true slim layout).**
-     * The side, bottom, and back faces start 1 pixel earlier because
-     * `side_start = front_x + 3` instead of `front_x + 4`.  Fix: shift
-     * those faces right by 1, then stretch the last width-column to fill
-     * the new 4th position.
-     */
     private fun fixSlimArmGaps(image: java.awt.image.BufferedImage) {
         for (arm in SLIM_ARM_REGIONS) {
             val fx = arm.frontX
-
-            // ── Detect Type B (shifted UV) ──────────────────────────────
-            // Indicators: the front-gap column (fx+3) has data (side face
-            // shifted there), the slim back start (fx+7) has data, and the
-            // default back-end column (fx+11) is empty.
             val frontGapHasData  = arm.mainY.any { y -> (image.getRGB(fx + 3, y) ushr 24) != 0 }
             val slimBackHasData  = arm.mainY.any { y -> (image.getRGB(fx + 7, y) ushr 24) != 0 }
             val defaultBackEmpty = arm.mainY.all { y -> (image.getRGB(fx + 11, y) ushr 24) == 0 }
@@ -462,19 +512,13 @@ class LayerManager(
                 continue
             }
 
-            // ── Type A: simple gap-fills ─────────────────────────────────
-            // Front + top face gap (fx+3)
             fillGapColumn(image, fx + 3, fx + 2, fx + 4, arm.mainY)
             fillGapColumn(image, fx + 3, fx + 2, fx + 4, arm.topY)
-            // Bottom face gap (fx+7)
             fillGapColumn(image, fx + 7, fx + 6, fx + 6, arm.topY)
-            // Back face gap (fx+11)
             fillGapColumn(image, fx + 11, fx + 10, fx + 8, arm.mainY)
         }
     }
 
-    /** Stretch a single gap column if it is fully transparent and the
-     *  verification column confirms data exists. */
     private fun fillGapColumn(
         image: java.awt.image.BufferedImage,
         gapX: Int, sourceX: Int, verifyX: Int, yRange: IntRange
@@ -489,23 +533,8 @@ class LayerManager(
         }
     }
 
-    /**
-     * Full remap for a Type-B slim arm: every face after the front is
-     * shifted 1 pixel to the left of where the default model expects it.
-     *
-     * Operations are ordered right-to-left to avoid overwriting:
-     * 1. Back face (3 cols at fx+7) → shift to fx+8, stretch to fx+11
-     * 2. Side face (4 cols at fx+3) → shift to fx+4
-     * 3. Front gap → stretch fx+2 into fx+3
-     * Same pattern for the top row (bottom face + top gap).
-     */
     private fun remapShiftedSlim(image: java.awt.image.BufferedImage, arm: ArmRegion) {
         val fx = arm.frontX
-
-        // ── Main row (front / side / back) ──────────────────────────────
-
-        // 1. Back face: read 3 cols at fx+7..fx+9, write to fx+8..fx+10,
-        //    stretch last column to fx+11.
         for (y in arm.mainY) {
             val b1 = image.getRGB(fx + 7, y)
             val b2 = image.getRGB(fx + 8, y)
@@ -513,27 +542,16 @@ class LayerManager(
             image.setRGB(fx + 8,  y, b1)
             image.setRGB(fx + 9,  y, b2)
             image.setRGB(fx + 10, y, b3)
-            image.setRGB(fx + 11, y, b3)   // stretch
+            image.setRGB(fx + 11, y, b3)
         }
-
-        // 2. Side face: 4 cols at fx+3..fx+6 → shift right to fx+4..fx+7.
-        //    Process right-to-left so each read happens before the write
-        //    that would overwrite it.
         for (y in arm.mainY) {
             for (col in (fx + 6) downTo (fx + 3)) {
                 image.setRGB(col + 1, y, image.getRGB(col, y))
             }
         }
-
-        // 3. Front gap: stretch fx+2 into fx+3.
         for (y in arm.mainY) {
             image.setRGB(fx + 3, y, image.getRGB(fx + 2, y))
         }
-
-        // ── Top row (top / bottom) ──────────────────────────────────────
-
-        // 1. Bottom face: 3 cols at fx+3..fx+5 → shift to fx+4..fx+6,
-        //    stretch to fx+7.
         for (y in arm.topY) {
             val b1 = image.getRGB(fx + 3, y)
             val b2 = image.getRGB(fx + 4, y)
@@ -541,10 +559,8 @@ class LayerManager(
             image.setRGB(fx + 4, y, b1)
             image.setRGB(fx + 5, y, b2)
             image.setRGB(fx + 6, y, b3)
-            image.setRGB(fx + 7, y, b3)   // stretch
+            image.setRGB(fx + 7, y, b3)
         }
-
-        // 2. Top gap: stretch fx+2 into fx+3.
         for (y in arm.topY) {
             image.setRGB(fx + 3, y, image.getRGB(fx + 2, y))
         }
@@ -558,31 +574,26 @@ class LayerManager(
     enum class MaskStrategy { HSB, HUE, RGB }
 
     companion object {
-        /** All valid strategy names for tab-completion and config validation. */
         val STRATEGY_NAMES: List<String> = MaskStrategy.entries.map { it.name }
     }
 
     private data class Cluster(val pixels: MutableList<Pair<Int, Int>>)
 
-    /** Pixel with full HSB + RGB + position, shared across strategies. */
     private data class ColorPixel(
         val h: Float, val s: Float, val b: Float,
         val r: Int, val g: Int, val bl: Int,
         val x: Int, val y: Int
     )
 
-    /** Returns the configured default masking strategy. */
     fun defaultStrategy(): MaskStrategy {
         val name = plugin.config.getString("plugin.preprocessing.default-strategy", "HSB") ?: "HSB"
         return try { MaskStrategy.valueOf(name.uppercase()) } catch (_: Exception) { MaskStrategy.HSB }
     }
 
-    /** Returns the configured default number of colour channels (masks) per part. */
     fun defaultChannels(): Int {
         return plugin.config.getInt("plugin.preprocessing.default-channels", 2).coerceIn(1, 8)
     }
 
-    /** Collect all chromatic (non-neutral) pixels from an image. */
     private fun collectChromatic(image: java.awt.image.BufferedImage): List<ColorPixel> {
         val neutralSat    = plugin.config.getDouble("plugin.preprocessing.neutral-saturation", 0.12).toFloat()
         val neutralBriLow = plugin.config.getDouble("plugin.preprocessing.neutral-brightness-low", 0.10).toFloat()
@@ -614,8 +625,6 @@ class LayerManager(
         }
     }
 
-    // ── Strategy: k-means in HSB space (circular hue) ───────────────────
-
     private fun clusterKMeansHsb(chromatic: List<ColorPixel>, k: Int): List<Cluster> {
         fun distSq(p: ColorPixel, ch: Float, cs: Float, cb: Float): Float {
             val hDiff = kotlin.math.abs(p.h - ch)
@@ -633,7 +642,6 @@ class LayerManager(
             return (if (mean < 0) mean + 1.0 else mean).toFloat()
         }
 
-        // k-means++ seeding: pick k initial centroids with distance-weighted random selection
         val rng = java.util.Random(chromatic.hashCode().toLong())
         val centroidIndices = mutableListOf(rng.nextInt(chromatic.size))
         while (centroidIndices.size < k) {
@@ -651,7 +659,6 @@ class LayerManager(
             centroidIndices += chosen
         }
 
-        // Centroid arrays: h, s, b for each centroid
         val cH = FloatArray(k) { chromatic[centroidIndices.getOrElse(it) { 0 }].h }
         val cS = FloatArray(k) { chromatic[centroidIndices.getOrElse(it) { 0 }].s }
         val cB = FloatArray(k) { chromatic[centroidIndices.getOrElse(it) { 0 }].b }
@@ -680,37 +687,25 @@ class LayerManager(
         return buildClusters(chromatic, assignments, k)
     }
 
-    // ── Strategy: largest hue gaps on the colour wheel ──────────────────
-
     private fun clusterHueGap(chromatic: List<ColorPixel>, k: Int): List<Cluster> {
         val sorted = chromatic.sortedBy { it.h }
         val n = sorted.size
         if (n <= k) return sorted.map { Cluster(mutableListOf(it.x to it.y)) }
 
-        // Compute interior gaps (between consecutive sorted pixels).
         data class Gap(val size: Float, val afterIndex: Int)
         val interiorGaps = (0 until n - 1).map { Gap(sorted[it + 1].h - sorted[it].h, it) }
         val largestInteriorGap = interiorGaps.maxOf { it.size }
-
-        // Wrap gap: distance between the last and first hue going through 1.0.
-        // When the wrap gap is larger than every interior gap, all hues are
-        // concentrated in one region — distribute split points evenly across
-        // the sorted array (matches the original k=2 "split in half" fallback).
         val wrapGap = 1f - sorted.last().h + sorted.first().h
 
         val splitPoints = if (wrapGap > largestInteriorGap) {
-            // Evenly space k-1 splits.  For k=2 this gives (n/2)-1, identical
-            // to the original behaviour.
             (1 until k).map { (n * it / k) - 1 }.sorted()
         } else {
-            // Use the k-1 largest interior gaps as split points
             interiorGaps.sortedByDescending { it.size }
                 .take(k - 1)
                 .map { it.afterIndex }
                 .sorted()
         }
 
-        // Build clusters by walking the sorted array and splitting at each point
         val clusters = mutableListOf<Cluster>()
         var start = 0
         for (sp in splitPoints) {
@@ -719,7 +714,6 @@ class LayerManager(
             clusters += cluster
             start = sp + 1
         }
-        // Final segment
         val last = Cluster(mutableListOf())
         for (i in start until n) last.pixels += sorted[i].x to sorted[i].y
         clusters += last
@@ -727,15 +721,12 @@ class LayerManager(
         return clusters.filter { it.pixels.isNotEmpty() }
     }
 
-    // ── Strategy: k-means in RGB space ──────────────────────────────────
-
     private fun clusterKMeansRgb(chromatic: List<ColorPixel>, k: Int): List<Cluster> {
         fun distSq(p: ColorPixel, cr: Float, cg: Float, cb: Float): Float {
             val dr = p.r - cr; val dg = p.g - cg; val db = p.bl - cb
             return dr * dr + dg * dg + db * db
         }
 
-        // k-means++ seeding
         val rng = java.util.Random(chromatic.hashCode().toLong())
         val centroidIndices = mutableListOf(rng.nextInt(chromatic.size))
         while (centroidIndices.size < k) {
@@ -753,7 +744,6 @@ class LayerManager(
             centroidIndices += chosen
         }
 
-        // Centroid arrays: r, g, b for each centroid
         val cR = FloatArray(k) { chromatic[centroidIndices.getOrElse(it) { 0 }].r.toFloat() }
         val cG = FloatArray(k) { chromatic[centroidIndices.getOrElse(it) { 0 }].g.toFloat() }
         val cB = FloatArray(k) { chromatic[centroidIndices.getOrElse(it) { 0 }].bl.toFloat() }
@@ -781,8 +771,6 @@ class LayerManager(
         }
         return buildClusters(chromatic, assignments, k)
     }
-
-    // ── Shared helper ───────────────────────────────────────────────────
 
     private fun buildClusters(chromatic: List<ColorPixel>, assignments: IntArray, k: Int): List<Cluster> {
         val clusters = (0 until k).map { Cluster(mutableListOf()) }
@@ -817,10 +805,6 @@ class LayerManager(
 
     /**
      * Parse a [PaletteSpec] from the given config section.
-     * Looks for keys `${prefix}palettes-first`, `${prefix}palettes`,
-     * `${prefix}palettes-last`.  Each value is a list whose entries may be
-     * plain strings (`"neon"`) or maps (`{palette: "neon", permission: "group.admin"}`).
-     * Returns `null` fields for any key that is absent.
      */
     private fun parsePaletteSpec(section: ConfigurationSection, prefix: String = ""): PaletteSpec {
         fun readRefs(key: String): List<PaletteRef>? {
@@ -834,10 +818,6 @@ class LayerManager(
         )
     }
 
-    /**
-     * Parse a list at [key] whose entries may be plain strings or maps with
-     * `palette` and optional `permission` keys.
-     */
     @Suppress("UNCHECKED_CAST")
     private fun parsePaletteRefList(section: ConfigurationSection, key: String): List<PaletteRef> {
         val raw = section.getList(key) ?: return emptyList()
@@ -855,20 +835,37 @@ class LayerManager(
         }
     }
 
-    // ── Palette resolution ──────────────────────────────────────────────
+    // ── Texture spec parsing ─────────────────────────────────────────────
 
     /**
-     * Resolve the final ordered, deduplicated list of palette IDs available
-     * to a specific option on a specific layer for a given player.
-     *
-     * Resolution order per category (first / palettes / last):
-     *   part-level  →  layer-level  →  default-level
-     * The first non-null wins (empty list **is** non-null).
-     *
-     * Then the three resolved lists are concatenated (first + palettes + last)
-     * and deduplicated (first occurrence wins).  Entries whose permission
-     * the player lacks are silently removed.
+     * Parse a [TextureSpec] from the given config section.
+     * Looks for the key `textures`.  Each entry may be a plain string
+     * or a map with `texture` and optional `permission` keys.
      */
+    private fun parseTextureSpec(section: ConfigurationSection): TextureSpec {
+        if (!section.contains("textures")) return TextureSpec.INHERIT
+        return TextureSpec(textures = parseTextureRefList(section, "textures"))
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun parseTextureRefList(section: ConfigurationSection, key: String): List<TextureRef> {
+        val raw = section.getList(key) ?: return emptyList()
+        return raw.mapNotNull { entry ->
+            when (entry) {
+                is String -> TextureRef(entry)
+                is Map<*, *> -> {
+                    val map = entry as Map<String, Any?>
+                    val id = map["texture"]?.toString() ?: return@mapNotNull null
+                    val perm = map["permission"]?.toString()
+                    TextureRef(id, perm)
+                }
+                else -> null
+            }
+        }
+    }
+
+    // ── Palette resolution ──────────────────────────────────────────────
+
     fun resolvePalettes(layerId: String, optionId: String, player: Player?): List<String> {
         val (layerDef, options) = loadedLayers[layerId] ?: return emptyList()
         val option = options.firstOrNull { it.id == optionId } ?: return emptyList()
@@ -891,21 +888,53 @@ class LayerManager(
         }.map { it.id }
     }
 
+    // ── Texture resolution ──────────────────────────────────────────────
+
+    /**
+     * Resolve the final ordered, deduplicated list of texture IDs available
+     * to a specific option on a specific layer for a given player.
+     *
+     * Resolution order:  part-level  →  layer-level  →  default-level.
+     * The first non-null wins (empty list **is** non-null).
+     * Entries whose permission the player lacks are silently removed.
+     */
+    fun resolveTextures(layerDef: LayerDefinition, option: LayerOption, player: Player?): List<String> {
+        val resolved = option.textureSpec.textures
+            ?: layerDef.textureSpec.textures
+            ?: defaultTextureSpec.textures
+            ?: emptyList()
+
+        val seen = mutableSetOf<String>()
+        return resolved.filter { ref ->
+            val allowed = ref.permission == null || (player?.hasPermission(ref.permission) ?: true)
+            allowed && seen.add(ref.id) && textures.containsKey(ref.id)
+        }.map { it.id }
+    }
+
+    fun resolveTextures(layerId: String, optionId: String, player: Player?): List<String> {
+        val (layerDef, options) = loadedLayers[layerId] ?: return emptyList()
+        val option = options.firstOrNull { it.id == optionId } ?: return emptyList()
+        return resolveTextures(layerDef, option, player)
+    }
+
+    // ── Layer definition parsing ─────────────────────────────────────────
+
     private fun ConfigurationSection.toDefinition(dataFolder: Path): LayerDefinition {
         val id = this.name
         val displayName = getString("display-name", id) ?: id
         val allowMask = getBoolean("allow-color-mask", false)
         val directory = dataFolder.resolve(getString("directory", "layers/$id") ?: "layers/$id").normalize()
 
-        val spec = parsePaletteSpec(this)
+        val palSpec = parsePaletteSpec(this)
+        val texSpec = parseTextureSpec(this)
 
         return LayerDefinition(
             id = id,
             displayName = displayName,
             directory = directory,
             allowColorMask = allowMask,
-            paletteSpec = spec
+            paletteSpec = palSpec,
+            textureSpec = texSpec
         )
     }
 }
-

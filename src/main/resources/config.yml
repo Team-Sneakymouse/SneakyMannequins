@@ -181,7 +181,23 @@ hud-buttons:
     active-text: "<yellow>Part"
     translation:
       x: 1.1
+      y: 2.7
+      z: -2.0
+
+  channel:
+    text: "<white>Channel"
+    disabled-text: "<gray>Channel"
+    translation:
+      x: 1.1
       y: 2.2
+      z: -2.0
+
+  texture:
+    text: "<white>Texture"
+    disabled-text: "<gray>Texture"
+    translation:
+      x: 1.1
+      y: 1.7
       z: -2.0
 
   palette:
@@ -190,14 +206,6 @@ hud-buttons:
     translation:
       x: 1.1
       y: 1.2
-      z: -2.0
-
-  channel:
-    text: "<white>Channel"
-    disabled-text: "<gray>Channel"
-    translation:
-      x: 1.1
-      y: 1.7
       z: -2.0
 
   color:
@@ -386,6 +394,37 @@ layers:
       maroon: "5A1A1A"
       forest_green: "1A4A1A"
 
+  # ── Texture definitions ──────────────────────────────────────────────
+  # Named textures that control *how* a colour channel is rendered.
+  # Each texture can have a blend map (RGB = sub-channel weights) and/or
+  # a detail map (grayscale brightness/saturation modulation).
+  #
+  # detail-mode controls how the detail map interacts with the original art:
+  #   "add"     (default) – modulates *on top of* the art's brightness/saturation.
+  #                         128 = neutral, lower = darken, higher = brighten.
+  #   "replace" – *replaces* the art's brightness/saturation with the detail map.
+  #              The original shading is discarded; only the detail map defines
+  #              the final brightness and saturation (hue still comes from the
+  #              blend map / flat colour).
+  #
+  # Textures are assigned at global, layer, or part level using a
+  # `textures:` list (same hierarchy as palettes, but without first/last).
+  # A "Default" option (flat colour, no texture) is always available
+  # in addition to the assigned textures.
+  #
+  # Example texture definitions:
+  #   textures:
+  #     wool:
+  #       blend: "textures/wool_blend.png"
+  #       detail: "textures/wool_detail.png"
+  #       detail-mode: add
+  #     denim:
+  #       blend: "textures/denim_blend.png"
+  #     leather:
+  #       detail: "textures/leather_detail.png"
+  #       detail-mode: replace
+  textures: {}
+
   # Rendering order for layers (bottom to top)
   order:
     - body
@@ -408,6 +447,13 @@ layers:
     palettes:
       - greyscale
     palettes-last: []
+
+    # Default texture assignments – applied to ALL layers unless overridden.
+    # Each entry is either a plain texture id or a map with optional permission:
+    #   - wool                              # available to everyone
+    #   - texture: leather                  # same as above
+    #     permission: group.admin           # only if player has this perm
+    textures: []
 
     hair:
       display-name: "Hair"

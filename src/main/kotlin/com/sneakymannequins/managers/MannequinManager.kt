@@ -8,6 +8,7 @@ import com.sneakymannequins.model.Mannequin
 import com.sneakymannequins.model.PixelChange
 import com.sneakymannequins.model.PixelFrame
 import com.sneakymannequins.model.SkinSelection
+import com.sneakymannequins.model.TextureDefinition
 import com.sneakymannequins.nms.VolatileHandler
 import com.sneakymannequins.render.AnimationManager
 import com.sneakymannequins.render.PixelProjector
@@ -38,6 +39,13 @@ private data class ControlState(
     val partIndex: MutableMap<String, Int> = mutableMapOf(),
     val colorIndex: MutableMap<String, Int> = mutableMapOf(),
     val channelIndex: MutableMap<String, Int> = mutableMapOf(),
+    /** Per-layer selected sub-channel index within the current channel (for blend-mapped channels). */
+    val subChannelIndex: MutableMap<String, Int> = mutableMapOf(),
+    /**
+     * Per-layer selected texture index (into the resolved texture list).
+     * -1 = "Default" (flat colour, no texture), 0+ = index into the resolved texture list.
+     */
+    val textureIndex: MutableMap<String, Int> = mutableMapOf(),
     /** Per-layer selected palette index (into the resolved palette list). -1 = "All" (use every palette). */
     val paletteIndex: MutableMap<String, Int> = mutableMapOf(),
     var mode: ControlMode = ControlMode.NONE
@@ -152,11 +160,14 @@ class MannequinManager(
         private const val HUD_FLY_INTERP_TICKS = 10                 // interpolation duration (ticks)
         private const val HUD_DISMISS_RANGE = 8.0                   // dismiss HUD when player is this far (blocks)
 
+        /** Human-readable names for blend-map sub-channel indices (0=R, 1=G, 2=B). */
+        private val SUB_CHANNEL_NAMES = mapOf(0 to "R", 1 to "G", 2 to "B")
+
         /** Canonical ordered list of button names. */
-        private val BUTTON_ORDER = listOf("status", "model", "pose", "layer", "random", "part", "channel", "palette", "color")
+        private val BUTTON_ORDER = listOf("status", "model", "pose", "layer", "random", "part", "channel", "texture", "palette", "color")
 
         /** Button names that respond to clicks.  "status" is display-only. */
-        private val CLICKABLE_BUTTONS = setOf("model", "pose", "random", "layer", "part", "channel", "palette", "color")
+        private val CLICKABLE_BUTTONS = setOf("model", "pose", "random", "layer", "part", "channel", "texture", "palette", "color")
 
         /** Hardcoded defaults used when a key is absent from config. */
         private data class BtnDefault(val text: String, val activeText: String?, val tx: Float, val ty: Float, val tz: Float, val lineWidth: Int)
@@ -166,8 +177,9 @@ class MannequinManager(
             "pose"    to BtnDefault("<white>Pose",     null,           -1.1f,  1.7f, -2.0f, 200),
             "layer"   to BtnDefault("<white>Layer",    null,           -1.1f,  1.2f, -2.0f, 200),
             "random"  to BtnDefault("<white>Random",   null,           -1.1f,  0.7f, -2.0f, 200),
-            "part"    to BtnDefault("<white>Part",     "<yellow>Part",  1.1f,  2.2f, -2.0f, 200),
-            "channel" to BtnDefault("<white>Channel",  null,            1.1f,  1.7f, -2.0f, 200),
+            "part"    to BtnDefault("<white>Part",     "<yellow>Part",  1.1f,  2.7f, -2.0f, 200),
+            "channel" to BtnDefault("<white>Channel",  null,            1.1f,  2.2f, -2.0f, 200),
+            "texture" to BtnDefault("<white>Texture",  null,            1.1f,  1.7f, -2.0f, 200),
             "palette" to BtnDefault("<white>Palette",  null,            1.1f,  1.2f, -2.0f, 200),
             "color"   to BtnDefault("<white>Color",    "<yellow>Color", 1.1f,  0.7f, -2.0f, 200),
         )
@@ -386,13 +398,23 @@ class MannequinManager(
 
     /** Resolves the current (fresh) [LayerOption] for a layer+option ID,
      *  so the composer always reads up-to-date mask paths after a remask. */
-    private val optionResolver: (String, String) -> com.sneakymannequins.model.LayerOption? = { layerId, optionId ->
+    private val optionResolver: (String, String) -> LayerOption? = { layerId, optionId ->
         layerManager.optionsFor(layerId).find { it.id == optionId }
+    }
+
+    /**
+     * Build a texture resolver that returns the [TextureDefinition] selected
+     * for a given layer (based on the mannequin's current selection).
+     * Returns null when the layer uses "Default" (flat colour, no texture).
+     */
+    private fun textureResolver(mannequin: Mannequin): (String) -> TextureDefinition? = { layerId ->
+        val sel = mannequin.selection.selections[layerId]
+        sel?.selectedTexture?.let { layerManager.texture(it) }
     }
 
     fun render(mannequin: Mannequin, viewers: Collection<Player>, forceInstant: Boolean = false): Int {
         val definitions = layerManager.definitionsInOrder()
-        val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin), optionResolver = optionResolver)
+        val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin), optionResolver = optionResolver, textureResolver = textureResolver(mannequin))
         val nextFrame = PixelFrame.fromImage(composed)
         val diff = mannequin.lastFrame.diff(nextFrame)
         mannequin.lastFrame = nextFrame
@@ -415,7 +437,7 @@ class MannequinManager(
 
     private fun renderFull(mannequin: Mannequin, viewers: Collection<Player>, isFirstSeen: Boolean = false, forceInstant: Boolean = false) {
         val definitions = layerManager.definitionsInOrder()
-        val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin), optionResolver = optionResolver)
+        val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin), optionResolver = optionResolver, textureResolver = textureResolver(mannequin))
         mannequin.lastFrame = PixelFrame.fromImage(composed)
         val changes = mutableListOf<PixelChange>()
         for (x in 0 until composed.width) {
@@ -970,6 +992,7 @@ class MannequinManager(
         // (those have their own dedicated triggers).
         val willCycle = (button == "part" && state.mode == ControlMode.PART)
                 || (button == "color" && state.mode == ControlMode.COLOR)
+                || (button == "texture" && state.mode == ControlMode.COLOR)
         if (!willCycle) {
             val clickPh = basePlaceholders(player, mannequin).apply { put("button", button) }
             fireTrigger("click", clickPh)
@@ -1031,6 +1054,8 @@ class MannequinManager(
                 updateStatus(manId, "Layer: ${newLayer.displayName}")
                 state.partIndex[newLayer.id] = 0
                 state.channelIndex[newLayer.id] = 0
+                state.subChannelIndex[newLayer.id] = 0
+                state.textureIndex.remove(newLayer.id) // reset texture (available textures may differ)
                 state.colorIndex[newLayer.id] = 0
                 state.mode = ControlMode.PART
                 val option = freshOption(newLayer.id, mannequin)
@@ -1054,11 +1079,54 @@ class MannequinManager(
                     updateStatus(manId, "Channel: N/A")
                 } else if (!channelDisabled) {
                     val delta = if (backwards) -1 else 1
-                    val idx = (state.channelIndex.getOrDefault(layer.id, 0) + delta + channels.size) % channels.size
+                    val currentChIdx = state.channelIndex.getOrDefault(layer.id, 0)
+                    val currentChannel = channels[currentChIdx % channels.size]
+
+                    // Only cycle sub-channels when a texture with a blend map is selected
+                    val texIdx = state.textureIndex.getOrDefault(layer.id, -1)
+                    val selTexId = if (option != null && layer != null)
+                        layerManager.resolveTextures(layer, option, player).getOrNull(texIdx) else null
+                    val selTexDef = selTexId?.let { layerManager.texture(it) }
+                    val chTextured = selTexDef?.blendMapImage != null
+                    val subChannels = if (chTextured)
+                        selTexDef?.activeSubChannels?.sorted() ?: emptyList() else emptyList()
+
+                    // If current channel has sub-channels, try cycling within them first
+                    if (subChannels.size > 1) {
+                        val curSub = state.subChannelIndex.getOrDefault(layer.id, 0)
+                        val nextSub = curSub + delta
+                        if (nextSub in subChannels.indices) {
+                            // Still within this channel's sub-channels
+                            state.subChannelIndex[layer.id] = nextSub
+                            state.mode = ControlMode.COLOR
+                            state.colorIndex[layer.id] = 0
+                            val subLabel = SUB_CHANNEL_NAMES[subChannels[nextSub]] ?: "?"
+                            updateStatus(manId, "Channel: $currentChannel [$subLabel]")
+                            refreshDynamicLabels(manId, option, layer)
+                            render(mannequin, nearbyViewers(mannequin))
+                            return
+                        }
+                    }
+
+                    // Advance to next channel, reset sub-channel
+                    val idx = (currentChIdx + delta + channels.size) % channels.size
                     state.channelIndex[layer.id] = idx
+                    state.subChannelIndex[layer.id] = 0
+                    state.colorIndex[layer.id] = 0
                     state.mode = ControlMode.COLOR
                     val selectedChannel = channels[idx]
-                    updateStatus(manId, "Channel: $selectedChannel")
+
+                    // Build status label including sub-channel if applicable (only when a texture with a blend map is selected)
+                    val newIsTextured = selTexDef?.blendMapImage != null
+                    val newSubChannels = if (newIsTextured)
+                        selTexDef?.activeSubChannels?.sorted() ?: emptyList() else emptyList()
+                    val statusLabel = if (newSubChannels.size > 1) {
+                        val subLabel = SUB_CHANNEL_NAMES[newSubChannels[0]] ?: "?"
+                        "Channel: $selectedChannel [$subLabel]"
+                    } else {
+                        "Channel: $selectedChannel"
+                    }
+                    updateStatus(manId, statusLabel)
 
                     // Flash selected channel white for 500ms
                     val savedColors = mannequin.selection.selections[layer.id]?.channelColors ?: emptyMap()
@@ -1084,6 +1152,50 @@ class MannequinManager(
                     updateStatus(manId, "Channel: Locked")
                 }
                 refreshDynamicLabels(manId, option, layer)
+            }
+            "texture" -> {
+                val option = freshOption(layer.id, mannequin)
+                val texIds = if (option != null) layerManager.resolveTextures(layer, option, player) else emptyList()
+
+                if (texIds.isEmpty()) {
+                    updateStatus(manId, "Texture: N/A")
+                } else {
+                    // Cycle: Default (-1) → texture0 (0) → texture1 (1) → … → Default …
+                    val current = state.textureIndex.getOrDefault(layer.id, -1)
+                    val delta = if (backwards) -1 else 1
+                    val total = texIds.size + 1 // +1 for "Default"
+                    val next = ((current + 1) + delta + total) % total - 1 // back to [-1 .. size-1]
+                    state.textureIndex[layer.id] = next
+
+                    // Store selectedTexture on the selection for the composer
+                    val newTexId = if (next >= 0) texIds[next] else null
+                    val sel = mannequin.selection.selections[layer.id]
+                    if (sel != null) {
+                        val wasPrevTextured = sel.selectedTexture != null
+                        val isNowTextured = newTexId != null && layerManager.texture(newTexId)?.blendMapImage != null
+                        var newSel = sel.copy(selectedTexture = newTexId)
+                        // Clean up colour entries when switching between textured / flat modes
+                        if (wasPrevTextured && !isNowTextured) {
+                            // Was textured → now flat: clear texturedColors
+                            newSel = newSel.copy(texturedColors = emptyMap())
+                        } else if (!wasPrevTextured && isNowTextured) {
+                            // Was flat → now textured: clear channelColors
+                            newSel = newSel.copy(channelColors = emptyMap())
+                        }
+                        mannequin.selection = mannequin.selection.copy(
+                            selections = mannequin.selection.selections + (layer.id to newSel)
+                        )
+                    }
+
+                    state.subChannelIndex[layer.id] = 0
+                    state.colorIndex[layer.id] = 0
+                    val label = if (next == -1) "Default" else {
+                        val texDef = layerManager.texture(texIds[next])
+                        texDef?.displayName ?: prettyName(texIds[next])
+                    }
+                    updateStatus(manId, "Texture: $label")
+                }
+                refreshDynamicLabels(manId, freshOption(layer.id, mannequin), layer)
             }
             "palette" -> {
                 val option = freshOption(layer.id, mannequin)
@@ -1170,6 +1282,18 @@ class MannequinManager(
             }
         }
 
+        // Texture button: disabled if no textures are resolved for the current context
+        val texBtn = buttonByName("texture")
+        visuals["texture"]?.let {
+            val texCount = if (option != null && layer != null)
+                layerManager.resolveTextures(layer, option, null).size else 0
+            it.textJson = if (texCount == 0 && texBtn?.disabledTextJson != null) {
+                texBtn.disabledTextJson
+            } else {
+                texBtn?.textJson ?: textToJson("Texture")
+            }
+        }
+
         val palBtn = buttonByName("palette")
         visuals["palette"]?.let {
             val palCount = if (option != null && layer != null)
@@ -1191,6 +1315,7 @@ class MannequinManager(
         }
 
         pushButtonToViewers(mannequinId, "channel")
+        pushButtonToViewers(mannequinId, "texture")
         pushButtonToViewers(mannequinId, "part")
         pushButtonToViewers(mannequinId, "palette")
         pushButtonToViewers(mannequinId, "color")
@@ -1226,6 +1351,8 @@ class MannequinManager(
             selections = mannequin.selection.selections + (layer.id to LayerSelection(layer.id, chosen))
         )
         state.channelIndex[layer.id] = 0
+        state.subChannelIndex[layer.id] = 0
+        state.textureIndex.remove(layer.id) // reset texture selection (available textures may differ between parts)
         state.colorIndex[layer.id] = 0
         validatePaletteIndex(state, layer, chosen, player)
         refreshDynamicLabels(mannequin.id, chosen, layer)
@@ -1257,21 +1384,52 @@ class MannequinManager(
         val channelIdx = state.channelIndex.getOrDefault(layer.id, 0)
         val selectedChannel = option.masks.keys.sorted().getOrNull(channelIdx)
 
-        val prevColors = current?.channelColors ?: emptyMap()
-        val newColors = if (idx == 0 && selectedChannel != null) {
-            prevColors - selectedChannel
-        } else if (idx > 0 && selectedChannel != null) {
-            val color = colors.getOrNull(idx - 1)?.color
-            if (color != null) prevColors + (selectedChannel to color) else prevColors
-        } else {
-            prevColors
-        }
+        // Determine whether this channel uses textured or flat colour based on the selected texture
+        val texIdx = state.textureIndex.getOrDefault(layer.id, -1)
+        val selTexId = layerManager.resolveTextures(layer, option, player).getOrNull(texIdx)
+        val selTexDef = selTexId?.let { layerManager.texture(it) }
+        val isTextured = selTexDef?.blendMapImage != null
+        val subChannels = if (isTextured)
+            selTexDef?.activeSubChannels?.sorted() ?: emptyList() else emptyList()
 
-        val selection = current?.copy(channelColors = newColors)
-            ?: LayerSelection(layer.id, option, channelColors = newColors)
-        mannequin.selection = mannequin.selection.copy(
-            selections = mannequin.selection.selections + (layer.id to selection)
-        )
+        if (isTextured && selectedChannel != null) {
+            // ── Textured path: store colour on the active sub-channel ──
+            val subIdx = state.subChannelIndex.getOrDefault(layer.id, 0)
+                .coerceIn(subChannels.indices)
+            val activeSubChannel = subChannels[subIdx]
+
+            val prevTextured = current?.texturedColors ?: emptyMap()
+            val prevSub = prevTextured[selectedChannel] ?: emptyMap()
+            val newSub = if (idx == 0) {
+                prevSub - activeSubChannel
+            } else {
+                val color = colors.getOrNull(idx - 1)?.color
+                if (color != null) prevSub + (activeSubChannel to color) else prevSub
+            }
+            val newTextured = if (newSub.isEmpty()) prevTextured - selectedChannel
+                              else prevTextured + (selectedChannel to newSub)
+
+            val selection = current?.copy(texturedColors = newTextured)
+                ?: LayerSelection(layer.id, option, texturedColors = newTextured)
+            mannequin.selection = mannequin.selection.copy(
+                selections = mannequin.selection.selections + (layer.id to selection)
+            )
+        } else if (selectedChannel != null) {
+            // ── Flat-colour path (original behaviour) ──
+            val prevColors = current?.channelColors ?: emptyMap()
+            val newColors = if (idx == 0) {
+                prevColors - selectedChannel
+            } else {
+                val color = colors.getOrNull(idx - 1)?.color
+                if (color != null) prevColors + (selectedChannel to color) else prevColors
+            }
+
+            val selection = current?.copy(channelColors = newColors)
+                ?: LayerSelection(layer.id, option, channelColors = newColors)
+            mannequin.selection = mannequin.selection.copy(
+                selections = mannequin.selection.selections + (layer.id to selection)
+            )
+        }
 
         val colorLabel = if (idx == 0) "Default" else optionsList[idx]
         val colorObj = if (idx > 0) colors.getOrNull(idx - 1)?.color else null
