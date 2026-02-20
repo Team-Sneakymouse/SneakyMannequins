@@ -85,6 +85,43 @@ data class TextureDefinition(
     val activeSubChannels: Set<Int> = emptySet()
 )
 
+// ── Channel slots ──────────────────────────────────────────────────────────────
+
+/**
+ * One slot in the flattened channel list.  When a texture has a blend map with
+ * multiple active sub-channels, each mask channel expands into N slots (1a, 1b, …).
+ * Without a blend map (or with only one active sub-channel), each mask channel
+ * is a single slot (1, 2, 3).
+ *
+ * @param maskIdx       1-based mask channel index (matches file names: _mask_1.png …)
+ * @param subChannel    null for flat channels; 0=R, 1=G, 2=B when sub-channels exist
+ * @param label         human-readable label: "1", "2" or "1a", "1b", "2a" …
+ */
+data class ChannelSlot(
+    val maskIdx: Int,
+    val subChannel: Int?,
+    val label: String
+)
+
+private val SUB_CHANNEL_LETTERS = mapOf(0 to "a", 1 to "b", 2 to "c")
+
+/**
+ * Build a flat list of [ChannelSlot]s from the given mask channels and active
+ * sub-channels.  When [activeSubChannels] has 2+ entries every mask channel is
+ * expanded; otherwise sub-channels are collapsed into plain channel indices.
+ */
+fun buildChannelSlots(maskChannels: List<Int>, activeSubChannels: Set<Int>?): List<ChannelSlot> {
+    val subs = activeSubChannels?.sorted() ?: emptyList()
+    val expand = subs.size >= 2
+    return if (expand) {
+        maskChannels.flatMap { ch ->
+            subs.map { sub -> ChannelSlot(ch, sub, "$ch${SUB_CHANNEL_LETTERS[sub] ?: sub}") }
+        }
+    } else {
+        maskChannels.map { ch -> ChannelSlot(ch, null, "$ch") }
+    }
+}
+
 // ── Layer / Option / Selection ──────────────────────────────────────────────────
 
 /**

@@ -56,11 +56,15 @@ object SkinComposer {
                 val flatChannels = sel.channelColors
                 val texturedChannels = sel.texturedColors
 
+                // Load all mask images upfront so we can identify unmasked pixels later
+                val maskImages = chosen.masks.mapNotNull { (idx, path) ->
+                    val img = try { javax.imageio.ImageIO.read(path.toFile()) } catch (_: Exception) { null }
+                    if (img != null) idx to img else null
+                }.toMap()
+
                 val allChannels = (flatChannels.keys + texturedChannels.keys).sorted()
                 for (channelIdx in allChannels) {
-                    val maskPath = chosen.masks[channelIdx] ?: continue
-                    val maskImage = try { javax.imageio.ImageIO.read(maskPath.toFile()) } catch (_: Exception) { null }
-                        ?: continue
+                    val maskImage = maskImages[channelIdx] ?: continue
 
                     // Determine rendering path based on the selected texture
                     val blendImage = texDef?.blendMapImage
@@ -84,6 +88,15 @@ object SkinComposer {
                     // Path 3: No texture → flat-colour path (original behaviour)
                     val flatColor = flatChannels[channelIdx] ?: continue
                     source = applyColorMask(source, flatColor, maskImage)
+                }
+
+                // When a texture with a detail map is selected, apply it to ALL pixels
+                // in the part — including those not covered by any mask channel.
+                // Masked pixels were already detail-modulated above, so we only touch
+                // pixels that are NOT in any mask.
+                val detailImage = texDef?.detailMapImage
+                if (detailImage != null) {
+                    source = applyDetailToUnmasked(source, detailImage, texDef.detailMode, maskImages.values.toList())
                 }
             }
             graphics.drawImage(source, 0, 0, null)
@@ -281,6 +294,72 @@ object SkinComposer {
         }
 
         return tinted
+    }
+
+    // ── Detail-only pass for unmasked pixels ──────────────────────────────────────
+
+    /**
+     * Apply the detail map to every non-transparent pixel that is NOT covered
+     * by any of the [masks].  Masked pixels were already detail-modulated in
+     * the per-channel rendering pass, so this handles the "rest" of the part.
+     */
+    private fun applyDetailToUnmasked(
+        image: BufferedImage,
+        detailMap: BufferedImage,
+        detailMode: DetailMode,
+        masks: List<BufferedImage>
+    ): BufferedImage {
+        val out = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
+        for (x in 0 until image.width) {
+            for (y in 0 until image.height) {
+                val argb = image.getRGB(x, y)
+                val alpha = argb ushr 24 and 0xFF
+                if (alpha == 0) { out.setRGB(x, y, 0); continue }
+
+                // Check if this pixel is covered by any mask
+                val inAnyMask = masks.any { m ->
+                    (m.getRGB(x.coerceIn(0, m.width - 1), y.coerceIn(0, m.height - 1)) ushr 24 and 0xFF) > 0
+                }
+                if (inAnyMask) {
+                    // Already processed in the per-channel pass
+                    out.setRGB(x, y, argb)
+                    continue
+                }
+
+                // Apply detail modulation to unmasked pixel
+                val detailArgb = detailMap.getRGB(
+                    x.coerceIn(0, detailMap.width - 1),
+                    y.coerceIn(0, detailMap.height - 1)
+                )
+                val dR = detailArgb shr 16 and 0xFF
+                val dG = detailArgb shr 8 and 0xFF
+                val dB = detailArgb and 0xFF
+                val detailVal = (0.299f * dR + 0.587f * dG + 0.114f * dB) / 128f
+
+                val r = argb shr 16 and 0xFF
+                val g = argb shr 8 and 0xFF
+                val b = argb and 0xFF
+                val hsb = Color.RGBtoHSB(r, g, b, null)
+
+                var newSat = hsb[1]
+                var newBri = hsb[2]
+                when (detailMode) {
+                    DetailMode.ADD -> {
+                        newSat = (newSat * detailVal).coerceIn(0f, 1f)
+                        newBri = (newBri * detailVal).coerceIn(0f, 1f)
+                    }
+                    DetailMode.REPLACE -> {
+                        val absolute = (detailVal * 0.5f).coerceIn(0f, 1f)
+                        newSat = (hsb[1] * absolute).coerceIn(0f, 1f) // scale original sat
+                        newBri = absolute
+                    }
+                }
+
+                val newRgb = Color.HSBtoRGB(hsb[0], newSat, newBri)
+                out.setRGB(x, y, (alpha shl 24) or (newRgb and 0x00FFFFFF))
+            }
+        }
+        return out
     }
 
     // ── Textured colour masking ──────────────────────────────────────────────────
