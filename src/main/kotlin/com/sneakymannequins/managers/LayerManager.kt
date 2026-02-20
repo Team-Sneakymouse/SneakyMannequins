@@ -7,7 +7,6 @@ import com.sneakymannequins.model.LayerDefinition
 import com.sneakymannequins.model.LayerOption
 import com.sneakymannequins.model.PaletteRef
 import com.sneakymannequins.model.PaletteSpec
-import com.sneakymannequins.model.DetailMode
 import com.sneakymannequins.model.TextureDefinition
 import com.sneakymannequins.model.TextureRef
 import com.sneakymannequins.model.TextureSpec
@@ -16,6 +15,7 @@ import org.bukkit.entity.Player
 import java.awt.Color
 import java.nio.file.Files
 import java.nio.file.Path
+import java.awt.image.BufferedImage
 import javax.imageio.ImageIO
 import kotlin.io.path.nameWithoutExtension
 import kotlin.io.path.name
@@ -126,47 +126,40 @@ class LayerManager(
                 return@forEach
             }
             val blendRaw = texSection.getString("blend")
-            val detailRaw = texSection.getString("detail")
+            val aoRaw = texSection.getString("ao")
+            val roughnessRaw = texSection.getString("roughness")
             val blendPath = blendRaw?.let { dataDir.resolve(it).normalize() }
-            val detailPath = detailRaw?.let { dataDir.resolve(it).normalize() }
+            val aoPath = aoRaw?.let { dataDir.resolve(it).normalize() }
+            val roughnessPath = roughnessRaw?.let { dataDir.resolve(it).normalize() }
 
-            val blendImage = blendPath?.let { p ->
-                if (!Files.exists(p)) {
-                    plugin.logger.warning("Texture '$textureId' blend map not found: $p")
-                    return@let null
+            fun loadImage(label: String, path: java.nio.file.Path): BufferedImage? {
+                if (!Files.exists(path)) {
+                    plugin.logger.warning("Texture '$textureId' $label not found: $path")
+                    return null
                 }
-                try { ImageIO.read(p.toFile()) } catch (e: Exception) {
-                    plugin.logger.warning("Texture '$textureId' failed to read blend map: ${e.message}")
+                return try { ImageIO.read(path.toFile()) } catch (e: Exception) {
+                    plugin.logger.warning("Texture '$textureId' failed to read $label: ${e.message}")
                     null
                 }
             }
-            val detailImage = detailPath?.let { p ->
-                if (!Files.exists(p)) {
-                    plugin.logger.warning("Texture '$textureId' detail map not found: $p")
-                    return@let null
-                }
-                try { ImageIO.read(p.toFile()) } catch (e: Exception) {
-                    plugin.logger.warning("Texture '$textureId' failed to read detail map: ${e.message}")
-                    null
-                }
-            }
+
+            val blendImage = blendPath?.let { loadImage("blend map", it) }
+            val aoImage = aoPath?.let { loadImage("AO map", it) }
+            val roughnessImage = roughnessPath?.let { loadImage("roughness map", it) }
 
             // Auto-detect active sub-channels from the blend map (scan entire image)
             val activeSubChannels = if (blendImage != null) detectSubChannels(blendImage) else emptySet()
-
-            // Detail mode: "add" (default) modulates on top, "replace" overwrites B/S
-            val detailModeStr = texSection.getString("detail-mode", "add")?.uppercase() ?: "ADD"
-            val detailMode = try { DetailMode.valueOf(detailModeStr) } catch (_: Exception) { DetailMode.ADD }
 
             val displayName = toDisplayName(textureId)
             textures[textureId] = TextureDefinition(
                 id = textureId,
                 displayName = displayName,
                 blendMapPath = blendPath,
-                detailMapPath = detailPath,
                 blendMapImage = blendImage,
-                detailMapImage = detailImage,
-                detailMode = detailMode,
+                aoMapPath = aoPath,
+                aoMapImage = aoImage,
+                roughnessMapPath = roughnessPath,
+                roughnessMapImage = roughnessImage,
                 activeSubChannels = activeSubChannels
             )
         }

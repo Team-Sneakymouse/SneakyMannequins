@@ -53,20 +53,15 @@ data class TextureSpec(
 }
 
 /**
- * How the detail map interacts with the original art's brightness / saturation.
- */
-enum class DetailMode {
-    /** Multiply: detail modulates *on top of* the original art's B/S (128 = neutral). */
-    ADD,
-    /** Replace: detail *overwrites* the original art's B/S (128 = 1.0, 0 = 0.0, 255 = ~2.0). */
-    REPLACE
-}
-
-/**
  * A named texture definition loaded from config.  Consists of an optional
- * blend map (RGB sub-channel weights) and an optional detail map (grayscale
- * brightness/saturation modulation).  When neither map is provided, the
- * texture behaves identically to flat-colour masking ("Default").
+ * blend map (RGB sub-channel weights), an optional AO map (grayscale brightness
+ * modulation), and an optional roughness map (grayscale saturation modulation).
+ * When none of the maps are provided, the texture behaves identically to
+ * flat-colour masking ("Default").
+ *
+ * Both [aoMapImage] and [roughnessMapImage] are grayscale: 128 = neutral (1.0×),
+ * lower values darken/desaturate, higher values brighten/saturate.
+ * They can point to the same file if you want coupled behaviour.
  *
  * [activeSubChannels] is auto-detected from the blend map image at load
  * time: the set of RGB channel indices (0=R, 1=G, 2=B) that have at least
@@ -76,11 +71,13 @@ data class TextureDefinition(
     val id: String,
     val displayName: String,
     val blendMapPath: Path? = null,
-    val detailMapPath: Path? = null,
     val blendMapImage: BufferedImage? = null,
-    val detailMapImage: BufferedImage? = null,
-    /** How the detail map affects brightness/saturation: [DetailMode.ADD] or [DetailMode.REPLACE]. */
-    val detailMode: DetailMode = DetailMode.ADD,
+    /** Grayscale AO (ambient occlusion) map — modulates brightness (128 = neutral). */
+    val aoMapPath: Path? = null,
+    val aoMapImage: BufferedImage? = null,
+    /** Grayscale roughness map — modulates saturation (128 = neutral). */
+    val roughnessMapPath: Path? = null,
+    val roughnessMapImage: BufferedImage? = null,
     /** Active sub-channels auto-detected from the blend map (0=R, 1=G, 2=B). */
     val activeSubChannels: Set<Int> = emptySet()
 )

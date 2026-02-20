@@ -397,15 +397,20 @@ layers:
   # ── Texture definitions ──────────────────────────────────────────────
   # Named textures that control *how* a colour channel is rendered.
   # Each texture can have a blend map (RGB = sub-channel weights) and/or
-  # a detail map (grayscale brightness/saturation modulation).
+  # an AO map (grayscale brightness modulation) and/or a roughness map
+  # (grayscale saturation modulation).
   #
-  # detail-mode controls how the detail map interacts with the original art:
-  #   "add"     (default) – modulates *on top of* the art's brightness/saturation.
-  #                         128 = neutral, lower = darken, higher = brighten.
-  #   "replace" – *replaces* the art's brightness/saturation with the detail map.
-  #              The original shading is discarded; only the detail map defines
-  #              the final brightness and saturation (hue still comes from the
-  #              blend map / flat colour).
+  # AO (ambient occlusion) modulates brightness on top of the original art:
+  #   128 = neutral (no change), lower = darker, higher = brighter.
+  #
+  # Roughness modulates saturation on top of the original art:
+  #   128 = neutral (no change), lower = less saturated, higher = more saturated.
+  #
+  # AO and roughness can point to the same image file if you want coupled
+  # brightness/saturation modulation.  Both maps are optional and independent.
+  #
+  # When a texture is selected, AO and roughness apply to EVERY pixel in the
+  # part — not just those covered by a colour mask channel.
   #
   # Textures are assigned at global, layer, or part level using a
   # `textures:` list (same hierarchy as palettes, but without first/last).
@@ -416,13 +421,14 @@ layers:
   #   textures:
   #     wool:
   #       blend: "textures/wool_blend.png"
-  #       detail: "textures/wool_detail.png"
-  #       detail-mode: add
+  #       ao: "textures/wool_ao.png"
+  #       roughness: "textures/wool_roughness.png"
   #     denim:
   #       blend: "textures/denim_blend.png"
+  #       ao: "textures/denim_detail.png"
+  #       roughness: "textures/denim_detail.png"   # same file for both
   #     leather:
-  #       detail: "textures/leather_detail.png"
-  #       detail-mode: replace
+  #       ao: "textures/leather_ao.png"             # AO only, no blend
   textures: {}
 
   # Rendering order for layers (bottom to top)
