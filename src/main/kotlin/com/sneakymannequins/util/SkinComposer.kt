@@ -411,28 +411,37 @@ object SkinComposer {
                 val wB = (blendArgb and 0xFF).toFloat()
                 val totalW = wR + wG + wB
 
-                // Compute per-pixel target hue (circular weighted mean) and saturation
+                // Compute per-pixel target hue (circular weighted mean) and saturation.
+                // Only sub-channels that have an assigned colour contribute; if none do,
+                // leave the pixel as original art.
                 val perPixelHue: Float
                 val perPixelSat: Float
                 if (totalW < 1f) {
                     val fallback = subHsb.values.firstOrNull()
-                    perPixelHue = fallback?.hue ?: avgHue
-                    perPixelSat = fallback?.sat ?: avgSat
+                    if (fallback == null) { tinted.setRGB(x, y, argb); continue }
+                    perPixelHue = fallback.hue
+                    perPixelSat = fallback.sat
                 } else {
                     val weights = mapOf(0 to wR / totalW, 1 to wG / totalW, 2 to wB / totalW)
                     var hSin = 0.0
                     var hCos = 0.0
                     var sMix = 0f
+                    var effectiveW = 0f
                     for ((subIdx, w) in weights) {
                         if (w <= 0f) continue
                         val sh = subHsb[subIdx] ?: continue
+                        effectiveW += w
                         val a = sh.hue * 2.0 * Math.PI
                         hSin += Math.sin(a) * w
                         hCos += Math.cos(a) * w
                         sMix += sh.sat * w
                     }
+                    if (effectiveW <= 0f) {
+                        tinted.setRGB(x, y, argb)
+                        continue
+                    }
                     perPixelHue = ((Math.atan2(hSin, hCos) / (2.0 * Math.PI)).toFloat() + 1f) % 1f
-                    perPixelSat = sMix
+                    perPixelSat = sMix / effectiveW
                 }
 
                 val hueDelta = perPixelHue - avgHue
