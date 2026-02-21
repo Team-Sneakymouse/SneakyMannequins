@@ -429,7 +429,37 @@ layers:
   #       roughness: "textures/denim_detail.png"   # same file for both
   #     leather:
   #       ao: "textures/leather_ao.png"             # AO only, no blend
-  textures: {}
+  textures:
+    striped:
+      blend: "textures/blend_stripes_h.png"
+      ao: "textures/ao_folds.png"
+      roughness: "textures/roughness_grain.png"
+    pinstripe:
+      blend: "textures/blend_stripes_v.png"
+      ao: "textures/ao_fabric.png"
+      roughness: "textures/roughness_grain.png"
+    checkered:
+      blend: "textures/blend_checkerboard.png"
+      ao: "textures/ao_vignette.png"
+      roughness: "textures/roughness_grain.png"
+    gradient:
+      blend: "textures/blend_gradient.png"
+      ao: "textures/ao_fabric.png"
+      roughness: "textures/roughness_gradient.png"
+    diagonal:
+      blend: "textures/blend_gradient_diag.png"
+      ao: "textures/ao_folds.png"
+      roughness: "textures/roughness_grain.png"
+    tricolor:
+      blend: "textures/blend_three_stripes.png"
+      ao: "textures/ao_folds.png"
+      roughness: "textures/roughness_grain.png"
+    worn:
+      ao: "textures/ao_vignette.png"
+      roughness: "textures/roughness_patchy.png"
+    fabric:
+      ao: "textures/ao_fabric.png"
+      roughness: "textures/roughness_grain.png"
 
   # Rendering order for layers (bottom to top)
   order:
@@ -459,7 +489,9 @@ layers:
     #   - wool                              # available to everyone
     #   - texture: leather                  # same as above
     #     permission: group.admin           # only if player has this perm
-    textures: []
+    textures:
+      - worn
+      - fabric
 
     hair:
       display-name: "Hair"
@@ -489,6 +521,13 @@ layers:
         - primary
         - fabric
         - pastel
+      textures:
+        - striped
+        - pinstripe
+        - checkered
+        - gradient
+        - diagonal
+        - tricolor
     
     pants:
       display-name: "Pants"
@@ -498,6 +537,10 @@ layers:
         - fabric
         - earth
         - greyscale
+      textures:
+        - striped
+        - pinstripe
+        - checkered
     
     body:
       display-name: "Body"
