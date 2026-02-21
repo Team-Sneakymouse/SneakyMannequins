@@ -61,9 +61,6 @@ object SkinComposer {
                     if (img != null) idx to img else null
                 }.toMap()
 
-                val aoMap = texDef?.aoMapImage
-                val roughnessMap = texDef?.roughnessMapImage
-
                 val allChannels = (flatChannels.keys + texturedChannels.keys).sorted()
                 for (channelIdx in allChannels) {
                     val maskImage = maskImages[channelIdx] ?: continue
@@ -72,28 +69,19 @@ object SkinComposer {
                     val subColors = texturedChannels[channelIdx]
 
                     if (blendImage != null && subColors != null && subColors.isNotEmpty()) {
-                        // Path 1: Blend map present → textured sub-channel mixing
-                        source = applyTexturedColorMask(source, subColors, maskImage, blendImage, aoMap, roughnessMap)
+                        source = applyTexturedColorMask(source, subColors, maskImage, blendImage)
                         continue
                     }
 
-                    if (aoMap != null || roughnessMap != null) {
-                        // Path 2: AO/roughness present but no blend map → flat hue + map modulation
-                        val flatColor = flatChannels[channelIdx] ?: continue
-                        source = applyColorMaskWithMaps(source, flatColor, maskImage, aoMap, roughnessMap)
-                        continue
-                    }
-
-                    // Path 3: No texture → flat-colour path (original behaviour)
                     val flatColor = flatChannels[channelIdx] ?: continue
                     source = applyColorMask(source, flatColor, maskImage)
                 }
 
-                // When a texture with AO or roughness maps is selected, apply them
-                // to ALL pixels in the part — including those not covered by any
-                // mask channel.  Masked pixels were already modulated above.
+                // AO/roughness maps apply to ALL pixels as a final pass (after tinting)
+                val aoMap = texDef?.aoMapImage
+                val roughnessMap = texDef?.roughnessMapImage
                 if (aoMap != null || roughnessMap != null) {
-                    source = applyMapsToUnmasked(source, aoMap, roughnessMap, maskImages.values.toList())
+                    source = applyMaps(source, aoMap, roughnessMap)
                 }
             }
             graphics.drawImage(source, 0, 0, null)
@@ -193,108 +181,17 @@ object SkinComposer {
         return tinted
     }
 
-    // ── Flat colour + AO/roughness maps ─────────────────────────────────────────
+    // ── AO/roughness pass (all pixels) ─────────────────────────────────────────
 
     /**
-     * Tint the image using relative HSB remapping, then modulate brightness
-     * with the [aoMap] and saturation with the [roughnessMap].
-     * Either map may be null (no modulation for that axis).
+     * Apply AO and roughness maps to every non-transparent pixel in the image.
+     * This is called as a final pass AFTER per-channel colour tinting, so it
+     * modulates both tinted and untinted pixels uniformly.
      */
-    private fun applyColorMaskWithMaps(
+    private fun applyMaps(
         image: BufferedImage,
-        mask: Color,
-        channelMask: BufferedImage,
         aoMap: BufferedImage?,
         roughnessMap: BufferedImage?
-    ): BufferedImage {
-        val tinted = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
-        val maskHsb = Color.RGBtoHSB(mask.red, mask.green, mask.blue, null)
-        val targetHue = maskHsb[0]
-        val targetSat = maskHsb[1]
-
-        // --- First pass: compute average H and S of masked pixels ---
-        var sinSum = 0.0
-        var cosSum = 0.0
-        var satSum = 0.0
-        var count = 0
-
-        for (x in 0 until image.width) {
-            for (y in 0 until image.height) {
-                val argb = image.getRGB(x, y)
-                if ((argb ushr 24 and 0xFF) == 0) continue
-                if ((channelMask.getRGB(x, y) ushr 24 and 0xFF) == 0) continue
-                val r = argb shr 16 and 0xFF
-                val g = argb shr 8 and 0xFF
-                val b = argb and 0xFF
-                val hsb = Color.RGBtoHSB(r, g, b, null)
-                val angle = hsb[0] * 2.0 * Math.PI
-                sinSum += Math.sin(angle)
-                cosSum += Math.cos(angle)
-                satSum += hsb[1]
-                count++
-            }
-        }
-
-        if (count == 0) return image
-
-        val avgHue = ((Math.atan2(sinSum, cosSum) / (2.0 * Math.PI)).toFloat() + 1f) % 1f
-        val avgSat = (satSum / count).toFloat()
-        val hueDelta = targetHue - avgHue
-        val satScale = if (avgSat > 0.001f) targetSat / avgSat else 0f
-
-        // --- Second pass: apply relative offset + AO/roughness modulation ---
-        for (x in 0 until image.width) {
-            for (y in 0 until image.height) {
-                val argb = image.getRGB(x, y)
-                val alpha = argb ushr 24 and 0xFF
-                if (alpha == 0) {
-                    tinted.setRGB(x, y, 0)
-                    continue
-                }
-
-                if ((channelMask.getRGB(x, y) ushr 24 and 0xFF) == 0) {
-                    tinted.setRGB(x, y, argb)
-                    continue
-                }
-
-                val r = argb shr 16 and 0xFF
-                val g = argb shr 8 and 0xFF
-                val b = argb and 0xFF
-                val hsb = Color.RGBtoHSB(r, g, b, null)
-
-                val newHue = (hsb[0] + hueDelta + 1f) % 1f
-                var newSat = (hsb[1] * satScale).coerceIn(0f, 1f)
-                var newBri = hsb[2]
-
-                // AO map → brightness modulation (128 = neutral)
-                if (aoMap != null) {
-                    newBri = (newBri * sampleMultiplier(aoMap, x, y)).coerceIn(0f, 1f)
-                }
-                // Roughness map → saturation modulation (128 = neutral)
-                if (roughnessMap != null) {
-                    newSat = (newSat * sampleMultiplier(roughnessMap, x, y)).coerceIn(0f, 1f)
-                }
-
-                val newRgb = Color.HSBtoRGB(newHue, newSat, newBri)
-                tinted.setRGB(x, y, (alpha shl 24) or (newRgb and 0x00FFFFFF))
-            }
-        }
-
-        return tinted
-    }
-
-    // ── AO/roughness pass for unmasked pixels ───────────────────────────────────
-
-    /**
-     * Apply AO and roughness maps to every non-transparent pixel that is NOT
-     * covered by any of the [masks].  Masked pixels were already modulated in
-     * the per-channel rendering pass, so this handles the "rest" of the part.
-     */
-    private fun applyMapsToUnmasked(
-        image: BufferedImage,
-        aoMap: BufferedImage?,
-        roughnessMap: BufferedImage?,
-        masks: List<BufferedImage>
     ): BufferedImage {
         val out = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
         for (x in 0 until image.width) {
@@ -302,16 +199,6 @@ object SkinComposer {
                 val argb = image.getRGB(x, y)
                 val alpha = argb ushr 24 and 0xFF
                 if (alpha == 0) { out.setRGB(x, y, 0); continue }
-
-                // Check if this pixel is covered by any mask
-                val inAnyMask = masks.any { m ->
-                    (m.getRGB(x.coerceIn(0, m.width - 1), y.coerceIn(0, m.height - 1)) ushr 24 and 0xFF) > 0
-                }
-                if (inAnyMask) {
-                    // Already processed in the per-channel pass
-                    out.setRGB(x, y, argb)
-                    continue
-                }
 
                 val r = argb shr 16 and 0xFF
                 val g = argb shr 8 and 0xFF
@@ -345,9 +232,7 @@ object SkinComposer {
         image: BufferedImage,
         subColors: Map<Int, Color>,
         channelMask: BufferedImage,
-        blendMap: BufferedImage,
-        aoMap: BufferedImage?,
-        roughnessMap: BufferedImage?
+        blendMap: BufferedImage
     ): BufferedImage {
         val tinted = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
 
@@ -453,17 +338,8 @@ object SkinComposer {
                 val hsb = Color.RGBtoHSB(oR, oG, oB, null)
 
                 val newHue = (hsb[0] + hueDelta + 1f) % 1f
-                var newSat = (hsb[1] * satScale).coerceIn(0f, 1f)
-                var newBri = hsb[2]
-
-                // AO map → brightness modulation (128 = neutral)
-                if (aoMap != null) {
-                    newBri = (newBri * sampleMultiplier(aoMap, x, y)).coerceIn(0f, 1f)
-                }
-                // Roughness map → saturation modulation (128 = neutral)
-                if (roughnessMap != null) {
-                    newSat = (newSat * sampleMultiplier(roughnessMap, x, y)).coerceIn(0f, 1f)
-                }
+                val newSat = (hsb[1] * satScale).coerceIn(0f, 1f)
+                val newBri = hsb[2]
 
                 val newRgb = Color.HSBtoRGB(newHue, newSat, newBri)
                 tinted.setRGB(x, y, (alpha shl 24) or (newRgb and 0x00FFFFFF))
