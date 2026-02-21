@@ -164,12 +164,12 @@ def roughness_vertical_gradient(period=8):
 # ── Generate all ─────────────────────────────────────────────────────────
 
 textures = {
-    "blend_stripes_h.png":   blend_horizontal_stripes(),
-    "blend_stripes_v.png":   blend_vertical_stripes(),
+    "blend_stripes_h.png":   blend_horizontal_stripes(stripe_height=1),
+    "blend_stripes_v.png":   blend_vertical_stripes(stripe_width=1),
     "blend_checkerboard.png": blend_checkerboard(),
     "blend_gradient.png":    blend_gradient_horizontal(),
     "blend_gradient_diag.png": blend_gradient_diagonal(),
-    "blend_three_stripes.png": blend_three_channel_stripes(),
+    "blend_three_stripes.png": blend_three_channel_stripes(stripe_height=1),
     "ao_fabric.png":         ao_fabric_noise(),
     "ao_vignette.png":       ao_soft_vignette(),
     "ao_folds.png":          ao_horizontal_folds(),

@@ -1110,10 +1110,10 @@ class MannequinManager(
                     val flashFlat: Map<Int, java.awt.Color>
                     val flashTextured: Map<Int, Map<Int, java.awt.Color>>
                     if (slot.subChannel != null) {
-                        // Textured: flash only this sub-channel within the mask channel
+                        // Textured: flash only this sub-channel; clear others so
+                        // the highlight isn't diluted by neighbouring sub-channel colours.
                         flashFlat = savedFlat
-                        val prevSub = savedTextured[slot.maskIdx] ?: emptyMap()
-                        flashTextured = savedTextured + (slot.maskIdx to prevSub + (slot.subChannel to java.awt.Color.WHITE))
+                        flashTextured = savedTextured + (slot.maskIdx to mapOf(slot.subChannel to java.awt.Color.WHITE))
                     } else {
                         // Flat channel: flash the whole mask channel
                         flashFlat = savedFlat + (slot.maskIdx to java.awt.Color.WHITE)
