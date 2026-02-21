@@ -125,10 +125,9 @@ def ao_horizontal_folds(period=8):
 
 # ── Roughness maps ───────────────────────────────────────────────────────
 
-def roughness_patchy(seed=99):
+def roughness_patchy(seed=99, cell=8):
     """Blocky patches of varying saturation — weathered / worn look."""
     rng = random.Random(seed)
-    cell = 8
     img = Image.new("L", (SIZE, SIZE))
     grid = {}
     for cy in range(SIZE // cell + 1):
@@ -166,14 +165,14 @@ def roughness_vertical_gradient(period=8):
 textures = {
     "blend_stripes_h.png":   blend_horizontal_stripes(stripe_height=1),
     "blend_stripes_v.png":   blend_vertical_stripes(stripe_width=1),
-    "blend_checkerboard.png": blend_checkerboard(),
+    "blend_checkerboard.png": blend_checkerboard(cell=2),
     "blend_gradient.png":    blend_gradient_horizontal(),
     "blend_gradient_diag.png": blend_gradient_diagonal(),
     "blend_three_stripes.png": blend_three_channel_stripes(stripe_height=1),
     "ao_fabric.png":         ao_fabric_noise(),
     "ao_vignette.png":       ao_soft_vignette(),
     "ao_folds.png":          ao_horizontal_folds(),
-    "roughness_patchy.png":  roughness_patchy(),
+    "roughness_patchy.png":  roughness_patchy(cell=2),
     "roughness_grain.png":   roughness_grain(),
     "roughness_gradient.png": roughness_vertical_gradient(),
 }
