@@ -16,6 +16,8 @@ import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.event.player.PlayerMoveEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.inventory.EquipmentSlot
+import java.io.File
+import java.util.jar.JarFile
 
 class SneakyMannequins : JavaPlugin(), Listener {
 
@@ -43,6 +45,9 @@ class SneakyMannequins : JavaPlugin(), Listener {
     override fun onEnable() {
         logger.info("SneakyMannequins plugin has been enabled!")
 
+		if (!File(dataFolder, "config.yml").exists()) {
+			firstTimeSetup()
+		}
 		saveDefaultConfig()
         handler = VolatileHandlerRegistry.resolve(this)
         layerManager = LayerManager(this).also { it.reload() }
@@ -115,5 +120,30 @@ class SneakyMannequins : JavaPlugin(), Listener {
         reloadConfig()
         layerManager.reload()
         mannequinManager.reloadAll()
+    }
+
+    private fun firstTimeSetup() {
+        logger.info("First-time setup: copying default assets...")
+        val jarFile = file // the plugin's JAR file
+        val jar = JarFile(jarFile)
+        jar.use {
+            for (prefix in listOf("layers/", "textures/")) {
+                val hasDir = jar.entries().asSequence().any { it.name.startsWith(prefix) }
+                if (!hasDir) continue
+
+                jar.entries().asSequence()
+                    .filter { !it.isDirectory && it.name.startsWith(prefix) }
+                    .forEach { entry ->
+                        val target = File(dataFolder, entry.name)
+                        if (target.exists()) return@forEach
+                        target.parentFile.mkdirs()
+                        jar.getInputStream(entry).use { input ->
+                            target.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                    }
+            }
+        }
     }
 }
