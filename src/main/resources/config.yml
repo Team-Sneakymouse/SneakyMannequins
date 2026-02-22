@@ -238,9 +238,9 @@ hud-buttons:
     # origin-x/y are relative to the mannequin.
     # origin-z is relative to the *player* (negative = toward mannequin).
     # The grid follows the player so it stays at a constant depth.
-    origin-x: 2.5
+    origin-x: -1
     origin-y: 1
-    origin-z: -3
+    origin-z: -2
     # Extra pitch (radians, negative = tilt up toward viewer)
     pitch: -0.35
     # Extra yaw offset (radians, added to the facing yaw)
