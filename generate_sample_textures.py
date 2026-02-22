@@ -88,19 +88,25 @@ def blend_three_channel_stripes(stripe_height=4):
 
 # ── AO maps ──────────────────────────────────────────────────────────────
 
+def _gray_rgb(val):
+    """Clamp to 0–255 and return an (R,G,B) tuple for a grayscale value."""
+    v = max(0, min(255, int(val)))
+    return (v, v, v)
+
+
 def ao_fabric_noise(seed=42):
     """Subtle random grain simulating fabric / wool texture."""
     rng = random.Random(seed)
-    img = Image.new("L", (SIZE, SIZE))
+    img = Image.new("RGB", (SIZE, SIZE))
     for y in range(SIZE):
         for x in range(SIZE):
-            img.putpixel((x, y), 128 + rng.randint(-20, 20))
+            img.putpixel((x, y), _gray_rgb(128 + rng.randint(-6, 6)))
     return img
 
 
 def ao_soft_vignette(cell=8):
     """Tiled radial darkening — each cell gets its own vignette for depth/curvature."""
-    img = Image.new("L", (SIZE, SIZE))
+    img = Image.new("RGB", (SIZE, SIZE))
     half = cell / 2
     max_dist = math.hypot(half, half)
     for y in range(SIZE):
@@ -108,18 +114,17 @@ def ao_soft_vignette(cell=8):
             lx = (x % cell) - half + 0.5
             ly = (y % cell) - half + 0.5
             dist = math.hypot(lx, ly) / max_dist
-            val = int(128 * (1 - 0.5 * dist * dist))
-            img.putpixel((x, y), max(0, min(255, val)))
+            img.putpixel((x, y), _gray_rgb(128 * (1 - 0.1 * dist * dist)))
     return img
 
 
 def ao_horizontal_folds(period=8):
     """Sinusoidal horizontal brightness variation — cloth fold effect."""
-    img = Image.new("L", (SIZE, SIZE))
+    img = Image.new("RGB", (SIZE, SIZE))
     for y in range(SIZE):
-        v = int(128 + 30 * math.sin(2 * math.pi * y / period))
+        c = _gray_rgb(128 + 8 * math.sin(2 * math.pi * y / period))
         for x in range(SIZE):
-            img.putpixel((x, y), max(0, min(255, v)))
+            img.putpixel((x, y), c)
     return img
 
 
@@ -128,11 +133,11 @@ def ao_horizontal_folds(period=8):
 def roughness_patchy(seed=99, cell=8):
     """Blocky patches of varying saturation — weathered / worn look."""
     rng = random.Random(seed)
-    img = Image.new("L", (SIZE, SIZE))
+    img = Image.new("RGB", (SIZE, SIZE))
     grid = {}
     for cy in range(SIZE // cell + 1):
         for cx in range(SIZE // cell + 1):
-            grid[(cx, cy)] = 128 + rng.randint(-40, 40)
+            grid[(cx, cy)] = _gray_rgb(128 + rng.randint(-10, 10))
     for y in range(SIZE):
         for x in range(SIZE):
             img.putpixel((x, y), grid[(x // cell, y // cell)])
@@ -142,21 +147,21 @@ def roughness_patchy(seed=99, cell=8):
 def roughness_grain(seed=77):
     """Fine per-pixel noise around neutral — subtle saturation variation."""
     rng = random.Random(seed)
-    img = Image.new("L", (SIZE, SIZE))
+    img = Image.new("RGB", (SIZE, SIZE))
     for y in range(SIZE):
         for x in range(SIZE):
-            img.putpixel((x, y), 128 + rng.randint(-15, 15))
+            img.putpixel((x, y), _gray_rgb(128 + rng.randint(-4, 4)))
     return img
 
 
 def roughness_vertical_gradient(period=8):
     """Top-to-bottom desaturated→vivid gradient, repeating every `period` pixels."""
-    img = Image.new("L", (SIZE, SIZE))
+    img = Image.new("RGB", (SIZE, SIZE))
     for y in range(SIZE):
         t = (y % period) / (period - 1)
-        val = int(90 + (165 - 90) * t)
+        c = _gray_rgb(118 + (138 - 118) * t)
         for x in range(SIZE):
-            img.putpixel((x, y), val)
+            img.putpixel((x, y), c)
     return img
 
 
