@@ -75,7 +75,9 @@ interface VolatileHandler {
         x: Double, y: Double, z: Double,
         textJson: String, bgColor: Int,
         tx: Float, ty: Float, tz: Float,
-        yaw: Float, lineWidth: Int
+        yaw: Float, lineWidth: Int,
+        pitch: Float = 0f,
+        scaleX: Float = 1f, scaleY: Float = 1f
     )
 
     /**
@@ -91,7 +93,9 @@ interface VolatileHandler {
         textJson: String, bgColor: Int,
         tx: Float, ty: Float, tz: Float,
         yaw: Float, lineWidth: Int,
-        interpolationTicks: Int
+        interpolationTicks: Int,
+        pitch: Float = 0f,
+        scaleX: Float = 1f, scaleY: Float = 1f
     )
 
     /**

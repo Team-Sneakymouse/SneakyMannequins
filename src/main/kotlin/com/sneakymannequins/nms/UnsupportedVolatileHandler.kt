@@ -47,7 +47,9 @@ class UnsupportedVolatileHandler(
         x: Double, y: Double, z: Double,
         textJson: String, bgColor: Int,
         tx: Float, ty: Float, tz: Float,
-        yaw: Float, lineWidth: Int
+        yaw: Float, lineWidth: Int,
+        pitch: Float,
+        scaleX: Float, scaleY: Float
     ) { /* no-op */ }
 
     override fun updateHudTextDisplay(
@@ -55,7 +57,9 @@ class UnsupportedVolatileHandler(
         textJson: String, bgColor: Int,
         tx: Float, ty: Float, tz: Float,
         yaw: Float, lineWidth: Int,
-        interpolationTicks: Int
+        interpolationTicks: Int,
+        pitch: Float,
+        scaleX: Float, scaleY: Float
     ) { /* no-op */ }
 
     override fun sendHudBackground(viewer: Player, entityId: Int, bgColor: Int) { /* no-op */ }

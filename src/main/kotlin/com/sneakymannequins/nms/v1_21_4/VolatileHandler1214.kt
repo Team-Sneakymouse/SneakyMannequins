@@ -221,13 +221,15 @@ class VolatileHandler1214(
         x: Double, y: Double, z: Double,
         textJson: String, bgColor: Int,
         tx: Float, ty: Float, tz: Float,
-        yaw: Float, lineWidth: Int
+        yaw: Float, lineWidth: Int,
+        pitch: Float,
+        scaleX: Float, scaleY: Float
     ) {
         val handle = (viewer as CraftPlayer).handle as ServerPlayer
         val level = handle.serverLevel()
         val connection = handle.connection
 
-        val display = buildHudDisplay(level, textJson, bgColor, tx, ty, tz, yaw, lineWidth)
+        val display = buildHudDisplay(level, textJson, bgColor, tx, ty, tz, yaw, lineWidth, pitch, scaleX, scaleY)
         display.setPos(x, y, z)
 
         val spawnPacket = ClientboundAddEntityPacket(
@@ -249,14 +251,15 @@ class VolatileHandler1214(
         textJson: String, bgColor: Int,
         tx: Float, ty: Float, tz: Float,
         yaw: Float, lineWidth: Int,
-        interpolationTicks: Int
+        interpolationTicks: Int,
+        pitch: Float,
+        scaleX: Float, scaleY: Float
     ) {
         val handle = (viewer as CraftPlayer).handle as ServerPlayer
         val level = handle.serverLevel()
         val connection = handle.connection
 
-        val display = buildHudDisplay(level, textJson, bgColor, tx, ty, tz, yaw, lineWidth)
-        // Interpolation: start immediately, smooth over the given duration
+        val display = buildHudDisplay(level, textJson, bgColor, tx, ty, tz, yaw, lineWidth, pitch, scaleX, scaleY)
         display.setTransformationInterpolationDelay(0)
         display.setTransformationInterpolationDuration(interpolationTicks)
 
@@ -390,7 +393,9 @@ class VolatileHandler1214(
         level: net.minecraft.server.level.ServerLevel,
         textJson: String, bgColor: Int,
         tx: Float, ty: Float, tz: Float,
-        yaw: Float, lineWidth: Int
+        yaw: Float, lineWidth: Int,
+        pitch: Float = 0f,
+        scaleX: Float = 1f, scaleY: Float = 1f
     ): TextDisplay {
         val display = TextDisplay(EntityType.TEXT_DISPLAY, level)
         display.setBillboardConstraints(Display.BillboardConstraints.FIXED)
@@ -406,16 +411,19 @@ class VolatileHandler1214(
         display.entityData.set(TextDisplay.DATA_LINE_WIDTH_ID, lineWidth)
         display.entityData.set(TextDisplay.DATA_BACKGROUND_COLOR_ID, bgColor)
 
-        // Rotate the translation offset by the yaw so buttons orbit the mannequin,
-        // then also rotate the text content so it faces the viewer.
-        val rotQ = Quaternionf().rotationY(yaw)
-        val rotatedTranslation = Vector3f(tx, ty, tz).also { rotQ.transform(it) }
+        // Yaw rotates around Y (orbiting the mannequin + facing the viewer).
+        // Pitch tilts around the viewer-local X axis (positive = lean back / tilt up).
+        val yawQ = Quaternionf().rotationY(yaw)
+        val rotQ = if (pitch != 0f) {
+            Quaternionf(yawQ).rotateX(pitch)
+        } else yawQ
+        val rotatedTranslation = Vector3f(tx, ty, tz).also { yawQ.transform(it) }
 
         display.setTransformation(
             com.mojang.math.Transformation(
                 rotatedTranslation,
                 rotQ,
-                Vector3f(1f, 1f, 1f),
+                Vector3f(scaleX, scaleY, 1f),
                 Quaternionf()
             )
         )

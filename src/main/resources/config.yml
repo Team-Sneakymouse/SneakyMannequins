@@ -97,11 +97,19 @@ triggers:
   control-closed:
     - "playsound minecraft:entity.allay.ambient_without_item ambient {player} {x} {y} {z} 0.3 0.8"
 
+  # Color picker grid flies in
+  color-grid-open:
+    - "playsound minecraft:entity.allay.ambient_without_item ambient {player} {x} {y} {z} 0.3 1.5"
+
+  # Color picker grid flies out
+  color-grid-close:
+    - "playsound minecraft:entity.allay.ambient_without_item ambient {player} {x} {y} {z} 0.2 1.0"
+
   # Player's crosshair moves onto a HUD button
   hover:
     - "playsound minecraft:ui.button.click ambient {player} {x} {y} {z} 0.15 1.8"
 
-  # Player clicks any HUD button
+  # Player clicks any HUD button (not fired when the Color button opens the grid)
   click:
     - "playsound minecraft:ui.button.click ambient {player} {x} {y} {z} 0.2 2.0"
 
@@ -188,20 +196,12 @@ hud-buttons:
     active-text: "<yellow>Part"
     translation:
       x: 1.1
-      y: 2.7
+      y: 2.2
       z: -2.0
 
   texture:
     text: "<white>Texture"
     disabled-text: "<gray>Texture"
-    translation:
-      x: 1.1
-      y: 2.2
-      z: -2.0
-
-  palette:
-    text: "<white>Palette"
-    disabled-text: "<gray>Palette"
     translation:
       x: 1.1
       y: 1.7
@@ -222,6 +222,45 @@ hud-buttons:
       x: 1.1
       y: 0.7
       z: -2.0
+
+  # ── Color picker grid ──────────────────────────────────────────────
+  # Appears when the Color button is clicked. Each palette is a row:
+  # the label sits on the left and colour swatches extend to the right.
+  # Left/right-click on Color pages through palette groups when there
+  # are more than max-rows.
+  color-grid:
+    max-rows: 4
+    # Horizontal gap between colour swatches within a row
+    cell-spacing-x: 0.12
+    # Vertical gap between palette rows
+    cell-spacing-y: 0.18
+    # Grid origin in HUD-local space (rotated by yaw).
+    # origin-x/y are relative to the mannequin.
+    # origin-z is relative to the *player* (negative = toward mannequin).
+    # The grid follows the player so it stays at a constant depth.
+    origin-x: 2.5
+    origin-y: 1
+    origin-z: -3
+    # Extra pitch (radians, negative = tilt up toward viewer)
+    pitch: -0.35
+    # Extra yaw offset (radians, added to the facing yaw)
+    yaw: -1
+    cell-line-width: 18
+    # Non-uniform scale for colour swatches (adjust to make them square)
+    cell-scale-x: 1.0
+    cell-scale-y: 0.66
+    header-line-width: 80
+    # Uniform scale for header labels and the Default button
+    header-scale: 0.6
+    # Horizontal gap between the row header and the first colour swatch
+    header-gap: 0.35
+    # MiniMessage template for row headers and the Default button.
+    # {message} = palette display name (or "Default").
+    header-text: "<white><font:minecraft:uniform>{message}"
+    # ARGB background for header labels and the Default button
+    bg-header: "60000000"
+    # ARGB background for the currently selected color cell
+    bg-selected: "FF44AA44"
 
 # HUD frame – optional ItemDisplay rendered as a backdrop behind the HUD buttons.
 # Rotates together with the rest of the HUD.  Disabled by default.

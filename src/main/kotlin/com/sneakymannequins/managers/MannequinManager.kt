@@ -32,6 +32,8 @@ import org.bukkit.util.Vector
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 // ── Data classes ────────────────────────────────────────────────────────────────
@@ -47,12 +49,53 @@ private data class ControlState(
      * -1 = "Default" (flat colour, no texture), 0+ = index into the resolved texture list.
      */
     val textureIndex: MutableMap<String, Int> = mutableMapOf(),
-    /** Per-layer selected palette index (into the resolved palette list). -1 = "All" (use every palette). */
-    val paletteIndex: MutableMap<String, Int> = mutableMapOf(),
     var mode: ControlMode = ControlMode.NONE
 )
 
-private enum class ControlMode { NONE, PART, COLOR }
+private enum class ControlMode { NONE, PART }
+
+// ── Color picker grid structures ────────────────────────────────────────────
+
+/** Clickable cell metadata (palette name, colour, etc.). Null for headers. */
+private data class GridCellData(
+    val paletteId: String?,
+    val colorName: String,
+    val color: java.awt.Color?
+)
+
+/**
+ * Rendering info for a single grid entity (header *or* cell).
+ * Stores everything needed to re-send an [updateHudTextDisplay] on rotation.
+ */
+private data class GridEntityInfo(
+    val tx: Float, val ty: Float, val tz: Float,
+    val textJson: String,
+    val bgNormal: Int,
+    val lineWidth: Int,
+    val scaleX: Float = 1f, val scaleY: Float = 1f,
+    val pitch: Float = 0f,
+    val yawOffset: Float = 0f,
+    /** Non-null only for clickable colour cells. */
+    val cellData: GridCellData? = null
+)
+
+/** Tracks the spawned grid for a single player. */
+private data class GridState(
+    val entities: Map<Int, GridEntityInfo>,
+    val allEntityIds: IntArray,
+    var page: Int = 0,
+    val totalPages: Int = 1,
+    /** Remaining ticks for the grid fly-in animation (0 = done). */
+    var flyInTicksLeft: Int = 0,
+    /** True while the grid is flying out before destruction. */
+    var flyingOut: Boolean = false
+)
+
+/** What the crosshair is pointing at. */
+private sealed class HoverTarget {
+    data class ButtonTarget(val name: String) : HoverTarget()
+    data class CellTarget(val entityId: Int, val cell: GridCellData) : HoverTarget()
+}
 
 /**
  * Describes one HUD button loaded from config.
@@ -87,13 +130,16 @@ private data class PlayerHudState(
     val entityIds: Map<String, Int>,  // buttonName → virtual entity ID
     val frameEntityId: Int? = null,   // optional backdrop ItemDisplay
     var lastYaw: Float = Float.NaN,
-    var hoveredButton: String? = null,
+    var lastDist: Float = Float.NaN,
+    var hoverTarget: HoverTarget? = null,
     /** True once the fly-in animation has finished and the HUD accepts rotation / hover updates. */
     var ready: Boolean = false,
     /** True while the HUD is interpolating away before being destroyed. */
     var flyingAway: Boolean = false,
     /** Remaining ticks in the server-driven fly-in animation (0 = done / not animating). */
-    var flyInTicksLeft: Int = 0
+    var flyInTicksLeft: Int = 0,
+    /** Colour picker grid state (non-null while the grid is visible). */
+    var gridState: GridState? = null
 )
 
 // ── Manager ─────────────────────────────────────────────────────────────────────
@@ -150,22 +196,24 @@ class MannequinManager(
 
     companion object {
         private const val HOVER_RANGE = 6.0
-        private const val INTERACT_RADIUS = 3.0f
+        private const val INTERACT_RADIUS = 10.0f
+        private const val HUD_SUMMON_RANGE = 4.0
         private const val HUD_BG_DEFAULT = 0x78000000.toInt()       // fallback semi-transparent black
         private const val HUD_BG_HIGHLIGHT = 0xB8336699.toInt()     // fallback translucent blue
         private const val BUTTON_TOLERANCE = 0.35
         private const val ROTATION_INTERP_TICKS = 3
         private const val YAW_THRESHOLD = 0.02f                     // radians (~1°)
+        private const val DIST_THRESHOLD = 0.05f                    // blocks – triggers grid Z update
         private const val FRAME_Y_OFFSET = 10.0
         private const val HUD_FLY_Z_OFFSET = -10.0f                 // local-Z offset for fly-in / fly-out (negative = behind the HUD face, away from player)
         private const val HUD_FLY_INTERP_TICKS = 10                 // interpolation duration (ticks)
         private const val HUD_DISMISS_RANGE = 8.0                   // dismiss HUD when player is this far (blocks)
 
         /** Canonical ordered list of button names. */
-        private val BUTTON_ORDER = listOf("status", "model", "pose", "layer", "random", "part", "channel", "texture", "palette", "color")
+        private val BUTTON_ORDER = listOf("status", "model", "pose", "layer", "random", "part", "texture", "channel", "color")
 
         /** Button names that respond to clicks.  "status" is display-only. */
-        private val CLICKABLE_BUTTONS = setOf("model", "pose", "random", "layer", "part", "channel", "texture", "palette", "color")
+        private val CLICKABLE_BUTTONS = setOf("model", "pose", "random", "layer", "part", "channel", "texture", "color")
 
         /** Hardcoded defaults used when a key is absent from config. */
         private data class BtnDefault(val text: String, val activeText: String?, val tx: Float, val ty: Float, val tz: Float, val lineWidth: Int)
@@ -175,12 +223,13 @@ class MannequinManager(
             "pose"    to BtnDefault("<white>Pose",     null,           -1.1f,  1.7f, -2.0f, 200),
             "layer"   to BtnDefault("<white>Layer",    null,           -1.1f,  1.2f, -2.0f, 200),
             "random"  to BtnDefault("<white>Random",   null,           -1.1f,  0.7f, -2.0f, 200),
-            "part"    to BtnDefault("<white>Part",     "<yellow>Part",  1.1f,  2.7f, -2.0f, 200),
-            "channel" to BtnDefault("<white>Channel",  null,            1.1f,  2.2f, -2.0f, 200),
+            "part"    to BtnDefault("<white>Part",     "<yellow>Part",  1.1f,  2.2f, -2.0f, 200),
             "texture" to BtnDefault("<white>Texture",  null,            1.1f,  1.7f, -2.0f, 200),
-            "palette" to BtnDefault("<white>Palette",  null,            1.1f,  1.2f, -2.0f, 200),
+            "channel" to BtnDefault("<white>Channel",  null,            1.1f,  1.2f, -2.0f, 200),
             "color"   to BtnDefault("<white>Color",    "<yellow>Color", 1.1f,  0.7f, -2.0f, 200),
         )
+
+        private const val GRID_CELL_TOLERANCE = 0.20
 
         private val mm = MiniMessage.miniMessage()
         private val gsonSer = GsonComponentSerializer.gson()
@@ -602,6 +651,7 @@ class MannequinManager(
         val p = player ?: plugin.server.getPlayer(playerId) ?: return
         val allIds = state.entityIds.values.toMutableList()
         state.frameEntityId?.let { allIds += it }
+        state.gridState?.allEntityIds?.let { allIds += it.toList() }
         handler.destroyEntities(p, allIds.toIntArray())
     }
 
@@ -612,6 +662,7 @@ class MannequinManager(
      */
     private fun flyAwayPlayerHud(player: Player, hud: PlayerHudState) {
         if (hud.flyingAway) return
+        despawnColorGrid(player, hud)
         hud.flyingAway = true
 
         val manId = hud.mannequinId
@@ -657,6 +708,7 @@ class MannequinManager(
             if (player != null) {
                 val allIds = state.entityIds.values.toMutableList()
                 state.frameEntityId?.let { allIds += it }
+                state.gridState?.allEntityIds?.let { allIds += it.toList() }
                 handler.destroyEntities(player, allIds.toIntArray())
             }
             playerHuds.remove(playerId)
@@ -677,7 +729,7 @@ class MannequinManager(
             handler.updateHudTextDisplay(
                 viewer = player, entityId = entityId,
                 textJson = vis.textJson,
-                bgColor = if (state.hoveredButton == buttonName) btn.bgHighlight else vis.bgColor,
+                bgColor = if ((state.hoverTarget as? HoverTarget.ButtonTarget)?.name == buttonName) btn.bgHighlight else vis.bgColor,
                 tx = btn.tx, ty = btn.ty, tz = btn.tz,
                 yaw = state.lastYaw, lineWidth = btn.lineWidth,
                 interpolationTicks = 0 // instant text update
@@ -800,6 +852,7 @@ class MannequinManager(
             val dx = player.location.x - mannequin.location.x
             val dz = player.location.z - mannequin.location.z
             val yaw = atan2(dx, dz).toFloat()
+            val playerDist = sqrt((dx * dx + dz * dz).toFloat())
 
             // ── Server-driven fly-in animation ──────────────────────────────
             if (currentHud.flyInTicksLeft > 0) {
@@ -822,6 +875,7 @@ class MannequinManager(
                 }
                 updateHudFrame(player, currentHud, yaw, zOffset = currentZOffset, interpolationTicks = 2)
                 currentHud.lastYaw = yaw
+                currentHud.lastDist = playerDist
 
                 if (currentHud.flyInTicksLeft == 0) {
                     currentHud.ready = true
@@ -829,13 +883,39 @@ class MannequinManager(
                 continue // skip normal rotation / hover during fly-in
             }
 
+            // ── Grid fly-in / fly-out animation ─────────────────────────────
+            val grid = currentHud.gridState
+            if (grid != null && !grid.flyingOut && grid.flyInTicksLeft > 0) {
+                grid.flyInTicksLeft--
+                val progress = 1.0f - grid.flyInTicksLeft.toFloat() / HUD_FLY_INTERP_TICKS
+                val zOff = HUD_FLY_Z_OFFSET * (1.0f - progress)
+                for ((eid, info) in grid.entities) {
+                    val trackTx = info.tx - playerDist * sin(info.yawOffset)
+                    val trackTz = info.tz + playerDist * cos(info.yawOffset)
+                    handler.updateHudTextDisplay(
+                        viewer = player, entityId = eid,
+                        textJson = info.textJson, bgColor = info.bgNormal,
+                        tx = trackTx, ty = info.ty, tz = trackTz + zOff,
+                        yaw = yaw + info.yawOffset, lineWidth = info.lineWidth,
+                        interpolationTicks = 2,
+                        pitch = info.pitch,
+                        scaleX = info.scaleX, scaleY = info.scaleY
+                    )
+                }
+                currentHud.lastDist = playerDist
+            }
+
+            val yawChanged = abs(yaw - currentHud.lastYaw) > YAW_THRESHOLD
+            val distChanged = grid != null && abs(playerDist - currentHud.lastDist) > DIST_THRESHOLD
+
             // ── Update rotation if yaw changed ──────────────────────────────
-            if (abs(yaw - currentHud.lastYaw) > YAW_THRESHOLD) {
+            if (yawChanged) {
                 val visuals = buttonVisuals[mannequin.id] ?: continue
+                val hovBtnName = (currentHud.hoverTarget as? HoverTarget.ButtonTarget)?.name
                 for (btn in hudButtons) {
                     val entityId = currentHud.entityIds[btn.name] ?: continue
                     val vis = visuals[btn.name] ?: continue
-                    val bg = if (currentHud.hoveredButton == btn.name) btn.bgHighlight else vis.bgColor
+                    val bg = if (hovBtnName == btn.name) btn.bgHighlight else vis.bgColor
                     handler.updateHudTextDisplay(
                         viewer = player, entityId = entityId,
                         textJson = vis.textJson, bgColor = bg,
@@ -849,24 +929,42 @@ class MannequinManager(
                 currentHud.lastYaw = yaw
             }
 
+            // ── Update grid entities if yaw or distance changed ─────────────
+            if ((yawChanged || distChanged) && grid != null && grid.flyInTicksLeft == 0 && !grid.flyingOut) {
+                val hovCellId = (currentHud.hoverTarget as? HoverTarget.CellTarget)?.entityId
+                val selectedBg = loadGridConfig().bgSelected
+                val selectedColor = currentSelectedGridColor(mannequin, controlState[mannequin.id])
+                for ((eid, info) in grid.entities) {
+                    val trackTx = info.tx - playerDist * sin(info.yawOffset)
+                    val trackTz = info.tz + playerDist * cos(info.yawOffset)
+                    val bg = when {
+                        hovCellId == eid -> HUD_BG_HIGHLIGHT
+                        info.cellData != null && selectedColor != null && info.cellData.color == selectedColor -> selectedBg
+                        else -> info.bgNormal
+                    }
+                    handler.updateHudTextDisplay(
+                        viewer = player, entityId = eid,
+                        textJson = info.textJson, bgColor = bg,
+                        tx = trackTx, ty = info.ty, tz = trackTz,
+                        yaw = yaw + info.yawOffset, lineWidth = info.lineWidth,
+                        interpolationTicks = ROTATION_INTERP_TICKS,
+                        pitch = info.pitch,
+                        scaleX = info.scaleX, scaleY = info.scaleY
+                    )
+                }
+                currentHud.lastDist = playerDist
+            }
+
             // ── Hover detection ─────────────────────────────────────────────
-            val hovered = computeHoveredButton(player, mannequin)
-            val prev = currentHud.hoveredButton
+            val hovered = computeHoverTarget(player, mannequin, currentHud)
+            val prev = currentHud.hoverTarget
 
             if (hovered != prev) {
                 // Un-highlight previous
-                if (prev != null) {
-                    val prevBtn = buttonByName(prev)
-                    sendButtonBg(player, currentHud, mannequin.id, prev, prevBtn?.bgDefault ?: HUD_BG_DEFAULT)
-                }
+                unhighlightTarget(player, currentHud, mannequin, prev)
                 // Highlight new
-                if (hovered != null) {
-                    val hovBtn = buttonByName(hovered)
-                    sendButtonBg(player, currentHud, mannequin.id, hovered, hovBtn?.bgHighlight ?: HUD_BG_HIGHLIGHT)
-                    val ph = basePlaceholders(player, mannequin).apply { put("button", hovered) }
-                    fireTrigger("hover", ph)
-                }
-                currentHud.hoveredButton = hovered
+                highlightTarget(player, currentHud, mannequin, hovered)
+                currentHud.hoverTarget = hovered
             }
         }
     }
@@ -874,24 +972,25 @@ class MannequinManager(
     /** Send a background colour override for a single button to a single player.
      *  Uses a lightweight packet that only touches the background colour,
      *  so it won't interrupt an in-progress rotation interpolation. */
+    @Suppress("UNUSED_PARAMETER")
     private fun sendButtonBg(player: Player, hud: PlayerHudState, manId: UUID, buttonName: String, bgColor: Int) {
         val entityId = hud.entityIds[buttonName] ?: return
         handler.sendHudBackground(player, entityId, bgColor)
     }
 
-    // ── Look-direction → button resolution ──────────────────────────────────────
+    // ── Look-direction → hover target resolution ──────────────────────────────
 
     /**
-     * Determine which HUD button the player's crosshair is closest to.
-     * Returns the button name, or null if none is within tolerance.
+     * Determine what the player's crosshair is pointing at: a HUD button,
+     * a colour-grid cell, or nothing.
      */
-    private fun computeHoveredButton(player: Player, mannequin: Mannequin): String? {
+    private fun computeHoverTarget(player: Player, mannequin: Mannequin, hud: PlayerHudState): HoverTarget? {
         val eyeLoc = player.eyeLocation
         val lookDir = eyeLoc.direction.normalize()
         val eyeVec = eyeLoc.toVector()
         val manVec = mannequin.location.toVector()
 
-        var bestName: String? = null
+        var bestTarget: HoverTarget? = null
         var bestDist = Double.MAX_VALUE
 
         for (btn in hudButtons) {
@@ -900,11 +999,66 @@ class MannequinManager(
             val dist = distanceFromRay(eyeVec, lookDir, worldPos)
             if (dist < bestDist) {
                 bestDist = dist
-                bestName = btn.name
+                bestTarget = HoverTarget.ButtonTarget(btn.name)
             }
         }
 
-        return if (bestDist <= BUTTON_TOLERANCE) bestName else null
+        val btnOk = bestDist <= BUTTON_TOLERANCE
+
+        // Also check grid cells (tighter tolerance; skip during fly-in/out)
+        val grid = hud.gridState
+        if (grid != null && grid.flyInTicksLeft == 0 && !grid.flyingOut) {
+            val gdx = eyeVec.x - manVec.x
+            val gdz = eyeVec.z - manVec.z
+            val playerDist = sqrt(gdx * gdx + gdz * gdz).toFloat()
+            for ((eid, info) in grid.entities) {
+                val cell = info.cellData ?: continue // skip headers
+                val trackTx = info.tx - playerDist * sin(info.yawOffset)
+                val trackTz = info.tz + playerDist * cos(info.yawOffset)
+                val worldPos = gridWorldPos(manVec, eyeVec, trackTx, info.ty, trackTz, info.yawOffset)
+                val dist = distanceFromRay(eyeVec, lookDir, worldPos)
+                if (dist < bestDist) {
+                    bestDist = dist
+                    bestTarget = HoverTarget.CellTarget(eid, cell)
+                }
+            }
+            val cellOk = bestDist <= GRID_CELL_TOLERANCE
+            if (cellOk && bestTarget is HoverTarget.CellTarget) return bestTarget
+        }
+
+        return if (btnOk && bestTarget is HoverTarget.ButtonTarget) bestTarget else null
+    }
+
+    private fun unhighlightTarget(player: Player, hud: PlayerHudState, mannequin: Mannequin, target: HoverTarget?) {
+        when (target) {
+            is HoverTarget.ButtonTarget -> {
+                val prevBtn = buttonByName(target.name)
+                sendButtonBg(player, hud, mannequin.id, target.name, prevBtn?.bgDefault ?: HUD_BG_DEFAULT)
+            }
+            is HoverTarget.CellTarget -> {
+                val info = hud.gridState?.entities?.get(target.entityId)
+                val selectedColor = currentSelectedGridColor(mannequin, controlState[mannequin.id])
+                val bg = if (selectedColor != null && target.cell.color == selectedColor)
+                    loadGridConfig().bgSelected else (info?.bgNormal ?: HUD_BG_DEFAULT)
+                handler.sendHudBackground(player, target.entityId, bg)
+            }
+            null -> {}
+        }
+    }
+
+    private fun highlightTarget(player: Player, hud: PlayerHudState, mannequin: Mannequin, target: HoverTarget?) {
+        when (target) {
+            is HoverTarget.ButtonTarget -> {
+                val hovBtn = buttonByName(target.name)
+                sendButtonBg(player, hud, mannequin.id, target.name, hovBtn?.bgHighlight ?: HUD_BG_HIGHLIGHT)
+                val ph = basePlaceholders(player, mannequin).apply { put("button", target.name) }
+                fireTrigger("hover", ph)
+            }
+            is HoverTarget.CellTarget -> {
+                handler.sendHudBackground(player, target.entityId, HUD_BG_HIGHLIGHT)
+            }
+            null -> {}
+        }
     }
 
     /**
@@ -913,23 +1067,30 @@ class MannequinManager(
      * player position → mannequin position, matching the NMS transformation.
      */
     private fun buttonWorldPos(mannequinPos: Vector, viewerPos: Vector, tx: Float, ty: Float, tz: Float): Vector {
+        return gridWorldPos(mannequinPos, viewerPos, tx, ty, tz, 0f)
+    }
+
+    /**
+     * Like [buttonWorldPos] but applies an extra yaw offset (radians) so the
+     * computed world position matches entities that are rotated relative to the
+     * standard viewer-facing yaw.
+     */
+    private fun gridWorldPos(mannequinPos: Vector, viewerPos: Vector, tx: Float, ty: Float, tz: Float, yawOffset: Float): Vector {
         val dx = viewerPos.x - mannequinPos.x
         val dz = viewerPos.z - mannequinPos.z
         val horizDist = sqrt(dx * dx + dz * dz)
         if (horizDist < 0.001) {
             return mannequinPos.clone().add(Vector(0.0, ty.toDouble(), 0.0))
         }
-        // Forward: from mannequin toward the viewer (XZ plane)
-        val fwdX = dx / horizDist
-        val fwdZ = dz / horizDist
-        // Right: 90° CW rotation of forward (viewer's right)
-        val rightX = fwdZ
-        val rightZ = -fwdX
-
+        val baseYaw = atan2(dx, dz).toFloat()
+        val yaw = baseYaw + yawOffset
+        val sinY = kotlin.math.sin(yaw.toDouble())
+        val cosY = kotlin.math.cos(yaw.toDouble())
+        // Forward = (sinYaw, 0, cosYaw), Right = (cosYaw, 0, -sinYaw)
         return Vector(
-            mannequinPos.x + rightX * tx + fwdX * tz,
+            mannequinPos.x + cosY * tx + sinY * tz,
             mannequinPos.y + ty,
-            mannequinPos.z + rightZ * tx + fwdZ * tz
+            mannequinPos.z - sinY * tx + cosY * tz
         )
     }
 
@@ -973,8 +1134,14 @@ class MannequinManager(
         // ── Open HUD on first interaction ────────────────────────────────
         val currentHud = playerHuds[player.uniqueId]
         if (currentHud == null || currentHud.mannequinId != manId || currentHud.flyingAway) {
+            if (mannequin.location.distance(player.location) > HUD_SUMMON_RANGE) return
             // Destroy any stale / wrong-mannequin / flying-away HUD first
             if (currentHud != null) destroyPlayerHud(player)
+            // Reset button labels before spawning so stale active-text doesn't carry over
+            val layers = layerManager.definitionsInOrder()
+            val curLayer = layers.getOrNull(state.layerIndex % layers.size)
+            val curOption = curLayer?.let { freshOption(it.id, mannequin) }
+            refreshDynamicLabels(manId, curOption, curLayer)
             val dx = player.location.x - mannequin.location.x
             val dz = player.location.z - mannequin.location.z
             val yaw = atan2(dx, dz).toFloat()
@@ -986,12 +1153,18 @@ class MannequinManager(
         if (!currentHud.ready) return
 
         // ── Execute button / mode action ─────────────────────────────────
-        val hoveredButton = currentHud.hoveredButton
-
-        if (hoveredButton != null && hoveredButton in CLICKABLE_BUTTONS) {
-            executeButton(hoveredButton, manId, mannequin, state, player, backwards)
-        } else {
-            executeModeAction(manId, mannequin, state, player, backwards)
+        when (val target = currentHud.hoverTarget) {
+            is HoverTarget.ButtonTarget -> {
+                if (target.name in CLICKABLE_BUTTONS) {
+                    executeButton(target.name, manId, mannequin, state, player, backwards)
+                } else {
+                    executeModeAction(manId, mannequin, state, player, backwards)
+                }
+            }
+            is HoverTarget.CellTarget -> {
+                applyGridCellColor(target.cell, manId, mannequin, state, player)
+            }
+            null -> executeModeAction(manId, mannequin, state, player, backwards)
         }
     }
 
@@ -1005,12 +1178,12 @@ class MannequinManager(
         player: Player,
         backwards: Boolean
     ) {
-        // Fire the click trigger unless the click will cycle a part/colour
-        // (those have their own dedicated triggers).
         val willCycle = (button == "part" && state.mode == ControlMode.PART)
-                || (button == "color" && state.mode == ControlMode.COLOR)
-                || (button == "texture" && state.mode == ControlMode.COLOR)
-        if (!willCycle) {
+        val gridOpening = (button == "color" && playerHuds[player.uniqueId]?.gridState == null)
+        val gridClosing = (button == "color" && playerHuds[player.uniqueId]?.gridState?.let { grid ->
+            !grid.flyingOut && if (backwards) grid.page == 0 else grid.page >= grid.totalPages - 1
+        } == true)
+        if (!willCycle && !gridOpening && !gridClosing) {
             val clickPh = basePlaceholders(player, mannequin).apply { put("button", button) }
             fireTrigger("click", clickPh)
         }
@@ -1049,9 +1222,11 @@ class MannequinManager(
                     // Confirmed — randomise and keep the window open
                     randomConfirm[player.uniqueId] = now + 5000L
                     randomize(mannequin)
-                    val layer = layers.firstOrNull()
-                    val option = if (layer != null) freshOption(layer.id, mannequin) else null
-                    if (layer != null) refreshDynamicLabels(manId, option, layer)
+                    val firstLayer = layers.firstOrNull()
+                    val option = if (firstLayer != null) freshOption(firstLayer.id, mannequin) else null
+                    if (firstLayer != null) refreshDynamicLabels(manId, option, firstLayer)
+                    val hud = playerHuds[player.uniqueId]
+                    if (hud != null) refreshColorGrid(player, mannequin, state, hud)
                     updateStatus(manId, "Randomised!")
                     val viewers = nearbyViewers(mannequin)
                     animationManager.cancelMannequin(mannequin.id)
@@ -1071,12 +1246,13 @@ class MannequinManager(
                 updateStatus(manId, "Layer: ${newLayer.displayName}")
                 state.partIndex[newLayer.id] = 0
                 state.channelIndex[newLayer.id] = 0
-                state.textureIndex.remove(newLayer.id) // reset texture (available textures may differ)
+                state.textureIndex.remove(newLayer.id)
                 state.colorIndex[newLayer.id] = 0
                 state.mode = ControlMode.PART
                 val option = freshOption(newLayer.id, mannequin)
-                validatePaletteIndex(state, newLayer, option, player)
                 refreshDynamicLabels(manId, option, newLayer)
+                val hud = playerHuds[player.uniqueId]
+                if (hud != null) refreshColorGrid(player, mannequin, state, hud)
             }
             "part" -> {
                 if (state.mode == ControlMode.PART) {
@@ -1099,7 +1275,6 @@ class MannequinManager(
                     val idx = (currentIdx + delta + slots.size) % slots.size
                     state.channelIndex[layer.id] = idx
                     state.colorIndex[layer.id] = 0
-                    state.mode = ControlMode.COLOR
 
                     val slot = slots[idx]
                     updateStatus(manId, "Channel: ${slot.label}")
@@ -1188,32 +1363,23 @@ class MannequinManager(
                 }
                 refreshDynamicLabels(manId, freshOption(layer.id, mannequin), layer)
             }
-            "palette" -> {
-                val option = freshOption(layer.id, mannequin)
-                val palIds = if (option != null) layerManager.resolvePalettes(layer, option, player) else emptyList()
-                if (palIds.isEmpty()) {
-                    updateStatus(manId, "Palette: N/A")
-                } else {
-                    // Cycle: All → palette0 → palette1 → … → All …
-                    val current = state.paletteIndex.getOrDefault(layer.id, -1)
-                    val delta = if (backwards) -1 else 1
-                    // Range is [-1, palIds.lastIndex], total size = palIds.size + 1
-                    val total = palIds.size + 1
-                    val next = ((current + 1) + delta + total) % total - 1 // back to [-1 .. size-1]
-                    state.paletteIndex[layer.id] = next
-                    state.colorIndex[layer.id] = 0 // reset colour selection when palette changes
-                    val label = if (next == -1) "All" else prettyName(palIds[next])
-                    updateStatus(manId, "Palette: $label")
-                }
-                refreshDynamicLabels(manId, freshOption(layer.id, mannequin), layer)
-            }
             "color" -> {
-                if (state.mode == ControlMode.COLOR) {
-                    cycleColor(layer, mannequin, state, player, backwards)?.let { updateStatus(manId, it) }
-                } else {
-                    state.mode = ControlMode.COLOR
+                val hud = playerHuds[player.uniqueId]
+                if (hud != null && hud.gridState != null && !hud.gridState!!.flyingOut) {
+                    val grid = hud.gridState!!
+                    val canPage = if (backwards) grid.page > 0 else grid.page < grid.totalPages - 1
+                    if (canPage) {
+                        val delta = if (backwards) -1 else 1
+                        pageColorGrid(player, hud, mannequin, state, delta)
+                    } else {
+                        despawnColorGrid(player, hud)
+                        refreshDynamicLabels(manId, freshOption(layer.id, mannequin), layer)
+                        updateStatus(manId, "Color picker closed")
+                    }
+                } else if (hud != null) {
+                    spawnColorGrid(player, mannequin, state, hud)
                     refreshDynamicLabels(manId, freshOption(layer.id, mannequin), layer)
-                    updateStatus(manId, "Mode: Color")
+                    updateStatus(manId, "Pick a color")
                 }
             }
         }
@@ -1229,10 +1395,6 @@ class MannequinManager(
 
         when (state.mode) {
             ControlMode.PART -> cyclePart(layer, mannequin, state, player, backwards)?.let {
-                updateStatus(manId, it)
-                render(mannequin, nearbyViewers(mannequin))
-            }
-            ControlMode.COLOR -> cycleColor(layer, mannequin, state, player, backwards)?.let {
                 updateStatus(manId, it)
                 render(mannequin, nearbyViewers(mannequin))
             }
@@ -1295,20 +1457,12 @@ class MannequinManager(
             }
         }
 
-        val palBtn = buttonByName("palette")
-        visuals["palette"]?.let {
-            val palCount = if (option != null && layer != null)
-                layerManager.resolvePalettes(layer, option, null).size else 0
-            it.textJson = if (palCount <= 1 && palBtn?.disabledTextJson != null) {
-                palBtn.disabledTextJson
-            } else {
-                palBtn?.textJson ?: textToJson("Palette")
-            }
-        }
-
         val colorBtn = buttonByName("color")
+        val gridVisible = playerHuds.values.any {
+            it.mannequinId == mannequinId && it.gridState != null && !it.gridState!!.flyingOut
+        }
         visuals["color"]?.let {
-            it.textJson = if (mode == ControlMode.COLOR && colorBtn?.activeTextJson != null) {
+            it.textJson = if (gridVisible && colorBtn?.activeTextJson != null) {
                 colorBtn.activeTextJson
             } else {
                 colorBtn?.textJson ?: textToJson("Color")
@@ -1318,28 +1472,10 @@ class MannequinManager(
         pushButtonToViewers(mannequinId, "channel")
         pushButtonToViewers(mannequinId, "texture")
         pushButtonToViewers(mannequinId, "part")
-        pushButtonToViewers(mannequinId, "palette")
         pushButtonToViewers(mannequinId, "color")
     }
 
-    // ── Palette validation ────────────────────────────────────────────────────────
-
-    /**
-     * If the player had a specific palette selected (-1 = All, 0+ = index into the
-     * resolved list), check whether that palette still exists in the new context.
-     * If not, reset to -1 (All).
-     */
-    private fun validatePaletteIndex(state: ControlState, layer: LayerDefinition, option: LayerOption?, player: Player) {
-        val prev = state.paletteIndex[layer.id] ?: return // never selected → nothing to validate
-        if (prev == -1) return // "All" is always valid
-        val palIds = if (option != null) layerManager.resolvePalettes(layer, option, player) else emptyList()
-        if (prev !in palIds.indices) {
-            state.paletteIndex[layer.id] = -1
-            state.colorIndex[layer.id] = 0 // palette changed, reset colour
-        }
-    }
-
-    // ── Part / Colour cycling ───────────────────────────────────────────────────
+    // ── Part cycling ────────────────────────────────────────────────────────────
 
     private fun cyclePart(layer: LayerDefinition, mannequin: Mannequin, state: ControlState, player: Player, backwards: Boolean): String? {
         val opts = layerManager.optionsFor(layer.id)
@@ -1354,8 +1490,9 @@ class MannequinManager(
         state.channelIndex[layer.id] = 0
         state.textureIndex.remove(layer.id) // reset texture selection (available textures may differ between parts)
         state.colorIndex[layer.id] = 0
-        validatePaletteIndex(state, layer, chosen, player)
         refreshDynamicLabels(mannequin.id, chosen, layer)
+        val hud = playerHuds[player.uniqueId]
+        if (hud != null) refreshColorGrid(player, mannequin, state, hud)
 
         // Fire per-layer part-change trigger
         val prettyPart = prettyName(chosen.displayName)
@@ -1368,53 +1505,43 @@ class MannequinManager(
         return "Part: $prettyPart"
     }
 
-    private fun cycleColor(layer: LayerDefinition, mannequin: Mannequin, state: ControlState, player: Player, backwards: Boolean): String? {
-        val current = mannequin.selection.selections[layer.id]
-        val option = freshOption(layer.id, mannequin) ?: return "Color: N/A"
-        val allPaletteIds = layerManager.resolvePalettes(layer, option, player)
-        val selectedPalIdx = state.paletteIndex.getOrDefault(layer.id, -1)
-        val activePaletteIds = if (selectedPalIdx in allPaletteIds.indices)
-            listOf(allPaletteIds[selectedPalIdx]) else allPaletteIds
-        val colors = activePaletteIds.flatMap { palId -> layerManager.palette(palId)?.colors.orEmpty() }
-        val optionsList = listOf("Default") + colors.map { prettyName(it.name) }
-        if (optionsList.isEmpty()) return "Color: N/A"
-        val delta = if (backwards) -1 else 1
-        val idx = (state.colorIndex.getOrDefault(layer.id, 0) + delta + optionsList.size) % optionsList.size
-        state.colorIndex[layer.id] = idx
+    // ── Color grid: apply a picked colour ──────────────────────────────────────
 
-        // Resolve the active channel slot from the flat list
+    private fun applyGridCellColor(
+        cell: GridCellData, manId: UUID, mannequin: Mannequin,
+        state: ControlState, player: Player
+    ) {
+        val layers = layerManager.definitionsInOrder()
+        if (layers.isEmpty()) return
+        val layer = layers.getOrNull(state.layerIndex % layers.size) ?: layers.first()
+        val option = freshOption(layer.id, mannequin) ?: return
+        val current = mannequin.selection.selections[layer.id]
         val slots = resolveChannelSlots(layer, option, state, player)
         val slotIdx = state.channelIndex.getOrDefault(layer.id, 0)
-        val slot = slots.getOrNull(slotIdx) ?: return "Color: N/A"
+        val slot = slots.getOrNull(slotIdx) ?: return
 
         if (slot.subChannel != null) {
-            // ── Textured path: store colour on the active sub-channel ──
             val prevTextured = current?.texturedColors ?: emptyMap()
             val prevSub = prevTextured[slot.maskIdx] ?: emptyMap()
-            val newSub = if (idx == 0) {
+            val newSub = if (cell.color == null) {
                 prevSub - slot.subChannel
             } else {
-                val color = colors.getOrNull(idx - 1)?.color
-                if (color != null) prevSub + (slot.subChannel to color) else prevSub
+                prevSub + (slot.subChannel to cell.color)
             }
             val newTextured = if (newSub.isEmpty()) prevTextured - slot.maskIdx
                               else prevTextured + (slot.maskIdx to newSub)
-
             val selection = current?.copy(texturedColors = newTextured)
                 ?: LayerSelection(layer.id, option, texturedColors = newTextured)
             mannequin.selection = mannequin.selection.copy(
                 selections = mannequin.selection.selections + (layer.id to selection)
             )
         } else {
-            // ── Flat-colour path (original behaviour) ──
             val prevColors = current?.channelColors ?: emptyMap()
-            val newColors = if (idx == 0) {
+            val newColors = if (cell.color == null) {
                 prevColors - slot.maskIdx
             } else {
-                val color = colors.getOrNull(idx - 1)?.color
-                if (color != null) prevColors + (slot.maskIdx to color) else prevColors
+                prevColors + (slot.maskIdx to cell.color)
             }
-
             val selection = current?.copy(channelColors = newColors)
                 ?: LayerSelection(layer.id, option, channelColors = newColors)
             mannequin.selection = mannequin.selection.copy(
@@ -1422,23 +1549,300 @@ class MannequinManager(
             )
         }
 
-        val colorLabel = if (idx == 0) "Default" else optionsList[idx]
-        val colorObj = if (idx > 0) colors.getOrNull(idx - 1)?.color else null
-        val colorCode = colorObj?.let { String.format("#%02X%02X%02X", it.red, it.green, it.blue) } ?: ""
-
-        // Fire color-change trigger
+        val colorLabel = cell.colorName
+        val colorCode = cell.color?.let { String.format("#%02X%02X%02X", it.red, it.green, it.blue) } ?: ""
         val ph = basePlaceholders(player, mannequin).apply {
             put("layer", layer.id)
             put("color", colorLabel.replace(' ', '\u00A0'))
             put("color_code", colorCode)
-            put("color_r", colorObj?.let { String.format("%.3f", it.red / 255.0) } ?: "1.000")
-            put("color_g", colorObj?.let { String.format("%.3f", it.green / 255.0) } ?: "1.000")
-            put("color_b", colorObj?.let { String.format("%.3f", it.blue / 255.0) } ?: "1.000")
+            put("color_r", cell.color?.let { String.format("%.3f", it.red / 255.0) } ?: "1.000")
+            put("color_g", cell.color?.let { String.format("%.3f", it.green / 255.0) } ?: "1.000")
+            put("color_b", cell.color?.let { String.format("%.3f", it.blue / 255.0) } ?: "1.000")
             put("channel", slot.label)
         }
         fireTrigger("color-change", ph)
+        updateStatus(manId, "Color: $colorLabel")
 
-        return "Color: $colorLabel"
+        // Re-render with the new colour; grid stays open
+        render(mannequin, nearbyViewers(mannequin))
+
+        // Update the selected-cell highlight in the grid
+        val hud = playerHuds[player.uniqueId]
+        val grid = hud?.gridState
+        if (hud != null && grid != null) {
+            val cfg = loadGridConfig()
+            for ((eid, info) in grid.entities) {
+                val c = info.cellData ?: continue
+                val bg = if (c.color != null && c.color == cell.color) cfg.bgSelected else info.bgNormal
+                handler.sendHudBackground(player, eid, bg)
+            }
+        }
+    }
+
+    // ── Color picker grid: config, spawn, despawn, page ────────────────────────
+
+    private data class GridConfig(
+        val maxRows: Int, val cellSpacingX: Float, val cellSpacingY: Float,
+        val originX: Float, val originY: Float, val originZ: Float,
+        val pitch: Float, val yawOffset: Float,
+        val cellLineWidth: Int, val cellScaleX: Float, val cellScaleY: Float,
+        val headerLineWidth: Int, val headerScale: Float, val headerGap: Float,
+        val headerTextMM: String, val bgHeader: Int, val bgSelected: Int
+    )
+
+    private fun loadGridConfig(): GridConfig {
+        val sec = plugin.config.getConfigurationSection("hud-buttons.color-grid")
+        return GridConfig(
+            maxRows = sec?.getInt("max-rows", 6) ?: 6,
+            cellSpacingX = sec?.getDouble("cell-spacing-x", 0.12)?.toFloat() ?: 0.12f,
+            cellSpacingY = sec?.getDouble("cell-spacing-y", 0.18)?.toFloat() ?: 0.18f,
+            originX = sec?.getDouble("origin-x", 0.3)?.toFloat() ?: 0.3f,
+            originY = sec?.getDouble("origin-y", -0.3)?.toFloat() ?: -0.3f,
+            originZ = sec?.getDouble("origin-z", -1.8)?.toFloat() ?: -1.8f,
+            pitch = sec?.getDouble("pitch", -0.35)?.toFloat() ?: -0.35f,
+            yawOffset = sec?.getDouble("yaw", 0.0)?.toFloat() ?: 0f,
+            cellLineWidth = sec?.getInt("cell-line-width", 18) ?: 18,
+            cellScaleX = sec?.getDouble("cell-scale-x", 1.0)?.toFloat() ?: 1f,
+            cellScaleY = sec?.getDouble("cell-scale-y", 1.0)?.toFloat() ?: 1f,
+            headerLineWidth = sec?.getInt("header-line-width", 80) ?: 80,
+            headerScale = sec?.getDouble("header-scale", 1.0)?.toFloat() ?: 1f,
+            headerGap = sec?.getDouble("header-gap", 0.35)?.toFloat() ?: 0.35f,
+            headerTextMM = sec?.getString("header-text") ?: "<white><font:minecraft:uniform>{message}",
+            bgHeader = parseArgb(sec?.getString("bg-header")) ?: 0x60000000,
+            bgSelected = parseArgb(sec?.getString("bg-selected")) ?: 0xFF44AA44.toInt()
+        )
+    }
+
+    /**
+     * Return the [java.awt.Color] currently assigned to the active channel/sub-channel,
+     * or null if "Default" (no override).
+     */
+    private fun currentSelectedGridColor(mannequin: Mannequin, state: ControlState?): java.awt.Color? {
+        if (state == null) return null
+        val layers = layerManager.definitionsInOrder()
+        val layer = layers.getOrNull(state.layerIndex % layers.size) ?: return null
+        val sel = mannequin.selection.selections[layer.id] ?: return null
+        val option = freshOption(layer.id, mannequin) ?: return null
+        val slots = resolveChannelSlots(layer, option, state, plugin.server.onlinePlayers.firstOrNull() ?: return null)
+        val slotIdx = state.channelIndex.getOrDefault(layer.id, 0)
+        val slot = slots.getOrNull(slotIdx) ?: return null
+        return if (slot.subChannel != null) {
+            sel.texturedColors[slot.maskIdx]?.get(slot.subChannel)
+        } else {
+            sel.channelColors[slot.maskIdx]
+        }
+    }
+
+    /**
+     * Build the grid for one page of palettes and spawn every entity.
+     * Layout: each palette is a **row** — the label sits on the left and
+     * colour swatches extend to the right.  Pagination is by rows.
+     */
+    private fun buildAndSpawnGrid(
+        player: Player, mannequin: Mannequin, state: ControlState,
+        yaw: Float, playerDist: Float, page: Int, allPaletteIds: List<String>, cfg: GridConfig,
+        animate: Boolean = true
+    ): GridState {
+        val totalPages = ((allPaletteIds.size + cfg.maxRows - 1) / cfg.maxRows).coerceAtLeast(1)
+        val startIdx = page * cfg.maxRows
+        val visiblePalIds = allPaletteIds.subList(startIdx, (startIdx + cfg.maxRows).coerceAtMost(allPaletteIds.size))
+
+        val loc = mannequin.location
+        val entities = mutableMapOf<Int, GridEntityInfo>()
+        val allIds = mutableListOf<Int>()
+        val selectedColor = currentSelectedGridColor(mannequin, state)
+
+        val flyZOff = if (animate) HUD_FLY_Z_OFFSET else 0f
+        fun spawn(eid: Int, info: GridEntityInfo) {
+            val trackTx = info.tx - playerDist * sin(info.yawOffset)
+            val trackTz = info.tz + playerDist * cos(info.yawOffset)
+            val bg = when {
+                info.cellData != null && selectedColor != null && info.cellData.color == selectedColor -> cfg.bgSelected
+                else -> info.bgNormal
+            }
+            handler.spawnHudTextDisplay(
+                viewer = player, entityId = eid,
+                x = loc.x, y = loc.y, z = loc.z,
+                textJson = info.textJson, bgColor = bg,
+                tx = trackTx, ty = info.ty, tz = trackTz + flyZOff,
+                yaw = yaw + info.yawOffset, lineWidth = info.lineWidth,
+                pitch = info.pitch,
+                scaleX = info.scaleX, scaleY = info.scaleY
+            )
+            entities[eid] = info
+            allIds += eid
+        }
+
+        val p = cfg.pitch
+        val yw = cfg.yawOffset
+
+        // "Default" cell above the first row (same formatting as headers)
+        val defEid = handler.allocateEntityId()
+        spawn(defEid, GridEntityInfo(
+            tx = cfg.originX, ty = cfg.originY + cfg.cellSpacingY, tz = cfg.originZ,
+            textJson = mmToJson(cfg.headerTextMM.replace("{message}", "Default")),
+            bgNormal = cfg.bgHeader,
+            lineWidth = cfg.headerLineWidth,
+            scaleX = cfg.headerScale, scaleY = cfg.headerScale,
+            pitch = p, yawOffset = yw,
+            cellData = GridCellData(null, "Default", null)
+        ))
+
+        for ((row, palId) in visiblePalIds.withIndex()) {
+            val palette = layerManager.palette(palId) ?: continue
+            val rowY = cfg.originY - row * cfg.cellSpacingY
+
+            // Row header on the left (not clickable)
+            val hdrEid = handler.allocateEntityId()
+            spawn(hdrEid, GridEntityInfo(
+                tx = cfg.originX, ty = rowY, tz = cfg.originZ,
+                textJson = mmToJson(cfg.headerTextMM.replace("{message}", prettyName(palId))),
+                bgNormal = cfg.bgHeader, lineWidth = cfg.headerLineWidth,
+                scaleX = cfg.headerScale, scaleY = cfg.headerScale,
+                pitch = p, yawOffset = yw
+            ))
+
+            // Colour swatches extend to the right
+            for ((col, namedColor) in palette.colors.withIndex()) {
+                val rgb = namedColor.color
+                val bgNormal = (0xFF shl 24) or ((rgb.red and 0xFF) shl 16) or
+                        ((rgb.green and 0xFF) shl 8) or (rgb.blue and 0xFF)
+                val cellTx = cfg.originX + cfg.headerGap + col * cfg.cellSpacingX
+                val cellEid = handler.allocateEntityId()
+                spawn(cellEid, GridEntityInfo(
+                    tx = cellTx, ty = rowY, tz = cfg.originZ,
+                    textJson = textToJson(" "), bgNormal = bgNormal,
+                    lineWidth = cfg.cellLineWidth,
+                    scaleX = cfg.cellScaleX, scaleY = cfg.cellScaleY,
+                    pitch = p, yawOffset = yw,
+                    cellData = GridCellData(palId, prettyName(namedColor.name), rgb)
+                ))
+            }
+        }
+
+        return GridState(
+            entities = entities,
+            allEntityIds = allIds.toIntArray(),
+            page = page,
+            totalPages = totalPages,
+            flyInTicksLeft = if (animate) HUD_FLY_INTERP_TICKS else 0
+        )
+    }
+
+    private fun spawnColorGrid(player: Player, mannequin: Mannequin, state: ControlState, hud: PlayerHudState) {
+        val cfg = loadGridConfig()
+        val layers = layerManager.definitionsInOrder()
+        val layer = layers.getOrNull(state.layerIndex % layers.size) ?: return
+        val option = freshOption(layer.id, mannequin) ?: return
+        val allPaletteIds = layerManager.resolvePalettes(layer, option, player)
+        if (allPaletteIds.isEmpty()) {
+            updateStatus(mannequin.id, "No palettes available")
+            return
+        }
+        val dx = player.location.x - mannequin.location.x
+        val dz = player.location.z - mannequin.location.z
+        val dist = sqrt((dx * dx + dz * dz).toFloat())
+        hud.lastDist = dist
+        hud.gridState = buildAndSpawnGrid(player, mannequin, state, hud.lastYaw, dist, 0, allPaletteIds, cfg)
+        fireTrigger("color-grid-open", basePlaceholders(player, mannequin))
+    }
+
+    /**
+     * Rebuild the colour grid in-place when available palettes may have changed
+     * (e.g. after a layer or part switch).  Destroys old entities instantly
+     * and respawns at page 0.  No-op if the grid is not currently visible.
+     */
+    private fun refreshColorGrid(player: Player, mannequin: Mannequin, state: ControlState, hud: PlayerHudState) {
+        val grid = hud.gridState ?: return
+        if (grid.flyingOut) return
+
+        handler.destroyEntities(player, grid.allEntityIds)
+        hud.gridState = null
+
+        val cfg = loadGridConfig()
+        val layers = layerManager.definitionsInOrder()
+        val layer = layers.getOrNull(state.layerIndex % layers.size) ?: return
+        val option = freshOption(layer.id, mannequin) ?: return
+        val allPaletteIds = layerManager.resolvePalettes(layer, option, player)
+        if (allPaletteIds.isEmpty()) {
+            refreshDynamicLabels(mannequin.id, option, layer)
+            return
+        }
+        val dx = player.location.x - mannequin.location.x
+        val dz = player.location.z - mannequin.location.z
+        val dist = sqrt((dx * dx + dz * dz).toFloat())
+        hud.lastDist = dist
+        hud.gridState = buildAndSpawnGrid(player, mannequin, state, hud.lastYaw, dist, 0, allPaletteIds, cfg, animate = false)
+    }
+
+    /**
+     * Animate the grid flying out, then destroy it.
+     * If the whole HUD is already flying away, skip the animation and destroy immediately.
+     */
+    private fun despawnColorGrid(player: Player, hud: PlayerHudState) {
+        val grid = hud.gridState ?: return
+        if (grid.flyingOut) return
+
+        // If the HUD itself is flying away, just destroy instantly
+        if (hud.flyingAway) {
+            handler.destroyEntities(player, grid.allEntityIds)
+            hud.gridState = null
+            return
+        }
+
+        grid.flyingOut = true
+        val yaw = hud.lastYaw
+        val dist = hud.lastDist.let { if (it.isNaN()) 0f else it }
+
+        // Push grid entities to the fly-out Z offset
+        for ((eid, info) in grid.entities) {
+            val trackTx = info.tx - dist * sin(info.yawOffset)
+            val trackTz = info.tz + dist * cos(info.yawOffset)
+            handler.updateHudTextDisplay(
+                viewer = player, entityId = eid,
+                textJson = info.textJson, bgColor = info.bgNormal,
+                tx = trackTx, ty = info.ty, tz = trackTz + HUD_FLY_Z_OFFSET,
+                yaw = yaw + info.yawOffset, lineWidth = info.lineWidth,
+                interpolationTicks = HUD_FLY_INTERP_TICKS,
+                pitch = info.pitch,
+                scaleX = info.scaleX, scaleY = info.scaleY
+            )
+        }
+
+        // Fire close trigger
+        val mannequin = mannequins[hud.mannequinId]
+        if (mannequin != null) {
+            fireTrigger("color-grid-close", basePlaceholders(player, mannequin))
+        }
+
+        // Schedule destruction after the interpolation finishes
+        val playerId = player.uniqueId
+        plugin.server.scheduler.scheduleSyncDelayedTask(plugin, Runnable {
+            val currentHud = playerHuds[playerId]
+            if (currentHud === hud && currentHud.gridState === grid) {
+                handler.destroyEntities(plugin.server.getPlayer(playerId) ?: return@Runnable, grid.allEntityIds)
+                currentHud.gridState = null
+            }
+        }, (HUD_FLY_INTERP_TICKS + 1).toLong())
+    }
+
+    private fun pageColorGrid(player: Player, hud: PlayerHudState, mannequin: Mannequin, state: ControlState, delta: Int) {
+        val grid = hud.gridState ?: return
+        val newPage = (grid.page + delta + grid.totalPages) % grid.totalPages
+        despawnColorGrid(player, hud)
+
+        val cfg = loadGridConfig()
+        val layers = layerManager.definitionsInOrder()
+        val layer = layers.getOrNull(state.layerIndex % layers.size) ?: return
+        val option = freshOption(layer.id, mannequin) ?: return
+        val allPaletteIds = layerManager.resolvePalettes(layer, option, player)
+
+        val dx = player.location.x - mannequin.location.x
+        val dz = player.location.z - mannequin.location.z
+        val dist = sqrt((dx * dx + dz * dz).toFloat())
+        hud.lastDist = dist
+        hud.gridState = buildAndSpawnGrid(player, mannequin, state, hud.lastYaw, dist, newPage, allPaletteIds, cfg)
+        updateStatus(mannequin.id, "Page ${newPage + 1} of ${grid.totalPages}")
     }
 
     // ── Utilities ───────────────────────────────────────────────────────────────
