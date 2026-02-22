@@ -429,7 +429,8 @@ class MannequinManager(
 
     fun render(mannequin: Mannequin, viewers: Collection<Player>, forceInstant: Boolean = false): Int {
         val definitions = layerManager.definitionsInOrder()
-        val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin), optionResolver = optionResolver, textureResolver = textureResolver(mannequin))
+        val briInfluence = plugin.config.getDouble("rendering.brightness-influence", 0.3).toFloat()
+        val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin), optionResolver = optionResolver, textureResolver = textureResolver(mannequin), brightnessInfluence = briInfluence)
         val nextFrame = PixelFrame.fromImage(composed)
         val diff = mannequin.lastFrame.diff(nextFrame)
         mannequin.lastFrame = nextFrame
@@ -452,7 +453,8 @@ class MannequinManager(
 
     private fun renderFull(mannequin: Mannequin, viewers: Collection<Player>, isFirstSeen: Boolean = false, forceInstant: Boolean = false) {
         val definitions = layerManager.definitionsInOrder()
-        val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin), optionResolver = optionResolver, textureResolver = textureResolver(mannequin))
+        val briInfluence = plugin.config.getDouble("rendering.brightness-influence", 0.3).toFloat()
+        val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin), optionResolver = optionResolver, textureResolver = textureResolver(mannequin), brightnessInfluence = briInfluence)
         mannequin.lastFrame = PixelFrame.fromImage(composed)
         val changes = mutableListOf<PixelChange>()
         for (x in 0 until composed.width) {
