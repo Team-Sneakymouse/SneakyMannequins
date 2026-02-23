@@ -591,6 +591,7 @@ layers:
       allow-color-mask: true
       # Layer-level palettes (overrides default-palettes for this layer)
       palettes:
+        - default
         - hair
         - neon
         - pastel
@@ -610,10 +611,12 @@ layers:
       directory: "layers/Shirt"
       allow-color-mask: true
       palettes:
+        - default
         - primary
         - fabric
         - pastel
       textures:
+        - default
         - striped
         - pinstripe
         - checkered
@@ -626,10 +629,12 @@ layers:
       directory: "layers/Pants"
       allow-color-mask: true
       palettes:
+        - default
         - fabric
         - earth
         - greyscale
       textures:
+        - default
         - striped
         - pinstripe
         - checkered
@@ -639,5 +644,6 @@ layers:
       directory: "layers/Body"
       allow-color-mask: true
       palettes:
+        - default
         - skin
         - jewel
