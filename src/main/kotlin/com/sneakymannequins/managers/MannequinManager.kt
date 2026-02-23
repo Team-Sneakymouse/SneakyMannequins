@@ -7,10 +7,12 @@ import com.sneakymannequins.model.LayerDefinition
 import com.sneakymannequins.model.Mannequin
 import com.sneakymannequins.model.PixelChange
 import com.sneakymannequins.model.PixelFrame
+import com.sneakymannequins.model.SessionData
 import com.sneakymannequins.model.SkinSelection
 import com.sneakymannequins.model.TextureDefinition
 import com.sneakymannequins.model.ChannelSlot
 import com.sneakymannequins.model.buildChannelSlots
+import com.sneakymannequins.model.hexToColor
 import com.sneakymannequins.nms.VolatileHandler
 import com.sneakymannequins.render.AnimationManager
 import com.sneakymannequins.render.PixelProjector
@@ -52,7 +54,7 @@ private data class ControlState(
     var mode: ControlMode = ControlMode.NONE
 )
 
-private enum class ControlMode { NONE, PART }
+private enum class ControlMode { NONE, PART, LOAD }
 
 // ── Color picker grid structures ────────────────────────────────────────────
 
@@ -76,7 +78,9 @@ private data class GridEntityInfo(
     val pitch: Float = 0f,
     val yawOffset: Float = 0f,
     /** Non-null only for clickable colour cells. */
-    val cellData: GridCellData? = null
+    val cellData: GridCellData? = null,
+    /** Non-null only for clickable config-menu items. */
+    val menuItemData: MenuItemData? = null
 )
 
 /** Tracks the spawned grid for a single player. */
@@ -91,10 +95,17 @@ private data class GridState(
     var flyingOut: Boolean = false
 )
 
+/** Clickable item in the config submenu (Save/Load/Apply). */
+private data class MenuItemData(
+    val action: String,
+    val label: String
+)
+
 /** What the crosshair is pointing at. */
 private sealed class HoverTarget {
     data class ButtonTarget(val name: String) : HoverTarget()
     data class CellTarget(val entityId: Int, val cell: GridCellData) : HoverTarget()
+    data class MenuTarget(val entityId: Int, val item: MenuItemData) : HoverTarget()
 }
 
 /**
@@ -139,7 +150,9 @@ private data class PlayerHudState(
     /** Remaining ticks in the server-driven fly-in animation (0 = done / not animating). */
     var flyInTicksLeft: Int = 0,
     /** Colour picker grid state (non-null while the grid is visible). */
-    var gridState: GridState? = null
+    var gridState: GridState? = null,
+    /** Config submenu grid state (non-null while the submenu is visible). */
+    var configGridState: GridState? = null
 )
 
 // ── Manager ─────────────────────────────────────────────────────────────────────
@@ -148,7 +161,8 @@ class MannequinManager(
     private val plugin: SneakyMannequins,
     private val layerManager: LayerManager,
     private val handler: VolatileHandler,
-    private val persistence: MannequinPersistence
+    private val persistence: MannequinPersistence,
+    val sessionManager: SessionManager
 ) {
     private val mannequins = mutableMapOf<UUID, Mannequin>()
     private val sentTo = mutableMapOf<UUID, MutableSet<UUID>>()        // viewerId → mannequins seen
@@ -210,10 +224,10 @@ class MannequinManager(
         private const val HUD_DISMISS_RANGE = 8.0                   // dismiss HUD when player is this far (blocks)
 
         /** Canonical ordered list of button names. */
-        private val BUTTON_ORDER = listOf("status", "model", "pose", "layer", "random", "part", "texture", "channel", "color")
+        private val BUTTON_ORDER = listOf("status", "model", "pose", "layer", "random", "part", "texture", "channel", "color", "config")
 
         /** Button names that respond to clicks.  "status" is display-only. */
-        private val CLICKABLE_BUTTONS = setOf("model", "pose", "random", "layer", "part", "channel", "texture", "color")
+        private val CLICKABLE_BUTTONS = setOf("model", "pose", "random", "layer", "part", "channel", "texture", "color", "config")
 
         /** Hardcoded defaults used when a key is absent from config. */
         private data class BtnDefault(val text: String, val activeText: String?, val tx: Float, val ty: Float, val tz: Float, val lineWidth: Int)
@@ -227,6 +241,7 @@ class MannequinManager(
             "texture" to BtnDefault("<white>Texture",  null,            1.1f,  1.7f, -2.0f, 200),
             "channel" to BtnDefault("<white>Channel",  null,            1.1f,  1.2f, -2.0f, 200),
             "color"   to BtnDefault("<white>Color",    "<yellow>Color", 1.1f,  0.7f, -2.0f, 200),
+            "config"  to BtnDefault("<white>Config",   "<yellow>Config", -1.1f, 0.2f, -2.0f, 200),
         )
 
         private const val GRID_CELL_TOLERANCE = 0.20
@@ -362,13 +377,134 @@ class MannequinManager(
         mannequins.keys.forEach { id ->
             viewers.forEach { viewer -> handler.destroyMannequin(viewer, id) }
         }
-        // Destroy all virtual HUDs
         for (playerId in playerHuds.keys.toList()) {
             val player = plugin.server.getPlayer(playerId) ?: continue
             destroyPlayerHud(player)
         }
         persist()
         mannequins.clear()
+    }
+
+    // ── Session save/load ────────────────────────────────────────────────────────
+
+    /**
+     * Returns true if the player currently has the HUD open in LOAD mode
+     * (i.e. they clicked the Load button and should type a session ID in chat).
+     */
+    fun isPlayerInLoadMode(playerId: UUID): Boolean {
+        val hud = playerHuds[playerId] ?: return false
+        val state = controlState[hud.mannequinId] ?: return false
+        return state.mode == ControlMode.LOAD
+    }
+
+    /**
+     * Returns the mannequin ID the player is currently interacting with via HUD,
+     * or null if no HUD is open.
+     */
+    fun getHudMannequinId(playerId: UUID): UUID? = playerHuds[playerId]?.mannequinId
+
+    /**
+     * Apply a loaded [SessionData] to the specified mannequin and re-render.
+     * Layers in the session that don't match a current definition are silently skipped.
+     * Layers not present in the session keep their current selection (partial load).
+     */
+    fun applySession(mannequinId: UUID, session: SessionData, player: Player) {
+        val mannequin = mannequins[mannequinId] ?: return
+        val state = controlState.getOrPut(mannequinId) { ControlState() }
+
+        mannequin.slimModel = session.slimModel
+
+        val definitions = layerManager.definitionsInOrder()
+        val defMap = definitions.associateBy { it.id }
+        val newSelections = mannequin.selection.selections.toMutableMap()
+
+        for ((layerId, layerData) in session.layers) {
+            val def = defMap[layerId] ?: continue
+            val opts = layerManager.optionsFor(layerId)
+            val option = if (layerData.option != null) opts.find { it.id == layerData.option } else null
+            if (option == null && layerData.option != null) continue
+
+            val channelColors = layerData.channelColors.mapNotNull { (k, v) ->
+                val idx = k.toIntOrNull() ?: return@mapNotNull null
+                val color = hexToColor(v) ?: return@mapNotNull null
+                idx to color
+            }.toMap()
+
+            val texturedColors = layerData.texturedColors.mapNotNull { (k, subMap) ->
+                val idx = k.toIntOrNull() ?: return@mapNotNull null
+                val subs = subMap.mapNotNull inner@{ (sk, sv) ->
+                    val si = sk.toIntOrNull() ?: return@inner null
+                    val sc = hexToColor(sv) ?: return@inner null
+                    si to sc
+                }.toMap()
+                idx to subs
+            }.toMap()
+
+            newSelections[layerId] = LayerSelection(
+                layerId = layerId,
+                option = option ?: opts.firstOrNull(),
+                channelColors = channelColors,
+                texturedColors = texturedColors,
+                selectedTexture = layerData.selectedTexture
+            )
+
+            // Sync control state indices
+            val selOption = newSelections[layerId]?.option
+            state.partIndex[layerId] = opts.indexOfFirst { it.id == selOption?.id }.coerceAtLeast(0)
+            state.channelIndex[layerId] = 0
+            state.colorIndex[layerId] = 0
+            val rawTex = if (selOption != null) layerManager.resolveTextures(def, selOption, null) else emptyList()
+            val hasDefaultTex = "default" in rawTex
+            val actualTex = rawTex.filter { it != "default" }
+            state.textureIndex[layerId] = if (layerData.selectedTexture != null) {
+                actualTex.indexOf(layerData.selectedTexture).coerceAtLeast(0)
+            } else if (hasDefaultTex) -1 else 0
+        }
+
+        mannequin.selection = SkinSelection(newSelections)
+        mannequin.lastFrame = PixelFrame.blank()
+
+        state.mode = ControlMode.NONE
+        val layers = layerManager.definitionsInOrder()
+        val curLayer = layers.getOrNull(state.layerIndex % layers.size)
+        val curOption = curLayer?.let { freshOption(it.id, mannequin) }
+        refreshDynamicLabels(mannequinId, curOption, curLayer)
+
+        val viewers = nearbyViewers(mannequin)
+        animationManager.cancelMannequin(mannequinId)
+        viewers.forEach { v -> handler.destroyMannequin(v, mannequinId) }
+        renderFull(mannequin, viewers)
+
+        val hud = playerHuds[player.uniqueId]
+        if (hud != null) refreshColorGrid(player, mannequin, state, hud)
+    }
+
+    /**
+     * Handle a chat message from a player in LOAD mode.
+     * Returns true if the message was consumed (should be cancelled).
+     */
+    fun handleLoadChat(player: Player, message: String): Boolean {
+        val hud = playerHuds[player.uniqueId] ?: return false
+        val manId = hud.mannequinId
+        val state = controlState[manId] ?: return false
+        if (state.mode != ControlMode.LOAD) return false
+
+        val mannequin = mannequins[manId] ?: return false
+        val session = sessionManager.load(message.trim())
+        if (session != null) {
+            applySession(manId, session, player)
+            updateStatus(manId, "Loaded: ${session.uid}")
+            val ph = basePlaceholders(player, mannequin).apply { put("uid", session.uid) }
+            fireTrigger("session-load", ph)
+        } else {
+            state.mode = ControlMode.NONE
+            val layers = layerManager.definitionsInOrder()
+            val curLayer = layers.getOrNull(state.layerIndex % layers.size)
+            val curOption = curLayer?.let { freshOption(it.id, mannequin) }
+            refreshDynamicLabels(manId, curOption, curLayer)
+            updateStatus(manId, "Session not found")
+        }
+        return true
     }
 
     fun reloadAll() {
@@ -655,6 +791,7 @@ class MannequinManager(
         val allIds = state.entityIds.values.toMutableList()
         state.frameEntityId?.let { allIds += it }
         state.gridState?.allEntityIds?.let { allIds += it.toList() }
+        state.configGridState?.allEntityIds?.let { allIds += it.toList() }
         handler.destroyEntities(p, allIds.toIntArray())
     }
 
@@ -666,6 +803,7 @@ class MannequinManager(
     private fun flyAwayPlayerHud(player: Player, hud: PlayerHudState) {
         if (hud.flyingAway) return
         despawnColorGrid(player, hud)
+        despawnConfigGrid(player, hud)
         hud.flyingAway = true
 
         val manId = hud.mannequinId
@@ -908,8 +1046,31 @@ class MannequinManager(
                 currentHud.lastDist = playerDist
             }
 
+            // ── Config grid fly-in animation ──────────────────────────────────
+            val configGrid = currentHud.configGridState
+            if (configGrid != null && !configGrid.flyingOut && configGrid.flyInTicksLeft > 0) {
+                configGrid.flyInTicksLeft--
+                val progress = 1.0f - configGrid.flyInTicksLeft.toFloat() / HUD_FLY_INTERP_TICKS
+                val zOff = HUD_FLY_Z_OFFSET * (1.0f - progress)
+                for ((eid, info) in configGrid.entities) {
+                    val trackTx = info.tx - playerDist * sin(info.yawOffset)
+                    val trackTz = info.tz + playerDist * cos(info.yawOffset)
+                    handler.updateHudTextDisplay(
+                        viewer = player, entityId = eid,
+                        textJson = info.textJson, bgColor = info.bgNormal,
+                        tx = trackTx, ty = info.ty, tz = trackTz + zOff,
+                        yaw = yaw + info.yawOffset, lineWidth = info.lineWidth,
+                        interpolationTicks = 2,
+                        pitch = info.pitch,
+                        scaleX = info.scaleX, scaleY = info.scaleY
+                    )
+                }
+                currentHud.lastDist = playerDist
+            }
+
             val yawChanged = abs(yaw - currentHud.lastYaw) > YAW_THRESHOLD
-            val distChanged = grid != null && abs(playerDist - currentHud.lastDist) > DIST_THRESHOLD
+            val hasAnyGrid = grid != null || configGrid != null
+            val distChanged = hasAnyGrid && abs(playerDist - currentHud.lastDist) > DIST_THRESHOLD
 
             // ── Update rotation if yaw changed ──────────────────────────────
             if (yawChanged) {
@@ -945,6 +1106,26 @@ class MannequinManager(
                         info.cellData != null && selectedColor != null && info.cellData.color == selectedColor -> selectedBg
                         else -> info.bgNormal
                     }
+                    handler.updateHudTextDisplay(
+                        viewer = player, entityId = eid,
+                        textJson = info.textJson, bgColor = bg,
+                        tx = trackTx, ty = info.ty, tz = trackTz,
+                        yaw = yaw + info.yawOffset, lineWidth = info.lineWidth,
+                        interpolationTicks = ROTATION_INTERP_TICKS,
+                        pitch = info.pitch,
+                        scaleX = info.scaleX, scaleY = info.scaleY
+                    )
+                }
+                currentHud.lastDist = playerDist
+            }
+
+            // ── Update config grid entities if yaw or distance changed ────────
+            if ((yawChanged || distChanged) && configGrid != null && configGrid.flyInTicksLeft == 0 && !configGrid.flyingOut) {
+                val hovMenuId = (currentHud.hoverTarget as? HoverTarget.MenuTarget)?.entityId
+                for ((eid, info) in configGrid.entities) {
+                    val trackTx = info.tx - playerDist * sin(info.yawOffset)
+                    val trackTz = info.tz + playerDist * cos(info.yawOffset)
+                    val bg = if (hovMenuId == eid) HUD_BG_HIGHLIGHT else info.bgNormal
                     handler.updateHudTextDisplay(
                         viewer = player, entityId = eid,
                         textJson = info.textJson, bgColor = bg,
@@ -1015,7 +1196,7 @@ class MannequinManager(
             val gdz = eyeVec.z - manVec.z
             val playerDist = sqrt(gdx * gdx + gdz * gdz).toFloat()
             for ((eid, info) in grid.entities) {
-                val cell = info.cellData ?: continue // skip headers
+                val cell = info.cellData ?: continue
                 val trackTx = info.tx - playerDist * sin(info.yawOffset)
                 val trackTz = info.tz + playerDist * cos(info.yawOffset)
                 val worldPos = gridWorldPos(manVec, eyeVec, trackTx, info.ty, trackTz, info.yawOffset)
@@ -1027,6 +1208,27 @@ class MannequinManager(
             }
             val cellOk = bestDist <= GRID_CELL_TOLERANCE
             if (cellOk && bestTarget is HoverTarget.CellTarget) return bestTarget
+        }
+
+        // Check config submenu items
+        val configGrid = hud.configGridState
+        if (configGrid != null && configGrid.flyInTicksLeft == 0 && !configGrid.flyingOut) {
+            val gdx = eyeVec.x - manVec.x
+            val gdz = eyeVec.z - manVec.z
+            val playerDist = sqrt(gdx * gdx + gdz * gdz).toFloat()
+            for ((eid, info) in configGrid.entities) {
+                val menuItem = info.menuItemData ?: continue
+                val trackTx = info.tx - playerDist * sin(info.yawOffset)
+                val trackTz = info.tz + playerDist * cos(info.yawOffset)
+                val worldPos = gridWorldPos(manVec, eyeVec, trackTx, info.ty, trackTz, info.yawOffset)
+                val dist = distanceFromRay(eyeVec, lookDir, worldPos)
+                if (dist < bestDist) {
+                    bestDist = dist
+                    bestTarget = HoverTarget.MenuTarget(eid, menuItem)
+                }
+            }
+            val menuOk = bestDist <= GRID_CELL_TOLERANCE
+            if (menuOk && bestTarget is HoverTarget.MenuTarget) return bestTarget
         }
 
         return if (btnOk && bestTarget is HoverTarget.ButtonTarget) bestTarget else null
@@ -1045,6 +1247,10 @@ class MannequinManager(
                     loadGridConfig().bgSelected else (info?.bgNormal ?: HUD_BG_DEFAULT)
                 handler.sendHudBackground(player, target.entityId, bg)
             }
+            is HoverTarget.MenuTarget -> {
+                val info = hud.configGridState?.entities?.get(target.entityId)
+                handler.sendHudBackground(player, target.entityId, info?.bgNormal ?: HUD_BG_DEFAULT)
+            }
             null -> {}
         }
     }
@@ -1059,6 +1265,11 @@ class MannequinManager(
             }
             is HoverTarget.CellTarget -> {
                 handler.sendHudBackground(player, target.entityId, HUD_BG_HIGHLIGHT)
+            }
+            is HoverTarget.MenuTarget -> {
+                handler.sendHudBackground(player, target.entityId, HUD_BG_HIGHLIGHT)
+                val ph = basePlaceholders(player, mannequin).apply { put("button", target.item.action) }
+                fireTrigger("hover", ph)
             }
             null -> {}
         }
@@ -1166,6 +1377,11 @@ class MannequinManager(
             }
             is HoverTarget.CellTarget -> {
                 applyGridCellColor(target.cell, manId, mannequin, state, player)
+            }
+            is HoverTarget.MenuTarget -> {
+                val clickPh = basePlaceholders(player, mannequin).apply { put("button", target.item.action) }
+                fireTrigger("click", clickPh)
+                executeMenuAction(target.item, manId, mannequin, state, player)
             }
             null -> executeModeAction(manId, mannequin, state, player, backwards)
         }
@@ -1383,6 +1599,19 @@ class MannequinManager(
                     updateStatus(manId, "Pick a color")
                 }
             }
+            "config" -> {
+                val hud = playerHuds[player.uniqueId]
+                if (hud != null && hud.configGridState != null && !hud.configGridState!!.flyingOut) {
+                    despawnConfigGrid(player, hud)
+                    refreshDynamicLabels(manId, freshOption(layer.id, mannequin), layer)
+                    updateStatus(manId, "Config closed")
+                } else if (hud != null) {
+                    spawnConfigGrid(player, mannequin, hud)
+                    refreshDynamicLabels(manId, freshOption(layer.id, mannequin), layer)
+                    updateStatus(manId, "Config")
+                }
+                return
+            }
         }
 
         val viewers = nearbyViewers(mannequin)
@@ -1470,10 +1699,23 @@ class MannequinManager(
             }
         }
 
+        val configBtn = buttonByName("config")
+        val configGridVisible = playerHuds.values.any {
+            it.mannequinId == mannequinId && it.configGridState != null && !it.configGridState!!.flyingOut
+        }
+        visuals["config"]?.let {
+            it.textJson = if ((configGridVisible || mode == ControlMode.LOAD) && configBtn?.activeTextJson != null) {
+                configBtn.activeTextJson
+            } else {
+                configBtn?.textJson ?: textToJson("Config")
+            }
+        }
+
         pushButtonToViewers(mannequinId, "channel")
         pushButtonToViewers(mannequinId, "texture")
         pushButtonToViewers(mannequinId, "part")
         pushButtonToViewers(mannequinId, "color")
+        pushButtonToViewers(mannequinId, "config")
     }
 
     // ── Part cycling ────────────────────────────────────────────────────────────
@@ -1770,7 +2012,7 @@ class MannequinManager(
         hud.lastDist = dist
         hud.gridState = buildAndSpawnGrid(player, mannequin, state, hud.lastYaw, dist, 0, allPaletteIds, cfg,
             hasDefaultColor = hasDefaultColor)
-        fireTrigger("color-grid-open", basePlaceholders(player, mannequin))
+        fireTrigger("submenu-open", basePlaceholders(player, mannequin))
     }
 
     /**
@@ -1841,7 +2083,7 @@ class MannequinManager(
         // Fire close trigger
         val mannequin = mannequins[hud.mannequinId]
         if (mannequin != null) {
-            fireTrigger("color-grid-close", basePlaceholders(player, mannequin))
+            fireTrigger("submenu-close", basePlaceholders(player, mannequin))
         }
 
         // Schedule destruction after the interpolation finishes
@@ -1875,6 +2117,160 @@ class MannequinManager(
         hud.gridState = buildAndSpawnGrid(player, mannequin, state, hud.lastYaw, dist, newPage, allPaletteIds, cfg,
             hasDefaultColor = hasDefaultColor)
         updateStatus(mannequin.id, "Page ${newPage + 1} of ${grid.totalPages}")
+    }
+
+    // ── Config submenu grid ─────────────────────────────────────────────────────
+
+    private data class ConfigMenuConfig(
+        val originX: Float, val originY: Float, val originZ: Float,
+        val pitch: Float, val yawOffset: Float,
+        val itemSpacingY: Float, val itemLineWidth: Int
+    )
+
+    private fun loadConfigMenuConfig(): ConfigMenuConfig {
+        val sec = plugin.config.getConfigurationSection("hud-buttons.config-menu")
+        return ConfigMenuConfig(
+            originX = sec?.getDouble("origin-x", 1.0)?.toFloat() ?: 1.0f,
+            originY = sec?.getDouble("origin-y", 1.0)?.toFloat() ?: 1.0f,
+            originZ = sec?.getDouble("origin-z", -2.0)?.toFloat() ?: -2.0f,
+            pitch = sec?.getDouble("pitch", -0.35)?.toFloat() ?: -0.35f,
+            yawOffset = sec?.getDouble("yaw", 1.0)?.toFloat() ?: 1.0f,
+            itemSpacingY = sec?.getDouble("item-spacing-y", 0.5)?.toFloat() ?: 0.5f,
+            itemLineWidth = sec?.getInt("item-line-width", 200) ?: 200
+        )
+    }
+
+    private val CONFIG_MENU_ITEMS = listOf(
+        MenuItemData("save", "Save"),
+        MenuItemData("load", "Load"),
+        MenuItemData("apply", "Apply")
+    )
+
+    private fun spawnConfigGrid(player: Player, mannequin: Mannequin, hud: PlayerHudState) {
+        val cfg = loadConfigMenuConfig()
+        val loc = mannequin.location
+        val dx = player.location.x - loc.x
+        val dz = player.location.z - loc.z
+        val dist = sqrt((dx * dx + dz * dz).toFloat())
+        hud.lastDist = dist
+
+        val entities = mutableMapOf<Int, GridEntityInfo>()
+        val allIds = mutableListOf<Int>()
+        val flyZOff = HUD_FLY_Z_OFFSET
+        val yaw = hud.lastYaw
+        val globalBgDef = parseArgb(plugin.config.getString("hud-buttons.bg-default")) ?: HUD_BG_DEFAULT
+
+        for ((row, item) in CONFIG_MENU_ITEMS.withIndex()) {
+            val eid = handler.allocateEntityId()
+            val textMM = if (item.action == "apply") "<gray>${item.label}" else "<white>${item.label}"
+            val info = GridEntityInfo(
+                tx = cfg.originX, ty = cfg.originY - row * cfg.itemSpacingY, tz = cfg.originZ,
+                textJson = mmToJson(textMM),
+                bgNormal = globalBgDef,
+                lineWidth = cfg.itemLineWidth,
+                pitch = cfg.pitch,
+                yawOffset = cfg.yawOffset,
+                menuItemData = item
+            )
+            val trackTx = info.tx - dist * sin(info.yawOffset)
+            val trackTz = info.tz + dist * cos(info.yawOffset)
+            handler.spawnHudTextDisplay(
+                viewer = player, entityId = eid,
+                x = loc.x, y = loc.y, z = loc.z,
+                textJson = info.textJson, bgColor = info.bgNormal,
+                tx = trackTx, ty = info.ty, tz = trackTz + flyZOff,
+                yaw = yaw + info.yawOffset, lineWidth = info.lineWidth,
+                pitch = info.pitch
+            )
+            entities[eid] = info
+            allIds += eid
+        }
+
+        hud.configGridState = GridState(
+            entities = entities,
+            allEntityIds = allIds.toIntArray(),
+            flyInTicksLeft = HUD_FLY_INTERP_TICKS
+        )
+        fireTrigger("submenu-open", basePlaceholders(player, mannequin))
+    }
+
+    private fun despawnConfigGrid(player: Player, hud: PlayerHudState) {
+        val grid = hud.configGridState ?: return
+        if (grid.flyingOut) return
+
+        if (hud.flyingAway) {
+            handler.destroyEntities(player, grid.allEntityIds)
+            hud.configGridState = null
+            return
+        }
+
+        grid.flyingOut = true
+        val yaw = hud.lastYaw
+        val dist = hud.lastDist.let { if (it.isNaN()) 0f else it }
+
+        for ((eid, info) in grid.entities) {
+            val trackTx = info.tx - dist * sin(info.yawOffset)
+            val trackTz = info.tz + dist * cos(info.yawOffset)
+            handler.updateHudTextDisplay(
+                viewer = player, entityId = eid,
+                textJson = info.textJson, bgColor = info.bgNormal,
+                tx = trackTx, ty = info.ty, tz = trackTz + HUD_FLY_Z_OFFSET,
+                yaw = yaw + info.yawOffset, lineWidth = info.lineWidth,
+                interpolationTicks = HUD_FLY_INTERP_TICKS,
+                pitch = info.pitch
+            )
+        }
+
+        val mannequin = mannequins[hud.mannequinId]
+        if (mannequin != null) {
+            fireTrigger("submenu-close", basePlaceholders(player, mannequin))
+        }
+
+        val playerId = player.uniqueId
+        plugin.server.scheduler.scheduleSyncDelayedTask(plugin, Runnable {
+            val currentHud = playerHuds[playerId]
+            if (currentHud === hud && currentHud.configGridState === grid) {
+                handler.destroyEntities(plugin.server.getPlayer(playerId) ?: return@Runnable, grid.allEntityIds)
+                currentHud.configGridState = null
+            }
+        }, (HUD_FLY_INTERP_TICKS + 1).toLong())
+    }
+
+    private fun executeMenuAction(item: MenuItemData, manId: UUID, mannequin: Mannequin, state: ControlState, player: Player) {
+        when (item.action) {
+            "save" -> {
+                val definitions = layerManager.definitionsInOrder()
+                val rendered = SkinComposer.compose(
+                    definitions, mannequin.selection,
+                    useSlimModel = isSlimModel(mannequin),
+                    optionResolver = optionResolver,
+                    textureResolver = textureResolver(mannequin),
+                    brightnessInfluenceResolver = brightnessInfluenceResolver
+                )
+                val uid = sessionManager.save(mannequin, player, rendered)
+                updateStatus(manId, "Saved: $uid")
+                val ph = basePlaceholders(player, mannequin).apply { put("uid", uid) }
+                fireTrigger("session-save", ph)
+            }
+            "load" -> {
+                if (state.mode == ControlMode.LOAD) {
+                    state.mode = ControlMode.NONE
+                    val layers = layerManager.definitionsInOrder()
+                    val curLayer = layers.getOrNull(state.layerIndex % layers.size)
+                    refreshDynamicLabels(manId, curLayer?.let { freshOption(it.id, mannequin) }, curLayer)
+                    updateStatus(manId, "Load cancelled")
+                } else {
+                    state.mode = ControlMode.LOAD
+                    val layers = layerManager.definitionsInOrder()
+                    val curLayer = layers.getOrNull(state.layerIndex % layers.size)
+                    refreshDynamicLabels(manId, curLayer?.let { freshOption(it.id, mannequin) }, curLayer)
+                    updateStatus(manId, "Enter session ID in chat")
+                }
+            }
+            "apply" -> {
+                updateStatus(manId, "Apply: Coming soon")
+            }
+        }
     }
 
     // ── Utilities ───────────────────────────────────────────────────────────────

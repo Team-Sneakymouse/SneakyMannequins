@@ -5,9 +5,13 @@ import com.sneakymannequins.commands.CommandMannequin
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymannequins.managers.MannequinManager
 import com.sneakymannequins.managers.MannequinPersistence
+import com.sneakymannequins.managers.SessionManager
 import com.sneakymannequins.nms.VolatileHandler
 import com.sneakymannequins.nms.VolatileHandlerRegistry
+import io.papermc.paper.event.player.AsyncChatEvent
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.bukkit.event.EventHandler
+import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.player.PlayerInteractAtEntityEvent
@@ -41,6 +45,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
     private lateinit var layerManager: LayerManager
     private lateinit var mannequinManager: MannequinManager
     private lateinit var persistence: MannequinPersistence
+    private lateinit var sessionManager: SessionManager
     
     override fun onEnable() {
         logger.info("SneakyMannequins plugin has been enabled!")
@@ -52,10 +57,11 @@ class SneakyMannequins : JavaPlugin(), Listener {
         handler = VolatileHandlerRegistry.resolve(this)
         layerManager = LayerManager(this).also { it.reload() }
         persistence = MannequinPersistence(this)
-        mannequinManager = MannequinManager(this, layerManager, handler, persistence).also { it.loadFromDisk() }
+        sessionManager = SessionManager(dataFolder)
+        mannequinManager = MannequinManager(this, layerManager, handler, persistence, sessionManager).also { it.loadFromDisk() }
 
 		// Register commands
-        registerCommand("mannequin", CommandMannequin(this, mannequinManager, layerManager))
+        registerCommand("mannequin", CommandMannequin(this, mannequinManager, layerManager, sessionManager))
         server.pluginManager.registerEvents(this, this)
         
         // Start the per-tick hover detection task
@@ -114,6 +120,17 @@ class SneakyMannequins : JavaPlugin(), Listener {
     @EventHandler
     fun onQuit(event: PlayerQuitEvent) {
         mannequinManager.forgetViewer(event.player.uniqueId)
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    fun onChat(event: AsyncChatEvent) {
+        val player = event.player
+        if (!mannequinManager.isPlayerInLoadMode(player.uniqueId)) return
+        event.isCancelled = true
+        val message = PlainTextComponentSerializer.plainText().serialize(event.message())
+        server.scheduler.runTask(this, Runnable {
+            mannequinManager.handleLoadChat(player, message)
+        })
     }
 
     fun reloadPlugin() {

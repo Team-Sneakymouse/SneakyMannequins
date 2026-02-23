@@ -90,12 +90,12 @@ triggers:
   control-closed:
     - "playsound minecraft:entity.allay.ambient_without_item ambient {player} {x} {y} {z} 0.3 0.8"
 
-  # Color picker grid flies in
-  color-grid-open:
+  # A submenu (color grid or config menu) flies in
+  submenu-open:
     - "playsound minecraft:entity.allay.ambient_without_item ambient {player} {x} {y} {z} 0.3 1.5"
 
-  # Color picker grid flies out
-  color-grid-close:
+  # A submenu (color grid or config menu) flies out
+  submenu-close:
     - "playsound minecraft:entity.allay.ambient_without_item ambient {player} {x} {y} {z} 0.2 1.0"
 
   # Player's crosshair moves onto a HUD button
@@ -133,6 +133,14 @@ triggers:
     - "playsound minecraft:item.dye.use ambient {player} {x} {y} {z} 0.5 1.2"
     - "particle dust{color:[{color_r},{color_g},{color_b}],scale:1.5} {x} {y} {z} 0.3 0.5 0.3 0 12"
     - "particle dust{color:[{color_r},{color_g},{color_b}],scale:0.7} {x} {y} {z} 0.15 0.8 0.15 0.1 8"
+
+  # Session saved. Extra placeholder: {uid}
+  session-save:
+    - "playsound minecraft:ui.cartography_table.take_result ambient {player} {x} {y} {z} 0.5 1.2"
+
+  # Session loaded. Extra placeholder: {uid}
+  session-load:
+    - "playsound minecraft:item.book.page_turn ambient {player} {x} {y} {z} 0.5 1.0"
 
 # HUD button configuration – controls the look and layout of each button.
 # Text supports MiniMessage format codes: <white>, <yellow>, <bold>, <italic>,
@@ -215,6 +223,33 @@ hud-buttons:
       x: 1.1
       y: 0.7
       z: -2.0
+
+  # Bottom-left – opens the config submenu (Save / Load / Apply)
+  config:
+    text: "<white>Config"
+    active-text: "<yellow>Config"
+    translation:
+      x: -1.1
+      y: 0.2
+      z: -2.0
+
+  # ── Config submenu ────────────────────────────────────────────────
+  # Appears when the Config button is clicked. Contains Save, Load, and
+  # Apply items. Positioned to the left of the mannequin, mirroring the
+  # color picker grid on the right.
+  config-menu:
+    # Grid origin in HUD-local space (rotated by yaw)
+    origin-x: 1
+    origin-y: 1
+    origin-z: -3
+    # Extra pitch (radians, negative = tilt up toward viewer)
+    pitch: -0.35
+    # Extra yaw offset (radians, positive = swing left)
+    yaw: 1
+    # Vertical spacing between menu items
+    item-spacing-y: 0.5
+    # Text display line width for menu items
+    item-line-width: 200
 
   # ── Color picker grid ──────────────────────────────────────────────
   # Appears when the Color button is clicked. Each palette is a row:

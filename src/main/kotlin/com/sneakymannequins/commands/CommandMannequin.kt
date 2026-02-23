@@ -3,22 +3,33 @@ package com.sneakymannequins.commands
 import com.sneakymannequins.SneakyMannequins
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymannequins.managers.MannequinManager
+import com.sneakymannequins.managers.SessionManager
 import com.sneakymannequins.util.TextUtility
 import io.papermc.paper.command.brigadier.CommandSourceStack
+import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.event.ClickEvent
+import net.kyori.adventure.text.event.HoverEvent
+import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.entity.Player
 import org.bukkit.command.CommandSender
 
 class CommandMannequin(
     private val plugin: SneakyMannequins,
     private val mannequinManager: MannequinManager,
-    private val layerManager: LayerManager
+    private val layerManager: LayerManager,
+    private val sessionManager: SessionManager
 ) : CommandBase("mannequin") {
 
+    companion object {
+        private const val HISTORY_PAGE_SIZE = 10
+    }
+
     override fun handle(stack: CommandSourceStack, args: Array<out String>) {
-        // Allow console for reload and remask; other actions require a player
         when (args.firstOrNull()?.lowercase()) {
             "reload" -> { handleReload(stack.sender); return }
             "remask" -> { handleRemask(stack.sender, args); return }
+            "history" -> { handleHistory(stack, args); return }
+            "template" -> { handleTemplate(stack, args); return }
         }
 
         val player = stack.sender as? Player ?: run {
@@ -33,28 +44,45 @@ class CommandMannequin(
 
     override fun suggest(stack: CommandSourceStack, args: Array<out String>): MutableList<String> {
         return when (args.size) {
-            0 -> mutableListOf("remove", "reload", "remask")
-            1 -> listOf("remove", "reload", "remask")
+            0 -> mutableListOf("remove", "reload", "remask", "history", "template")
+            1 -> listOf("remove", "reload", "remask", "history", "template")
                 .filter { it.startsWith(args[0], ignoreCase = true) }.toMutableList()
             2 -> when (args[0].lowercase()) {
                 "remask" -> layerManager.definitionsInOrder().map { it.id }
                     .filter { it.startsWith(args[1], ignoreCase = true) }.toMutableList()
+                "template" -> sessionManager.listSessionUids()
+                    .filter { it.startsWith(args[1], ignoreCase = true) }.toMutableList()
                 else -> mutableListOf()
             }
-            3 -> if (args[0].equals("remask", true)) {
-                val layerId = args[1].lowercase()
-                layerManager.optionsFor(layerId).map { it.id }
+            3 -> when (args[0].lowercase()) {
+                "remask" -> {
+                    val layerId = args[1].lowercase()
+                    layerManager.optionsFor(layerId).map { it.id }
+                        .filter { it.startsWith(args[2], ignoreCase = true) }.toMutableList()
+                }
+                "template" -> sessionManager.listTemplateNames()
                     .filter { it.startsWith(args[2], ignoreCase = true) }.toMutableList()
-            } else mutableListOf()
-            4 -> if (args[0].equals("remask", true)) {
-                LayerManager.STRATEGY_NAMES
+                else -> mutableListOf()
+            }
+            4 -> when (args[0].lowercase()) {
+                "remask" -> LayerManager.STRATEGY_NAMES
                     .filter { it.startsWith(args[3], ignoreCase = true) }.toMutableList()
-            } else mutableListOf()
-            5 -> if (args[0].equals("remask", true)) {
-                (1..8).map { it.toString() }
+                "template" -> layerManager.definitionsInOrder().map { it.id }
+                    .filter { it.startsWith(args[3], ignoreCase = true) }.toMutableList()
+                else -> mutableListOf()
+            }
+            5 -> when (args[0].lowercase()) {
+                "remask" -> (1..8).map { it.toString() }
                     .filter { it.startsWith(args[4], ignoreCase = true) }.toMutableList()
-            } else mutableListOf()
-            else -> mutableListOf()
+                "template" -> layerManager.definitionsInOrder().map { it.id }
+                    .filter { it.startsWith(args[4], ignoreCase = true) }.toMutableList()
+                else -> mutableListOf()
+            }
+            else -> when (args[0].lowercase()) {
+                "template" -> layerManager.definitionsInOrder().map { it.id }
+                    .filter { it.startsWith(args.last(), ignoreCase = true) }.toMutableList()
+                else -> mutableListOf()
+            }
         }
     }
 
@@ -131,6 +159,68 @@ class CommandMannequin(
             sender.sendMessage(TextUtility.convertToComponent("&cRemask failed: ${e.message}"))
             plugin.logger.severe("Remask failed: ${e.message}")
             e.printStackTrace()
+        }
+    }
+
+    private fun handleHistory(stack: CommandSourceStack, args: Array<out String>) {
+        val player = stack.sender as? Player ?: run {
+            stack.sender.sendMessage("You must be a player to use this command")
+            return
+        }
+        val page = if (args.size >= 2) (args[1].toIntOrNull() ?: 1) else 1
+        val sessions = sessionManager.history(player.uniqueId)
+        if (sessions.isEmpty()) {
+            player.sendMessage(TextUtility.convertToComponent("&7No saved sessions found."))
+            return
+        }
+
+        val totalPages = (sessions.size + HISTORY_PAGE_SIZE - 1) / HISTORY_PAGE_SIZE
+        val safePage = page.coerceIn(1, totalPages)
+        val startIdx = (safePage - 1) * HISTORY_PAGE_SIZE
+        val pageItems = sessions.subList(startIdx, (startIdx + HISTORY_PAGE_SIZE).coerceAtMost(sessions.size))
+
+        player.sendMessage(TextUtility.convertToComponent("&6&lSession History &7(page $safePage/$totalPages)"))
+        for (session in pageItems) {
+            val date = session.createdAt.substringBefore("T")
+            val layerCount = session.layers.size
+            val entry = Component.text("  ")
+                .append(
+                    Component.text(session.uid)
+                        .color(NamedTextColor.YELLOW)
+                        .clickEvent(ClickEvent.copyToClipboard(session.uid))
+                        .hoverEvent(HoverEvent.showText(Component.text("Click to copy UID")))
+                )
+                .append(Component.text(" | ").color(NamedTextColor.GRAY))
+                .append(Component.text(date).color(NamedTextColor.WHITE))
+                .append(Component.text(" | ").color(NamedTextColor.GRAY))
+                .append(Component.text("$layerCount layers").color(NamedTextColor.AQUA))
+            player.sendMessage(entry)
+        }
+        if (totalPages > 1) {
+            player.sendMessage(TextUtility.convertToComponent("&7Use /mannequin history <page> to navigate."))
+        }
+    }
+
+    private fun handleTemplate(stack: CommandSourceStack, args: Array<out String>) {
+        val player = stack.sender as? Player ?: run {
+            stack.sender.sendMessage("You must be a player to use this command")
+            return
+        }
+        // /mannequin template <uid> <name> [layer1 layer2 ...]
+        if (args.size < 3) {
+            player.sendMessage(TextUtility.convertToComponent("&cUsage: /mannequin template <uid> <name> [layer1 layer2 ...]"))
+            return
+        }
+        val uid = args[1]
+        val name = args[2]
+        val layerIds = if (args.size > 3) args.drop(3).map { it.lowercase() } else emptyList()
+
+        val error = sessionManager.createTemplate(uid, name, layerIds, player)
+        if (error != null) {
+            player.sendMessage(TextUtility.convertToComponent("&c$error"))
+        } else {
+            val scopeMsg = if (layerIds.isNotEmpty()) " (${layerIds.joinToString(", ")})" else ""
+            player.sendMessage(TextUtility.convertToComponent("&aTemplate '${name.lowercase()}' created from $uid$scopeMsg"))
         }
     }
 }
