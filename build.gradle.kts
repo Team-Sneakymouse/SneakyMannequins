@@ -18,7 +18,7 @@ dependencies {
     compileOnly("io.netty:netty-all:4.1.112.Final")
     implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.21")
     implementation("com.google.code.gson:gson:2.10.1")
-    compileOnly("net.sneakycharactermanager:sneakycharactermanager-paper:1.0-SNAPSHOT")
+    compileOnly("io.github.team-sneakymouse:sneakycharactermanager-paper:1.4.0")
 }
 
 kotlin {

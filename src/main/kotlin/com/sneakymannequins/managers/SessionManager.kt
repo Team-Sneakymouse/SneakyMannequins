@@ -8,6 +8,7 @@ import com.sneakymannequins.model.SessionData
 import org.bukkit.entity.Player
 import java.awt.image.BufferedImage
 import java.io.File
+import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ThreadLocalRandom
@@ -29,17 +30,23 @@ class SessionManager(private val dataFolder: File) {
         templatesDir.mkdirs()
     }
 
-    fun save(mannequin: Mannequin, player: Player, renderedImage: BufferedImage? = null): String {
+    fun save(
+        mannequin: Mannequin,
+        player: Player,
+        renderedImage: BufferedImage? = null,
+        characterUuid: String? = null,
+        characterName: String? = null
+    ): String {
         val uid = generateUid()
-        val layers = mannequin.selection.selections.mapValues { (_, sel) ->
-            LayerSessionData.fromSelection(sel)
-        }
+        val layers = snapshotLayers(mannequin)
         val session = SessionData(
             uid = uid,
             creator = player.uniqueId.toString(),
             createdAt = Instant.now().toString(),
             slimModel = mannequin.slimModel,
-            layers = layers
+            layers = layers,
+            characterUuid = characterUuid,
+            characterName = characterName
         )
         File(sessionsDir, "$uid.json").writeText(gson.toJson(session))
         if (renderedImage != null) {
@@ -73,6 +80,16 @@ class SessionManager(private val dataFolder: File) {
             ?: emptyList()
     }
 
+    fun latest(playerUuid: UUID): SessionData? = history(playerUuid).firstOrNull()
+
+    fun fingerprint(mannequin: Mannequin): String {
+        val layers = snapshotLayers(mannequin)
+        return fingerprint(mannequin.slimModel, layers)
+    }
+
+    fun fingerprint(session: SessionData): String =
+        fingerprint(session.slimModel, session.layers)
+
     /**
      * Create a named template from an existing UID session.
      * If [layerIds] is non-empty only those layers are included.
@@ -103,7 +120,9 @@ class SessionManager(private val dataFolder: File) {
             creator = player.uniqueId.toString(),
             createdAt = Instant.now().toString(),
             slimModel = source.slimModel,
-            layers = filteredLayers
+            layers = filteredLayers,
+            characterUuid = source.characterUuid,
+            characterName = source.characterName
         )
         templateFile.writeText(gson.toJson(template))
         return null
@@ -130,5 +149,48 @@ class SessionManager(private val dataFolder: File) {
             uid = (1..UID_LENGTH).map { UID_CHARS[rng.nextInt(UID_CHARS.length)] }.joinToString("")
         } while (File(sessionsDir, "$uid.json").exists())
         return uid
+    }
+
+    private fun snapshotLayers(mannequin: Mannequin): Map<String, LayerSessionData> {
+        return mannequin.selection.selections.mapValues { (_, sel) ->
+            LayerSessionData.fromSelection(sel)
+        }
+    }
+
+    private fun fingerprint(slimModel: Boolean, layers: Map<String, LayerSessionData>): String {
+        val sb = StringBuilder()
+        sb.append("slim=").append(if (slimModel) "1" else "0").append('|')
+
+        for (layerId in layers.keys.sorted()) {
+            val layer = layers[layerId] ?: continue
+            sb.append(layerId).append(':')
+            sb.append(layer.option ?: "").append(':')
+            sb.append(layer.selectedTexture ?: "").append('|')
+
+            for (ch in layer.channelColors.keys.sortedWith(channelKeyComparator())) {
+                sb.append("c").append(ch).append('=').append(layer.channelColors[ch]).append(';')
+            }
+            sb.append('|')
+
+            for (ch in layer.texturedColors.keys.sortedWith(channelKeyComparator())) {
+                sb.append("t").append(ch).append('=')
+                val sub = layer.texturedColors[ch] ?: emptyMap()
+                for (subKey in sub.keys.sortedWith(channelKeyComparator())) {
+                    sb.append(subKey).append(':').append(sub[subKey]).append(',')
+                }
+                sb.append(';')
+            }
+            sb.append('|')
+        }
+
+        return sha256(sb.toString())
+    }
+
+    private fun channelKeyComparator(): Comparator<String> =
+        compareBy<String> { it.toIntOrNull() ?: Int.MAX_VALUE }.thenBy { it }
+
+    private fun sha256(value: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it) }
     }
 }

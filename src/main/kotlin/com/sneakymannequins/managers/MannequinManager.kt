@@ -2,6 +2,7 @@ package com.sneakymannequins.managers
 
 import com.sneakymannequins.SneakyMannequins
 import com.sneakymannequins.events.*
+import com.sneakymannequins.integrations.CharacterManagerBridge
 import com.sneakymannequins.model.LayerSelection
 import com.sneakymannequins.model.LayerOption
 import com.sneakymannequins.model.LayerDefinition
@@ -165,7 +166,9 @@ class MannequinManager(
     private val layerManager: LayerManager,
     private val handler: VolatileHandler,
     private val persistence: MannequinPersistence,
-    val sessionManager: SessionManager
+    val sessionManager: SessionManager,
+    private val characterManagerBridge: CharacterManagerBridge,
+    private val appliedSessionRegistry: AppliedSessionRegistry
 ) {
     private val mannequins = mutableMapOf<UUID, Mannequin>()
     private val sentTo = mutableMapOf<UUID, MutableSet<UUID>>()        // viewerId → mannequins seen
@@ -562,7 +565,7 @@ class MannequinManager(
             if (man.location.world != viewer.world) continue
             val distSq = man.location.distanceSquared(viewer.location)
 
-            val seen = sentTo.computeIfAbsent(viewer.uniqueId) { mutableSetOf() }
+            val seen = sentTo.getOrPut(viewer.uniqueId) { mutableSetOf() }
             if (man.id !in seen) {
                 if (distSq <= viewRadiusSq) {
                     renderFull(man, listOf(viewer), isFirstSeen = true)
@@ -583,7 +586,7 @@ class MannequinManager(
      */
     private fun checkFirstSeen(viewer: Player) {
         val viewRadiusSq = viewRadius * viewRadius
-        val seen = sentTo.computeIfAbsent(viewer.uniqueId) { mutableSetOf() }
+        val seen = sentTo.getOrPut(viewer.uniqueId) { mutableSetOf() }
         for (man in mannequins.values) {
             if (man.id in seen) continue
             if (man.location.world != viewer.world) continue
@@ -2273,15 +2276,15 @@ class MannequinManager(
     private fun executeMenuAction(item: MenuItemData, manId: UUID, mannequin: Mannequin, state: ControlState, player: Player) {
         when (item.action) {
             "save" -> {
-                val definitions = layerManager.definitionsInOrder()
-                val rendered = SkinComposer.compose(
-                    definitions, mannequin.selection,
-                    useSlimModel = isSlimModel(mannequin),
-                    optionResolver = optionResolver,
-                    textureResolver = textureResolver(mannequin),
-                    brightnessInfluenceResolver = brightnessInfluenceResolver
+                val rendered = composeCurrentSkin(mannequin)
+                val character = characterManagerBridge.currentCharacter(player)
+                val uid = sessionManager.save(
+                    mannequin = mannequin,
+                    player = player,
+                    renderedImage = rendered,
+                    characterUuid = character?.characterUuid,
+                    characterName = character?.characterName
                 )
-                val uid = sessionManager.save(mannequin, player, rendered)
                 val saveEvent = MannequinSessionSaveEvent(manId, mannequin.location, player, uid = uid)
                 plugin.server.pluginManager.callEvent(saveEvent)
                 if (saveEvent.isCancelled) {
@@ -2314,9 +2317,56 @@ class MannequinManager(
                 }
             }
             "apply" -> {
-                updateStatus(manId, "Apply: Coming soon")
+                val latest = sessionManager.latest(player.uniqueId)
+                val currentFingerprint = sessionManager.fingerprint(mannequin)
+                val latestFingerprint = latest?.let { sessionManager.fingerprint(it) }
+                val unchanged = latest != null && currentFingerprint == latestFingerprint
+
+                val uid = if (unchanged) {
+                    latest!!.uid
+                } else {
+                    val rendered = composeCurrentSkin(mannequin)
+                    val character = characterManagerBridge.currentCharacter(player)
+                    val savedUid = sessionManager.save(
+                        mannequin = mannequin,
+                        player = player,
+                        renderedImage = rendered,
+                        characterUuid = character?.characterUuid,
+                        characterName = character?.characterName
+                    )
+                    val saveEvent = MannequinSessionSaveEvent(manId, mannequin.location, player, uid = savedUid)
+                    plugin.server.pluginManager.callEvent(saveEvent)
+                    if (saveEvent.isCancelled) {
+                        player.sendMessage(Component.text("Apply blocked.").color(NamedTextColor.RED))
+                        return
+                    }
+                    savedUid
+                }
+
+                val characterUuid = characterManagerBridge.currentCharacter(player)?.characterUuid
+                appliedSessionRegistry.setLastApplied(player.uniqueId, uid, characterUuid)
+                player.sendMessage(
+                    Component.text("Applied: ").color(NamedTextColor.GREEN)
+                        .append(
+                            Component.text(uid)
+                                .color(NamedTextColor.YELLOW)
+                                .clickEvent(ClickEvent.copyToClipboard(uid))
+                                .hoverEvent(HoverEvent.showText(Component.text("Click to copy UID")))
+                        )
+                )
             }
         }
+    }
+
+    private fun composeCurrentSkin(mannequin: Mannequin): java.awt.image.BufferedImage {
+        val definitions = layerManager.definitionsInOrder()
+        return SkinComposer.compose(
+            definitions, mannequin.selection,
+            useSlimModel = isSlimModel(mannequin),
+            optionResolver = optionResolver,
+            textureResolver = textureResolver(mannequin),
+            brightnessInfluenceResolver = brightnessInfluenceResolver
+        )
     }
 
     // ── Utilities ───────────────────────────────────────────────────────────────

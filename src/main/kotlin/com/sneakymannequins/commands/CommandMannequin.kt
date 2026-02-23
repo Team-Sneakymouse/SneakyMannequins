@@ -194,6 +194,16 @@ class CommandMannequin(
                 .append(Component.text(date).color(NamedTextColor.WHITE))
                 .append(Component.text(" | ").color(NamedTextColor.GRAY))
                 .append(Component.text("$layerCount layers").color(NamedTextColor.AQUA))
+                .let { base ->
+                    val charName = session.characterName
+                    if (!charName.isNullOrBlank()) {
+                        base
+                            .append(Component.text(" | ").color(NamedTextColor.GRAY))
+                            .append(Component.text(charName).color(NamedTextColor.LIGHT_PURPLE))
+                    } else {
+                        base
+                    }
+                }
             player.sendMessage(entry)
         }
         if (totalPages > 1) {

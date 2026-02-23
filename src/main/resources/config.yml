@@ -38,6 +38,14 @@ plugin:
     # (catches blacks, near-blacks whose hue is unreliable)
     neutral-brightness-low: 0.10
 
+# ── Optional Integrations ──────────────────────────────────────────────────────
+integrations:
+  character-manager:
+    # Enables optional SneakyCharacterManager integration.
+    # If true but SneakyCharacterManager is not installed, SneakyMannequins will
+    # log a warning and continue without integration.
+    enabled: true
+
 # ── Rendering & Animation ─────────────────────────────────────────────────────
 rendering:
   # Radius (blocks) at which a mannequin first appears for a player.

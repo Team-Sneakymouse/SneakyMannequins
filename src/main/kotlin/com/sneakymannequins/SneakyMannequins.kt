@@ -2,10 +2,14 @@ package com.sneakymannequins
 
 import org.bukkit.plugin.java.JavaPlugin
 import com.sneakymannequins.commands.CommandMannequin
+import com.sneakymannequins.integrations.CharacterManagerBridge
+import com.sneakymannequins.integrations.CharacterManagerBridgeFactory
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymannequins.managers.MannequinManager
 import com.sneakymannequins.managers.MannequinPersistence
 import com.sneakymannequins.managers.SessionManager
+import com.sneakymannequins.managers.AppliedSessionRegistry
+import com.sneakymannequins.listeners.CharacterManagerListener
 import com.sneakymannequins.listeners.TriggerListener
 import com.sneakymannequins.nms.VolatileHandler
 import com.sneakymannequins.nms.VolatileHandlerRegistry
@@ -47,6 +51,8 @@ class SneakyMannequins : JavaPlugin(), Listener {
     private lateinit var mannequinManager: MannequinManager
     private lateinit var persistence: MannequinPersistence
     private lateinit var sessionManager: SessionManager
+    private lateinit var characterManagerBridge: CharacterManagerBridge
+    private lateinit var appliedSessionRegistry: AppliedSessionRegistry
     
     override fun onEnable() {
         logger.info("SneakyMannequins plugin has been enabled!")
@@ -59,12 +65,30 @@ class SneakyMannequins : JavaPlugin(), Listener {
         layerManager = LayerManager(this).also { it.reload() }
         persistence = MannequinPersistence(this)
         sessionManager = SessionManager(dataFolder)
-        mannequinManager = MannequinManager(this, layerManager, handler, persistence, sessionManager).also { it.loadFromDisk() }
+        characterManagerBridge = CharacterManagerBridgeFactory.create(this)
+        appliedSessionRegistry = AppliedSessionRegistry(
+            dataFolder = dataFolder,
+            logger = logger,
+            characterScopedMode = { characterManagerBridge.active }
+        )
+        mannequinManager = MannequinManager(
+            this,
+            layerManager,
+            handler,
+            persistence,
+            sessionManager,
+            characterManagerBridge,
+            appliedSessionRegistry
+        ).also { it.loadFromDisk() }
 
 		// Register commands
         registerCommand("mannequin", CommandMannequin(this, mannequinManager, layerManager, sessionManager))
         server.pluginManager.registerEvents(this, this)
         server.pluginManager.registerEvents(TriggerListener(this), this)
+        if (characterManagerBridge.active) {
+            server.pluginManager.registerEvents(CharacterManagerListener(appliedSessionRegistry), this)
+            logger.info("CharacterManager integration enabled.")
+        }
         
         // Start the per-tick hover detection task
         mannequinManager.startHoverTask()

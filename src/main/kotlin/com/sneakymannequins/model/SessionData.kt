@@ -11,7 +11,9 @@ data class SessionData(
     val creator: String,
     val createdAt: String,
     val slimModel: Boolean,
-    val layers: Map<String, LayerSessionData>
+    val layers: Map<String, LayerSessionData>,
+    val characterUuid: String? = null,
+    val characterName: String? = null
 )
 
 /**
