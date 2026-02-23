@@ -124,7 +124,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
         mannequinManager.forgetViewer(event.player.uniqueId)
     }
 
-    @EventHandler(priority = EventPriority.LOWEST)
+    @EventHandler
     fun onChat(event: AsyncChatEvent) {
         val player = event.player
         if (!mannequinManager.isPlayerInLoadMode(player.uniqueId)) return

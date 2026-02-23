@@ -21,6 +21,8 @@ import com.sneakymannequins.render.RenderMode
 import com.sneakymannequins.render.RenderSettings
 import com.sneakymannequins.util.SkinComposer
 import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.event.ClickEvent
+import net.kyori.adventure.text.event.HoverEvent
 import net.kyori.adventure.text.format.NamedTextColor
 import net.kyori.adventure.text.format.TextColor
 import net.kyori.adventure.text.minimessage.MiniMessage
@@ -496,19 +498,27 @@ class MannequinManager(
             val loadEvent = MannequinSessionLoadEvent(manId, mannequin.location, player, uid = session.uid)
             plugin.server.pluginManager.callEvent(loadEvent)
             if (loadEvent.isCancelled) {
-                updateStatus(manId, "Load blocked")
+                player.sendMessage(Component.text("Load blocked.").color(NamedTextColor.RED))
                 return true
             }
             applySession(manId, session, player)
-            updateStatus(manId, "Loaded: ${session.uid}")
+            player.sendMessage(
+                Component.text("Loaded: ").color(NamedTextColor.GREEN)
+                    .append(
+                        Component.text(session.uid)
+                            .color(NamedTextColor.YELLOW)
+                            .clickEvent(ClickEvent.copyToClipboard(session.uid))
+                            .hoverEvent(HoverEvent.showText(Component.text("Click to copy UID")))
+                    )
+            )
         } else {
-            state.mode = ControlMode.NONE
-            val layers = layerManager.definitionsInOrder()
-            val curLayer = layers.getOrNull(state.layerIndex % layers.size)
-            val curOption = curLayer?.let { freshOption(it.id, mannequin) }
-            refreshDynamicLabels(manId, curOption, curLayer)
-            updateStatus(manId, "Session not found")
+            player.sendMessage(Component.text("Session not found.").color(NamedTextColor.RED))
         }
+        state.mode = ControlMode.NONE
+        val layers = layerManager.definitionsInOrder()
+        val curLayer = layers.getOrNull(state.layerIndex % layers.size)
+        val curOption = curLayer?.let { freshOption(it.id, mannequin) }
+        refreshDynamicLabels(manId, curOption, curLayer)
         return true
     }
 
@@ -2275,10 +2285,18 @@ class MannequinManager(
                 val saveEvent = MannequinSessionSaveEvent(manId, mannequin.location, player, uid = uid)
                 plugin.server.pluginManager.callEvent(saveEvent)
                 if (saveEvent.isCancelled) {
-                    updateStatus(manId, "Save blocked")
+                    player.sendMessage(Component.text("Save blocked.").color(NamedTextColor.RED))
                     return
                 }
-                updateStatus(manId, "Saved: $uid")
+                player.sendMessage(
+                    Component.text("Saved: ").color(NamedTextColor.GREEN)
+                        .append(
+                            Component.text(uid)
+                                .color(NamedTextColor.YELLOW)
+                                .clickEvent(ClickEvent.copyToClipboard(uid))
+                                .hoverEvent(HoverEvent.showText(Component.text("Click to copy UID")))
+                        )
+                )
             }
             "load" -> {
                 if (state.mode == ControlMode.LOAD) {
@@ -2286,13 +2304,13 @@ class MannequinManager(
                     val layers = layerManager.definitionsInOrder()
                     val curLayer = layers.getOrNull(state.layerIndex % layers.size)
                     refreshDynamicLabels(manId, curLayer?.let { freshOption(it.id, mannequin) }, curLayer)
-                    updateStatus(manId, "Load cancelled")
+                    player.sendMessage(Component.text("Load cancelled.").color(NamedTextColor.GRAY))
                 } else {
                     state.mode = ControlMode.LOAD
                     val layers = layerManager.definitionsInOrder()
                     val curLayer = layers.getOrNull(state.layerIndex % layers.size)
                     refreshDynamicLabels(manId, curLayer?.let { freshOption(it.id, mannequin) }, curLayer)
-                    updateStatus(manId, "Enter session ID in chat")
+                    player.sendMessage(Component.text("Enter a session ID in chat.").color(NamedTextColor.YELLOW))
                 }
             }
             "apply" -> {
