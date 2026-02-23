@@ -133,9 +133,11 @@ class LayerManager(
             val blendRaw = texSection.getString("blend")
             val aoRaw = texSection.getString("ao")
             val roughnessRaw = texSection.getString("roughness")
+            val alphaRaw = texSection.getString("alpha")
             val blendPath = blendRaw?.let { dataDir.resolve(it).normalize() }
             val aoPath = aoRaw?.let { dataDir.resolve(it).normalize() }
             val roughnessPath = roughnessRaw?.let { dataDir.resolve(it).normalize() }
+            val alphaPath = alphaRaw?.let { dataDir.resolve(it).normalize() }
 
             fun loadImage(label: String, path: java.nio.file.Path): BufferedImage? {
                 if (!Files.exists(path)) {
@@ -151,6 +153,7 @@ class LayerManager(
             val blendImage = blendPath?.let { loadImage("blend map", it) }
             val aoImage = aoPath?.let { loadImage("AO map", it) }
             val roughnessImage = roughnessPath?.let { loadImage("roughness map", it) }
+            val alphaImage = alphaPath?.let { loadImage("alpha map", it) }
 
             // Auto-detect active sub-channels from the blend map (scan entire image)
             val activeSubChannels = if (blendImage != null) detectSubChannels(blendImage) else emptySet()
@@ -165,6 +168,8 @@ class LayerManager(
                 aoMapImage = aoImage,
                 roughnessMapPath = roughnessPath,
                 roughnessMapImage = roughnessImage,
+                alphaMapPath = alphaPath,
+                alphaMapImage = alphaImage,
                 activeSubChannels = activeSubChannels
             )
         }

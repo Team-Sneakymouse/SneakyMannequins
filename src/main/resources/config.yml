@@ -445,11 +445,11 @@ layers:
   # Roughness modulates saturation on top of the original art:
   #   128 = neutral (no change), lower = less saturated, higher = more saturated.
   #
-  # AO and roughness can point to the same image file if you want coupled
-  # brightness/saturation modulation.  Both maps are optional and independent.
+  # AO, roughness, and alpha can point to the same image file if you want
+  # coupled modulation.  All maps are optional and independent.
   #
-  # When a texture is selected, AO and roughness apply to EVERY pixel in the
-  # part — not just those covered by a colour mask channel.
+  # When a texture is selected, AO, roughness, and alpha apply to EVERY pixel
+  # in the part — not just those covered by a colour mask channel.
   #
   # Textures are assigned at global, layer, or part level using a
   # `textures:` list (same hierarchy as palettes, but without first/last).
@@ -468,6 +468,8 @@ layers:
   #       roughness: "textures/denim_detail.png"   # same file for both
   #     leather:
   #       ao: "textures/leather_ao.png"             # AO only, no blend
+  #     ghostly:
+  #       alpha: "textures/ghost_alpha.png"          # alpha only, no blend
   textures:
     striped:
       blend: "textures/blend_stripes_h.png"
@@ -499,6 +501,10 @@ layers:
     fabric:
       ao: "textures/ao_fabric.png"
       roughness: "textures/roughness_grain.png"
+    faded:
+      alpha: "textures/alpha_half.png"
+    moth-eaten:
+      alpha: "textures/alpha_scatter.png"
 
   # Rendering order for layers (bottom to top)
   order:

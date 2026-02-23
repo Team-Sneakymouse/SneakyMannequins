@@ -79,11 +79,12 @@ object SkinComposer {
                     source = applyColorMask(source, flatColor, maskImage, brightnessInfluence)
                 }
 
-                // AO/roughness maps apply to ALL pixels as a final pass (after tinting)
+                // AO/roughness/alpha maps apply to ALL pixels as a final pass (after tinting)
                 val aoMap = texDef?.aoMapImage
                 val roughnessMap = texDef?.roughnessMapImage
-                if (aoMap != null || roughnessMap != null) {
-                    source = applyMaps(source, aoMap, roughnessMap)
+                val alphaMap = texDef?.alphaMapImage
+                if (aoMap != null || roughnessMap != null || alphaMap != null) {
+                    source = applyMaps(source, aoMap, roughnessMap, alphaMap)
                 }
             }
             graphics.drawImage(source, 0, 0, null)
@@ -192,14 +193,15 @@ object SkinComposer {
     // ── AO/roughness pass (all pixels) ─────────────────────────────────────────
 
     /**
-     * Apply AO and roughness maps to every non-transparent pixel in the image.
+     * Apply AO, roughness, and alpha maps to every non-transparent pixel in the image.
      * This is called as a final pass AFTER per-channel colour tinting, so it
      * modulates both tinted and untinted pixels uniformly.
      */
     private fun applyMaps(
         image: BufferedImage,
         aoMap: BufferedImage?,
-        roughnessMap: BufferedImage?
+        roughnessMap: BufferedImage?,
+        alphaMap: BufferedImage? = null
     ): BufferedImage {
         val out = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
         for (x in 0 until image.width) {
@@ -223,8 +225,12 @@ object SkinComposer {
                     newSat = (newSat * sampleMultiplier(roughnessMap, x, y)).coerceIn(0f, 1f)
                 }
 
+                val newAlpha = if (alphaMap != null) {
+                    (alpha * sampleMultiplier(alphaMap, x, y)).toInt().coerceIn(0, 255)
+                } else alpha
+
                 val newRgb = Color.HSBtoRGB(hsb[0], newSat, newBri)
-                out.setRGB(x, y, (alpha shl 24) or (newRgb and 0x00FFFFFF))
+                out.setRGB(x, y, (newAlpha shl 24) or (newRgb and 0x00FFFFFF))
             }
         }
         return out

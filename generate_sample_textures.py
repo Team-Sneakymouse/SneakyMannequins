@@ -165,6 +165,30 @@ def roughness_vertical_gradient(period=8):
     return img
 
 
+# ── Alpha maps ────────────────────────────────────────────────────────────
+
+def alpha_half():
+    """Uniform 50% alpha scale — every pixel maps to 0.5x multiplier (value 64)."""
+    img = Image.new("RGB", (SIZE, SIZE))
+    c = _gray_rgb(64)
+    for y in range(SIZE):
+        for x in range(SIZE):
+            img.putpixel((x, y), c)
+    return img
+
+
+def alpha_scatter(seed=42, chance=1/30):
+    """Random holes: ~1 in 30 pixels punched to 0 alpha, rest neutral (128)."""
+    rng = random.Random(seed)
+    img = Image.new("RGB", (SIZE, SIZE))
+    neutral = _gray_rgb(128)
+    hole = _gray_rgb(0)
+    for y in range(SIZE):
+        for x in range(SIZE):
+            img.putpixel((x, y), hole if rng.random() < chance else neutral)
+    return img
+
+
 # ── Generate all ─────────────────────────────────────────────────────────
 
 textures = {
@@ -180,6 +204,8 @@ textures = {
     "roughness_patchy.png":  roughness_patchy(cell=2),
     "roughness_grain.png":   roughness_grain(),
     "roughness_gradient.png": roughness_vertical_gradient(),
+    "alpha_half.png":        alpha_half(),
+    "alpha_scatter.png":     alpha_scatter(),
 }
 
 for name, img in textures.items():

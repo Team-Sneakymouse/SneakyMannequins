@@ -55,12 +55,15 @@ data class TextureSpec(
 /**
  * A named texture definition loaded from config.  Consists of an optional
  * blend map (RGB sub-channel weights), an optional AO map (grayscale brightness
- * modulation), and an optional roughness map (grayscale saturation modulation).
+ * modulation), an optional roughness map (grayscale saturation modulation),
+ * and an optional alpha map (grayscale alpha modulation).
  * When none of the maps are provided, the texture behaves identically to
  * flat-colour masking ("Default").
  *
- * Both [aoMapImage] and [roughnessMapImage] are grayscale: 128 = neutral (1.0×),
+ * [aoMapImage] and [roughnessMapImage] are grayscale: 128 = neutral (1.0×),
  * lower values darken/desaturate, higher values brighten/saturate.
+ * [alphaMapImage] is grayscale: 128 = neutral (1.0×), lower values make
+ * pixels more transparent, higher values make them more opaque.
  * They can point to the same file if you want coupled behaviour.
  *
  * [activeSubChannels] is auto-detected from the blend map image at load
@@ -78,6 +81,9 @@ data class TextureDefinition(
     /** Grayscale roughness map — modulates saturation (128 = neutral). */
     val roughnessMapPath: Path? = null,
     val roughnessMapImage: BufferedImage? = null,
+    /** Grayscale alpha map — modulates opacity (128 = neutral). */
+    val alphaMapPath: Path? = null,
+    val alphaMapImage: BufferedImage? = null,
     /** Active sub-channels auto-detected from the blend map (0=R, 1=G, 2=B). */
     val activeSubChannels: Set<Int> = emptySet()
 )
