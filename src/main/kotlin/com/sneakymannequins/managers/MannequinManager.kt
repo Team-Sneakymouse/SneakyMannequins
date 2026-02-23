@@ -1490,7 +1490,10 @@ class MannequinManager(
             }
             "part" -> {
                 if (state.mode == ControlMode.PART) {
-                    cyclePart(layer, mannequin, state, player, backwards)?.let { updateStatus(manId, it) }
+                    cyclePart(layer, mannequin, state, player, backwards)?.let {
+                        updateStatus(manId, it)
+                        render(mannequin, nearbyViewers(mannequin))
+                    }
                 } else {
                     state.mode = ControlMode.PART
                     refreshDynamicLabels(manId, freshOption(layer.id, mannequin), layer)

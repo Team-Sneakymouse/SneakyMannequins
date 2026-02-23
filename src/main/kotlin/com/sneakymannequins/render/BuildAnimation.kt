@@ -169,7 +169,24 @@ class BuildAnimation private constructor(
             }
         }
 
-        if (result.isEmpty()) return StepResult.EMPTY
+        if (result.isEmpty()) {
+            // The wave front may be stuck in a gap where no bands exist
+            // between the current water mark and the next actual band.
+            // Advance the water mark to just below the lowest remaining
+            // band so the next step can proceed.
+            var lowestRemaining = Int.MAX_VALUE
+            for ((key, bands) in columns) {
+                val idx = progress[key] ?: 0
+                if (idx < bands.size) {
+                    val y = bands[idx].yKey
+                    if (y < lowestRemaining) lowestRemaining = y
+                }
+            }
+            if (lowestRemaining != Int.MAX_VALUE && lowestRemaining > highWaterBand) {
+                highWaterBand = lowestRemaining - 1
+            }
+            return StepResult.EMPTY
+        }
 
         // ── Fly-in selection ────────────────────────────────────────────
         val flyInOffsets = mutableMapOf<Int, FlyInOffset>()
