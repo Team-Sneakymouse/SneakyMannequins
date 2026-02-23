@@ -1324,31 +1324,29 @@ class MannequinManager(
             }
             "texture" -> {
                 val option = freshOption(layer.id, mannequin)
-                val texIds = if (option != null) layerManager.resolveTextures(layer, option, player) else emptyList()
+                val rawTexIds = if (option != null) layerManager.resolveTextures(layer, option, player) else emptyList()
+                val hasDefaultTex = "default" in rawTexIds
+                val texIds = rawTexIds.filter { it != "default" }
 
-                if (texIds.isEmpty()) {
+                if (texIds.isEmpty() && !hasDefaultTex) {
                     updateStatus(manId, "Texture: N/A")
                 } else {
-                    // Cycle: Default (-1) → texture0 (0) → texture1 (1) → … → Default …
-                    val current = state.textureIndex.getOrDefault(layer.id, -1)
+                    val minIdx = if (hasDefaultTex) -1 else 0
+                    val total = texIds.size + (if (hasDefaultTex) 1 else 0)
+                    val current = state.textureIndex.getOrDefault(layer.id, minIdx).coerceIn(minIdx, texIds.size - 1)
                     val delta = if (backwards) -1 else 1
-                    val total = texIds.size + 1 // +1 for "Default"
-                    val next = ((current + 1) + delta + total) % total - 1 // back to [-1 .. size-1]
+                    val next = ((current - minIdx) + delta + total) % total + minIdx
                     state.textureIndex[layer.id] = next
 
-                    // Store selectedTexture on the selection for the composer
                     val newTexId = if (next >= 0) texIds[next] else null
                     val sel = mannequin.selection.selections[layer.id]
                     if (sel != null) {
                         val wasPrevTextured = sel.selectedTexture != null
                         val isNowTextured = newTexId != null && layerManager.texture(newTexId)?.blendMapImage != null
                         var newSel = sel.copy(selectedTexture = newTexId)
-                        // Clean up colour entries when switching between textured / flat modes
                         if (wasPrevTextured && !isNowTextured) {
-                            // Was textured → now flat: clear texturedColors
                             newSel = newSel.copy(texturedColors = emptyMap())
                         } else if (!wasPrevTextured && isNowTextured) {
-                            // Was flat → now textured: clear channelColors
                             newSel = newSel.copy(channelColors = emptyMap())
                         }
                         mannequin.selection = mannequin.selection.copy(
@@ -1356,7 +1354,7 @@ class MannequinManager(
                         )
                     }
 
-                    state.channelIndex[layer.id] = 0 // channel slots may have changed
+                    state.channelIndex[layer.id] = 0
                     state.colorIndex[layer.id] = 0
                     val label = if (next == -1) "Default" else {
                         val texDef = layerManager.texture(texIds[next])
@@ -1419,10 +1417,11 @@ class MannequinManager(
         val mode = state?.mode
         // Channel disabled when there are ≤1 slots in the flat channel list
         val channelSlotCount = if (option != null && layer != null && state != null) {
-            // Resolve without player (permission-agnostic) for button label
             val maskChannels = option.masks.keys.sorted()
             val texIdx = state.textureIndex.getOrDefault(layer.id, -1)
-            val texId = layerManager.resolveTextures(layer, option, null).getOrNull(texIdx)
+            val rawTexResolved = layerManager.resolveTextures(layer, option, null)
+            val actualTexResolved = rawTexResolved.filter { it != "default" }
+            val texId = if (texIdx >= 0) actualTexResolved.getOrNull(texIdx) else null
             val texDef = texId?.let { layerManager.texture(it) }
             val activeSubs = if (texDef?.blendMapImage != null) texDef.activeSubChannels else null
             buildChannelSlots(maskChannels, activeSubs).size
@@ -1448,12 +1447,11 @@ class MannequinManager(
             }
         }
 
-        // Texture button: disabled if no textures are resolved for the current context
         val texBtn = buttonByName("texture")
         visuals["texture"]?.let {
             val texCount = if (option != null && layer != null)
                 layerManager.resolveTextures(layer, option, null).size else 0
-            it.textJson = if (texCount == 0 && texBtn?.disabledTextJson != null) {
+            it.textJson = if (texCount <= 1 && texBtn?.disabledTextJson != null) {
                 texBtn.disabledTextJson
             } else {
                 texBtn?.textJson ?: textToJson("Texture")
@@ -1484,20 +1482,41 @@ class MannequinManager(
         val opts = layerManager.optionsFor(layer.id)
         if (opts.isEmpty()) return null
         val delta = if (backwards) -1 else 1
-        val idx = (state.partIndex.getOrDefault(layer.id, 0) + delta + opts.size) % opts.size
+        val startIdx = state.partIndex.getOrDefault(layer.id, 0)
+        var idx = startIdx
+        var attempts = 0
+        do {
+            idx = (idx + delta + opts.size) % opts.size
+            val candidate = opts[idx]
+            val pal = layerManager.resolvePalettes(layer, candidate, player)
+            val tex = layerManager.resolveTextures(layer, candidate, player)
+            if (pal.isNotEmpty() && tex.isNotEmpty()) break
+            attempts++
+        } while (attempts < opts.size)
+
+        if (attempts >= opts.size) return null
+
         state.partIndex[layer.id] = idx
         val chosen = opts[idx]
+
+        val sel = buildInitialSelection(layer, chosen, player)
         mannequin.selection = mannequin.selection.copy(
-            selections = mannequin.selection.selections + (layer.id to LayerSelection(layer.id, chosen))
+            selections = mannequin.selection.selections + (layer.id to sel)
         )
+
         state.channelIndex[layer.id] = 0
-        state.textureIndex.remove(layer.id) // reset texture selection (available textures may differ between parts)
         state.colorIndex[layer.id] = 0
+        val rawTex = layerManager.resolveTextures(layer, chosen, player)
+        val hasDefaultTex = "default" in rawTex
+        state.textureIndex[layer.id] = if (sel.selectedTexture != null) {
+            val actualTex = rawTex.filter { it != "default" }
+            actualTex.indexOf(sel.selectedTexture).coerceAtLeast(0)
+        } else if (hasDefaultTex) -1 else 0
+
         refreshDynamicLabels(mannequin.id, chosen, layer)
         val hud = playerHuds[player.uniqueId]
         if (hud != null) refreshColorGrid(player, mannequin, state, hud)
 
-        // Fire per-layer part-change trigger
         val prettyPart = prettyName(chosen.displayName)
         val ph = basePlaceholders(player, mannequin).apply {
             put("layer", layer.id)
@@ -1644,7 +1663,7 @@ class MannequinManager(
     private fun buildAndSpawnGrid(
         player: Player, mannequin: Mannequin, state: ControlState,
         yaw: Float, playerDist: Float, page: Int, allPaletteIds: List<String>, cfg: GridConfig,
-        animate: Boolean = true
+        animate: Boolean = true, hasDefaultColor: Boolean = true
     ): GridState {
         val totalPages = ((allPaletteIds.size + cfg.maxRows - 1) / cfg.maxRows).coerceAtLeast(1)
         val startIdx = page * cfg.maxRows
@@ -1679,17 +1698,18 @@ class MannequinManager(
         val p = cfg.pitch
         val yw = cfg.yawOffset
 
-        // "Default" cell above the first row (same formatting as headers)
-        val defEid = handler.allocateEntityId()
-        spawn(defEid, GridEntityInfo(
-            tx = cfg.originX, ty = cfg.originY + cfg.cellSpacingY, tz = cfg.originZ,
-            textJson = mmToJson(cfg.headerTextMM.replace("{message}", "Default")),
-            bgNormal = cfg.bgHeader,
-            lineWidth = cfg.headerLineWidth,
-            scaleX = cfg.headerScale, scaleY = cfg.headerScale,
-            pitch = p, yawOffset = yw,
-            cellData = GridCellData(null, "Default", null)
-        ))
+        if (hasDefaultColor) {
+            val defEid = handler.allocateEntityId()
+            spawn(defEid, GridEntityInfo(
+                tx = cfg.originX, ty = cfg.originY + cfg.cellSpacingY, tz = cfg.originZ,
+                textJson = mmToJson(cfg.headerTextMM.replace("{message}", "Default")),
+                bgNormal = cfg.bgHeader,
+                lineWidth = cfg.headerLineWidth,
+                scaleX = cfg.headerScale, scaleY = cfg.headerScale,
+                pitch = p, yawOffset = yw,
+                cellData = GridCellData(null, "Default", null)
+            ))
+        }
 
         for ((row, palId) in visiblePalIds.withIndex()) {
             val palette = layerManager.palette(palId) ?: continue
@@ -1737,7 +1757,9 @@ class MannequinManager(
         val layers = layerManager.definitionsInOrder()
         val layer = layers.getOrNull(state.layerIndex % layers.size) ?: return
         val option = freshOption(layer.id, mannequin) ?: return
-        val allPaletteIds = layerManager.resolvePalettes(layer, option, player)
+        val rawPaletteIds = layerManager.resolvePalettes(layer, option, player)
+        val hasDefaultColor = "default" in rawPaletteIds
+        val allPaletteIds = rawPaletteIds.filter { it != "default" }
         if (allPaletteIds.isEmpty()) {
             updateStatus(mannequin.id, "No palettes available")
             return
@@ -1746,7 +1768,8 @@ class MannequinManager(
         val dz = player.location.z - mannequin.location.z
         val dist = sqrt((dx * dx + dz * dz).toFloat())
         hud.lastDist = dist
-        hud.gridState = buildAndSpawnGrid(player, mannequin, state, hud.lastYaw, dist, 0, allPaletteIds, cfg)
+        hud.gridState = buildAndSpawnGrid(player, mannequin, state, hud.lastYaw, dist, 0, allPaletteIds, cfg,
+            hasDefaultColor = hasDefaultColor)
         fireTrigger("color-grid-open", basePlaceholders(player, mannequin))
     }
 
@@ -1766,7 +1789,9 @@ class MannequinManager(
         val layers = layerManager.definitionsInOrder()
         val layer = layers.getOrNull(state.layerIndex % layers.size) ?: return
         val option = freshOption(layer.id, mannequin) ?: return
-        val allPaletteIds = layerManager.resolvePalettes(layer, option, player)
+        val rawPaletteIds = layerManager.resolvePalettes(layer, option, player)
+        val hasDefaultColor = "default" in rawPaletteIds
+        val allPaletteIds = rawPaletteIds.filter { it != "default" }
         if (allPaletteIds.isEmpty()) {
             refreshDynamicLabels(mannequin.id, option, layer)
             return
@@ -1775,7 +1800,8 @@ class MannequinManager(
         val dz = player.location.z - mannequin.location.z
         val dist = sqrt((dx * dx + dz * dz).toFloat())
         hud.lastDist = dist
-        hud.gridState = buildAndSpawnGrid(player, mannequin, state, hud.lastYaw, dist, 0, allPaletteIds, cfg, animate = false)
+        hud.gridState = buildAndSpawnGrid(player, mannequin, state, hud.lastYaw, dist, 0, allPaletteIds, cfg,
+            animate = false, hasDefaultColor = hasDefaultColor)
     }
 
     /**
@@ -1838,13 +1864,16 @@ class MannequinManager(
         val layers = layerManager.definitionsInOrder()
         val layer = layers.getOrNull(state.layerIndex % layers.size) ?: return
         val option = freshOption(layer.id, mannequin) ?: return
-        val allPaletteIds = layerManager.resolvePalettes(layer, option, player)
+        val rawPaletteIds = layerManager.resolvePalettes(layer, option, player)
+        val hasDefaultColor = "default" in rawPaletteIds
+        val allPaletteIds = rawPaletteIds.filter { it != "default" }
 
         val dx = player.location.x - mannequin.location.x
         val dz = player.location.z - mannequin.location.z
         val dist = sqrt((dx * dx + dz * dz).toFloat())
         hud.lastDist = dist
-        hud.gridState = buildAndSpawnGrid(player, mannequin, state, hud.lastYaw, dist, newPage, allPaletteIds, cfg)
+        hud.gridState = buildAndSpawnGrid(player, mannequin, state, hud.lastYaw, dist, newPage, allPaletteIds, cfg,
+            hasDefaultColor = hasDefaultColor)
         updateStatus(mannequin.id, "Page ${newPage + 1} of ${grid.totalPages}")
     }
 
@@ -1857,14 +1886,55 @@ class MannequinManager(
         }
     }
 
+    /**
+     * Build a [LayerSelection] for the given layer/option, auto-assigning an
+     * initial colour and texture when "default" is not in the resolved lists.
+     */
+    private fun buildInitialSelection(
+        def: LayerDefinition, chosen: LayerOption,
+        player: Player? = null,
+        rng: java.util.Random = java.util.concurrent.ThreadLocalRandom.current()
+    ): LayerSelection {
+        val rawPal = layerManager.resolvePalettes(def, chosen, player)
+        val hasDefaultColor = "default" in rawPal
+        val actualPal = rawPal.filter { it != "default" }
+
+        val rawTex = layerManager.resolveTextures(def, chosen, player)
+        val hasDefaultTex = "default" in rawTex
+        val actualTex = rawTex.filter { it != "default" }
+
+        val channelColors: Map<Int, java.awt.Color> = if (!hasDefaultColor && actualPal.isNotEmpty()) {
+            val palette = layerManager.palette(actualPal.first())
+            if (palette != null && palette.colors.isNotEmpty()) {
+                val color = palette.colors[rng.nextInt(palette.colors.size)].color
+                chosen.masks.keys.associateWith { color }
+            } else emptyMap()
+        } else emptyMap()
+
+        val selectedTexture: String? = if (!hasDefaultTex && actualTex.isNotEmpty()) actualTex.first() else null
+
+        return LayerSelection(
+            layerId = def.id,
+            option = chosen,
+            channelColors = channelColors,
+            selectedTexture = selectedTexture
+        )
+    }
+
     private fun bootstrapSelection(): SkinSelection {
         val definitions = layerManager.definitionsInOrder()
         val selections = definitions.associate { def ->
-            val chosen = layerManager.optionsFor(def.id).firstOrNull()
-            def.id to LayerSelection(
-                layerId = def.id,
-                option = chosen
-            )
+            val options = layerManager.optionsFor(def.id)
+            val chosen = options.firstOrNull { opt ->
+                val pal = layerManager.resolvePalettes(def, opt, null)
+                val tex = layerManager.resolveTextures(def, opt, null)
+                pal.isNotEmpty() && tex.isNotEmpty()
+            } ?: options.firstOrNull()
+            if (chosen != null) {
+                def.id to buildInitialSelection(def, chosen)
+            } else {
+                def.id to LayerSelection(layerId = def.id, option = null)
+            }
         }
         return SkinSelection(selections)
     }
@@ -1882,12 +1952,15 @@ class MannequinManager(
         for (def in definitions) {
             val options = layerManager.optionsFor(def.id)
             if (options.isEmpty()) continue
-            val chosen = options[rng.nextInt(options.size)]
+            val viable = options.filter { opt ->
+                val pal = layerManager.resolvePalettes(def, opt, null)
+                val tex = layerManager.resolveTextures(def, opt, null)
+                pal.isNotEmpty() && tex.isNotEmpty()
+            }
+            val chosen = if (viable.isNotEmpty()) viable[rng.nextInt(viable.size)]
+                         else options[rng.nextInt(options.size)]
 
-            newSelections[def.id] = LayerSelection(
-                layerId = def.id,
-                option = chosen
-            )
+            newSelections[def.id] = buildInitialSelection(def, chosen, rng = rng)
         }
 
         mannequin.selection = SkinSelection(newSelections)
@@ -1897,7 +1970,6 @@ class MannequinManager(
             mannequin.slimModel = rng.nextBoolean()
         }
 
-        // Sync control state indices to match randomised choices
         val state = controlState[mannequin.id]
         if (state != null) {
             for (def in definitions) {
@@ -1907,6 +1979,12 @@ class MannequinManager(
                 state.partIndex[def.id] = idx
                 state.colorIndex[def.id] = 0
                 state.channelIndex[def.id] = 0
+                val rawTex = if (sel?.option != null) layerManager.resolveTextures(def, sel.option, null) else emptyList()
+                val hasDefaultTex = "default" in rawTex
+                state.textureIndex[def.id] = if (sel?.selectedTexture != null) {
+                    val actualTex = rawTex.filter { it != "default" }
+                    actualTex.indexOf(sel.selectedTexture).coerceAtLeast(0)
+                } else if (hasDefaultTex) -1 else 0
             }
             state.mode = ControlMode.NONE
         }

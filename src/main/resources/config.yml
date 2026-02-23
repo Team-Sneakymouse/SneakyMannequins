@@ -453,8 +453,9 @@ layers:
   #
   # Textures are assigned at global, layer, or part level using a
   # `textures:` list (same hierarchy as palettes, but without first/last).
-  # A "Default" option (flat colour, no texture) is always available
-  # in addition to the assigned textures.
+  # The reserved keyword "default" can be included in the list to enable
+  # the "Default" option (flat colour, no texture).  If omitted, the
+  # user must always have a texture selected.
   #
   # Example texture definitions:
   #   textures:
@@ -526,6 +527,7 @@ layers:
     #     permission: group.admin         # only if player has this perm
     palettes-first: []
     palettes:
+      - default                            # enables "Default" (no colour override) option
       - greyscale
     palettes-last: []
 
@@ -534,7 +536,9 @@ layers:
     #   - wool                              # available to everyone
     #   - texture: leather                  # same as above
     #     permission: group.admin           # only if player has this perm
+    # The reserved keyword "default" enables the "Default" (flat colour) option.
     textures:
+      - default                            # enables "Default" (flat colour) texture option
       - worn
       - fabric
 

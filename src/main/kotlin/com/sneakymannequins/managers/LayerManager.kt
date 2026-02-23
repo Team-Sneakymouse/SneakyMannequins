@@ -914,7 +914,7 @@ class LayerManager(
         val seen = mutableSetOf<String>()
         return resolved.filter { ref ->
             val allowed = ref.permission == null || (player?.hasPermission(ref.permission) ?: true)
-            allowed && seen.add(ref.id) && textures.containsKey(ref.id)
+            allowed && seen.add(ref.id) && (ref.id == "default" || textures.containsKey(ref.id))
         }.map { it.id }
     }
 
