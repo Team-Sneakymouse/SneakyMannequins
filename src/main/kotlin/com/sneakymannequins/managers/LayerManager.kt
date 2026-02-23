@@ -29,6 +29,7 @@ class LayerManager(
     private val textures = mutableMapOf<String, TextureDefinition>()
     private var defaultPaletteSpec = PaletteSpec.INHERIT
     private var defaultTextureSpec = TextureSpec.INHERIT
+    private var defaultBrightnessInfluence = 0.3f
 
     fun reload() {
         loadedLayers.clear()
@@ -37,6 +38,7 @@ class LayerManager(
         textures.clear()
         defaultPaletteSpec = PaletteSpec.INHERIT
         defaultTextureSpec = TextureSpec.INHERIT
+        defaultBrightnessInfluence = 0.3f
         val root = plugin.config.getConfigurationSection("layers") ?: run {
             plugin.logger.warning("No 'layers' section found in config.")
             return
@@ -51,6 +53,9 @@ class LayerManager(
         }
         defaultPaletteSpec = parsePaletteSpec(definitions)
         defaultTextureSpec = parseTextureSpec(definitions)
+        if (definitions.contains("brightness-influence")) {
+            defaultBrightnessInfluence = definitions.getDouble("brightness-influence", 0.3).toFloat()
+        }
         val configuredOrder = root.getStringList("order")
         if (configuredOrder.isNotEmpty()) {
             layerOrder.addAll(configuredOrder)
@@ -252,6 +257,7 @@ class LayerManager(
             val optSection = optionConfig?.getConfigurationSection(agg.id)
             val optPaletteSpec = optSection?.let { parsePaletteSpec(it) } ?: PaletteSpec.INHERIT
             val optTextureSpec = optSection?.let { parseTextureSpec(it) } ?: TextureSpec.INHERIT
+            val optBriInf = optSection?.let { if (it.contains("brightness-influence")) it.getDouble("brightness-influence").toFloat() else null }
 
             val defaultPath = agg.defaultPath ?: agg.sharedPath
             val slimPath = agg.slimPath ?: agg.sharedPath
@@ -274,6 +280,7 @@ class LayerManager(
                 imageSlim = slimImage,
                 paletteSpec = optPaletteSpec,
                 textureSpec = optTextureSpec,
+                brightnessInfluence = optBriInf,
                 masks = masks
             )
         }
@@ -309,6 +316,7 @@ class LayerManager(
         val optSection = optionConfig?.getConfigurationSection(id)
         val optPaletteSpec = optSection?.let { parsePaletteSpec(it) } ?: PaletteSpec.INHERIT
         val optTextureSpec = optSection?.let { parseTextureSpec(it) } ?: TextureSpec.INHERIT
+        val optBriInf = optSection?.let { if (it.contains("brightness-influence")) it.getDouble("brightness-influence").toFloat() else null }
 
         val image = loadImage(path, definition.id) ?: return null
         return LayerOption(
@@ -319,7 +327,8 @@ class LayerManager(
             imageDefault = image,
             imageSlim = image,
             paletteSpec = optPaletteSpec,
-            textureSpec = optTextureSpec
+            textureSpec = optTextureSpec,
+            brightnessInfluence = optBriInf
         )
     }
 
@@ -910,6 +919,16 @@ class LayerManager(
         return resolveTextures(layerDef, option, player)
     }
 
+    /**
+     * Resolve brightness-influence for a layer+option.
+     * Resolution: option → layer → default.
+     */
+    fun resolveBrightnessInfluence(layerDef: LayerDefinition, option: LayerOption): Float {
+        return option.brightnessInfluence
+            ?: layerDef.brightnessInfluence
+            ?: defaultBrightnessInfluence
+    }
+
     // ── Layer definition parsing ─────────────────────────────────────────
 
     private fun ConfigurationSection.toDefinition(dataFolder: Path): LayerDefinition {
@@ -920,6 +939,7 @@ class LayerManager(
 
         val palSpec = parsePaletteSpec(this)
         val texSpec = parseTextureSpec(this)
+        val briInf = if (contains("brightness-influence")) getDouble("brightness-influence").toFloat() else null
 
         return LayerDefinition(
             id = id,
@@ -927,7 +947,8 @@ class LayerManager(
             directory = directory,
             allowColorMask = allowMask,
             paletteSpec = palSpec,
-            textureSpec = texSpec
+            textureSpec = texSpec,
+            brightnessInfluence = briInf
         )
     }
 }

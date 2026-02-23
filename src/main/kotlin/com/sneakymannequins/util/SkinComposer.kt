@@ -29,7 +29,7 @@ object SkinComposer {
         useSlimModel: Boolean,
         optionResolver: ((layerId: String, optionId: String) -> LayerOption?)? = null,
         textureResolver: ((layerId: String) -> TextureDefinition?)? = null,
-        brightnessInfluence: Float = 0f
+        brightnessInfluenceResolver: ((layerId: String, option: LayerOption) -> Float)? = null
     ): BufferedImage {
         val output = BufferedImage(SKIN_SIZE, SKIN_SIZE, BufferedImage.TYPE_INT_ARGB)
         val graphics = output.createGraphics()
@@ -49,6 +49,7 @@ object SkinComposer {
             // mask would recolour every pixel instead of just the channel.
             var source = sourceImage
             if (layer.allowColorMask) {
+                val brightnessInfluence = brightnessInfluenceResolver?.invoke(layer.id, chosen) ?: 0f
                 // Resolve the active texture for this layer (null = "Default" / flat)
                 val texDef = textureResolver?.invoke(layer.id)
 

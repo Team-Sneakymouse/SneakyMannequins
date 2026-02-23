@@ -130,7 +130,8 @@ data class LayerDefinition(
     val directory: Path,
     val allowColorMask: Boolean,
     val paletteSpec: PaletteSpec = PaletteSpec.INHERIT,
-    val textureSpec: TextureSpec = TextureSpec.INHERIT
+    val textureSpec: TextureSpec = TextureSpec.INHERIT,
+    val brightnessInfluence: Float? = null
 )
 
 /**
@@ -145,6 +146,7 @@ data class LayerOption(
     val imageSlim: BufferedImage?,
     val paletteSpec: PaletteSpec = PaletteSpec.INHERIT,
     val textureSpec: TextureSpec = TextureSpec.INHERIT,
+    val brightnessInfluence: Float? = null,
     val masks: Map<Int, Path> = emptyMap()      // channel idx -> mask PNG
 )
 

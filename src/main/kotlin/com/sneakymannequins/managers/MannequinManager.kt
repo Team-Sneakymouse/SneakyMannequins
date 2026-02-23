@@ -459,6 +459,11 @@ class MannequinManager(
         sel?.selectedTexture?.let { layerManager.texture(it) }
     }
 
+    private val brightnessInfluenceResolver: (String, LayerOption) -> Float = { layerId, option ->
+        val layerDef = layerManager.definitionsInOrder().find { it.id == layerId }
+        if (layerDef != null) layerManager.resolveBrightnessInfluence(layerDef, option) else 0f
+    }
+
     /**
      * Build the flat list of [ChannelSlot]s for a layer, taking the currently
      * selected texture into account.  When the texture has a blend map with
@@ -478,8 +483,7 @@ class MannequinManager(
 
     fun render(mannequin: Mannequin, viewers: Collection<Player>, forceInstant: Boolean = false): Int {
         val definitions = layerManager.definitionsInOrder()
-        val briInfluence = plugin.config.getDouble("rendering.brightness-influence", 0.3).toFloat()
-        val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin), optionResolver = optionResolver, textureResolver = textureResolver(mannequin), brightnessInfluence = briInfluence)
+        val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin), optionResolver = optionResolver, textureResolver = textureResolver(mannequin), brightnessInfluenceResolver = brightnessInfluenceResolver)
         val nextFrame = PixelFrame.fromImage(composed)
         val diff = mannequin.lastFrame.diff(nextFrame)
         mannequin.lastFrame = nextFrame
@@ -502,8 +506,7 @@ class MannequinManager(
 
     private fun renderFull(mannequin: Mannequin, viewers: Collection<Player>, isFirstSeen: Boolean = false, forceInstant: Boolean = false) {
         val definitions = layerManager.definitionsInOrder()
-        val briInfluence = plugin.config.getDouble("rendering.brightness-influence", 0.3).toFloat()
-        val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin), optionResolver = optionResolver, textureResolver = textureResolver(mannequin), brightnessInfluence = briInfluence)
+        val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin), optionResolver = optionResolver, textureResolver = textureResolver(mannequin), brightnessInfluenceResolver = brightnessInfluenceResolver)
         mannequin.lastFrame = PixelFrame.fromImage(composed)
         val changes = mutableListOf<PixelChange>()
         for (x in 0 until composed.width) {

@@ -40,13 +40,6 @@ plugin:
 
 # ── Rendering & Animation ─────────────────────────────────────────────────────
 rendering:
-  # How much the picked colour's brightness influences the final pixel.
-  # 0.0 = brightness fully preserved from original art (old behaviour).
-  # 1.0 = full rescale towards picked colour's brightness (destroys shading).
-  # Values around 0.2–0.4 shift the overall brightness region while keeping
-  # the original shading contrast mostly intact.
-  brightness-influence: 0.3
-
   # Radius (blocks) at which a mannequin first appears for a player.
   view-radius: 8
   # Radius (blocks) within which a player continues to receive updates.
@@ -538,6 +531,14 @@ layers:
     textures:
       - worn
       - fabric
+
+    # How much the picked colour's brightness influences the final pixel.
+    # 0.0 = brightness fully preserved from original art (old behaviour).
+    # 1.0 = full rescale towards picked colour's brightness (destroys shading).
+    # Values around 0.2–0.4 shift the overall brightness region while keeping
+    # the original shading contrast mostly intact.
+    # Can be overridden per-layer or per-part (option) in their config sections.
+    brightness-influence: 0.3
 
     hair:
       display-name: "Hair"
