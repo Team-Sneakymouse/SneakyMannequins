@@ -6,6 +6,7 @@ import com.sneakymannequins.managers.LayerManager
 import com.sneakymannequins.managers.MannequinManager
 import com.sneakymannequins.managers.MannequinPersistence
 import com.sneakymannequins.managers.SessionManager
+import com.sneakymannequins.listeners.TriggerListener
 import com.sneakymannequins.nms.VolatileHandler
 import com.sneakymannequins.nms.VolatileHandlerRegistry
 import io.papermc.paper.event.player.AsyncChatEvent
@@ -63,6 +64,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
 		// Register commands
         registerCommand("mannequin", CommandMannequin(this, mannequinManager, layerManager, sessionManager))
         server.pluginManager.registerEvents(this, this)
+        server.pluginManager.registerEvents(TriggerListener(this), this)
         
         // Start the per-tick hover detection task
         mannequinManager.startHoverTask()

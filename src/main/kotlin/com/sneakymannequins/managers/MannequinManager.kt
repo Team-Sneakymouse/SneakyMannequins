@@ -1,6 +1,7 @@
 package com.sneakymannequins.managers
 
 import com.sneakymannequins.SneakyMannequins
+import com.sneakymannequins.events.*
 import com.sneakymannequins.model.LayerSelection
 import com.sneakymannequins.model.LayerOption
 import com.sneakymannequins.model.LayerDefinition
@@ -492,10 +493,14 @@ class MannequinManager(
         val mannequin = mannequins[manId] ?: return false
         val session = sessionManager.load(message.trim())
         if (session != null) {
+            val loadEvent = MannequinSessionLoadEvent(manId, mannequin.location, player, uid = session.uid)
+            plugin.server.pluginManager.callEvent(loadEvent)
+            if (loadEvent.isCancelled) {
+                updateStatus(manId, "Load blocked")
+                return true
+            }
             applySession(manId, session, player)
             updateStatus(manId, "Loaded: ${session.uid}")
-            val ph = basePlaceholders(player, mannequin).apply { put("uid", session.uid) }
-            fireTrigger("session-load", ph)
         } else {
             state.mode = ControlMode.NONE
             val layers = layerManager.definitionsInOrder()
@@ -575,7 +580,9 @@ class MannequinManager(
             if (man.location.distanceSquared(viewer.location) > viewRadiusSq) continue
             renderFull(man, listOf(viewer), isFirstSeen = true)
             seen += man.id
-            fireTrigger("first-seen", basePlaceholders(viewer, man))
+            plugin.server.pluginManager.callEvent(
+                MannequinFirstSeenEvent(man.id, man.location, viewer)
+            )
         }
     }
 
@@ -777,7 +784,9 @@ class MannequinManager(
             flyInTicksLeft = HUD_FLY_INTERP_TICKS
         )
 
-        fireTrigger("control-open", basePlaceholders(player, mannequin))
+        plugin.server.pluginManager.callEvent(
+            MannequinControlOpenEvent(manId, mannequin.location, player)
+        )
     }
 
     /** Destroy the virtual HUD for a player (if any). */
@@ -809,7 +818,9 @@ class MannequinManager(
         val manId = hud.mannequinId
         val mannequin = mannequins[manId]
         if (mannequin != null) {
-            fireTrigger("control-closed", basePlaceholders(player, mannequin))
+            plugin.server.pluginManager.callEvent(
+                MannequinControlClosedEvent(manId, mannequin.location, player)
+            )
         }
         val visuals = buttonVisuals[manId]
         val yaw = hud.lastYaw
@@ -1260,16 +1271,18 @@ class MannequinManager(
             is HoverTarget.ButtonTarget -> {
                 val hovBtn = buttonByName(target.name)
                 sendButtonBg(player, hud, mannequin.id, target.name, hovBtn?.bgHighlight ?: HUD_BG_HIGHLIGHT)
-                val ph = basePlaceholders(player, mannequin).apply { put("button", target.name) }
-                fireTrigger("hover", ph)
+                plugin.server.pluginManager.callEvent(
+                    MannequinHoverEvent(mannequin.id, mannequin.location, player, button = target.name)
+                )
             }
             is HoverTarget.CellTarget -> {
                 handler.sendHudBackground(player, target.entityId, HUD_BG_HIGHLIGHT)
             }
             is HoverTarget.MenuTarget -> {
                 handler.sendHudBackground(player, target.entityId, HUD_BG_HIGHLIGHT)
-                val ph = basePlaceholders(player, mannequin).apply { put("button", target.item.action) }
-                fireTrigger("hover", ph)
+                plugin.server.pluginManager.callEvent(
+                    MannequinHoverEvent(mannequin.id, mannequin.location, player, button = target.item.action)
+                )
             }
             null -> {}
         }
@@ -1379,8 +1392,9 @@ class MannequinManager(
                 applyGridCellColor(target.cell, manId, mannequin, state, player)
             }
             is HoverTarget.MenuTarget -> {
-                val clickPh = basePlaceholders(player, mannequin).apply { put("button", target.item.action) }
-                fireTrigger("click", clickPh)
+                val menuClickEvent = MannequinClickEvent(manId, mannequin.location, player, button = target.item.action)
+                plugin.server.pluginManager.callEvent(menuClickEvent)
+                if (menuClickEvent.isCancelled) return
                 executeMenuAction(target.item, manId, mannequin, state, player)
             }
             null -> executeModeAction(manId, mannequin, state, player, backwards)
@@ -1403,8 +1417,9 @@ class MannequinManager(
             !grid.flyingOut && if (backwards) grid.page == 0 else grid.page >= grid.totalPages - 1
         } == true)
         if (!willCycle && !gridOpening && !gridClosing) {
-            val clickPh = basePlaceholders(player, mannequin).apply { put("button", button) }
-            fireTrigger("click", clickPh)
+            val clickEvent = MannequinClickEvent(manId, mannequin.location, player, button = button)
+            plugin.server.pluginManager.callEvent(clickEvent)
+            if (clickEvent.isCancelled) return
         }
 
         val layers = layerManager.definitionsInOrder()
@@ -1760,11 +1775,12 @@ class MannequinManager(
         if (hud != null) refreshColorGrid(player, mannequin, state, hud)
 
         val prettyPart = prettyName(chosen.displayName)
-        val ph = basePlaceholders(player, mannequin).apply {
-            put("layer", layer.id)
-            put("part", prettyPart.replace(' ', '\u00A0'))
-        }
-        fireLayerTrigger("part-change", layer.id, ph)
+        val partEvent = MannequinPartChangeEvent(
+            mannequin.id, mannequin.location, player,
+            layer = layer.id, part = prettyPart.replace(' ', '\u00A0')
+        )
+        plugin.server.pluginManager.callEvent(partEvent)
+        if (partEvent.isCancelled) return "Part: $prettyPart"
 
         return "Part: $prettyPart"
     }
@@ -1814,17 +1830,15 @@ class MannequinManager(
         }
 
         val colorLabel = cell.colorName
-        val colorCode = cell.color?.let { String.format("#%02X%02X%02X", it.red, it.green, it.blue) } ?: ""
-        val ph = basePlaceholders(player, mannequin).apply {
-            put("layer", layer.id)
-            put("color", colorLabel.replace(' ', '\u00A0'))
-            put("color_code", colorCode)
-            put("color_r", cell.color?.let { String.format("%.3f", it.red / 255.0) } ?: "1.000")
-            put("color_g", cell.color?.let { String.format("%.3f", it.green / 255.0) } ?: "1.000")
-            put("color_b", cell.color?.let { String.format("%.3f", it.blue / 255.0) } ?: "1.000")
-            put("channel", slot.label)
-        }
-        fireTrigger("color-change", ph)
+        val colorChangeEvent = MannequinColorChangeEvent(
+            manId, mannequin.location, player,
+            layer = layer.id,
+            channel = slot.label,
+            color = cell.color,
+            colorName = colorLabel.replace(' ', '\u00A0')
+        )
+        plugin.server.pluginManager.callEvent(colorChangeEvent)
+        if (colorChangeEvent.isCancelled) return
         updateStatus(manId, "Color: $colorLabel")
 
         // Re-render with the new colour; grid stays open
@@ -2012,7 +2026,9 @@ class MannequinManager(
         hud.lastDist = dist
         hud.gridState = buildAndSpawnGrid(player, mannequin, state, hud.lastYaw, dist, 0, allPaletteIds, cfg,
             hasDefaultColor = hasDefaultColor)
-        fireTrigger("submenu-open", basePlaceholders(player, mannequin))
+        plugin.server.pluginManager.callEvent(
+            MannequinSubmenuOpenEvent(mannequin.id, mannequin.location, player)
+        )
     }
 
     /**
@@ -2080,10 +2096,11 @@ class MannequinManager(
             )
         }
 
-        // Fire close trigger
         val mannequin = mannequins[hud.mannequinId]
         if (mannequin != null) {
-            fireTrigger("submenu-close", basePlaceholders(player, mannequin))
+            plugin.server.pluginManager.callEvent(
+                MannequinSubmenuCloseEvent(hud.mannequinId, mannequin.location, player)
+            )
         }
 
         // Schedule destruction after the interpolation finishes
@@ -2191,7 +2208,9 @@ class MannequinManager(
             allEntityIds = allIds.toIntArray(),
             flyInTicksLeft = HUD_FLY_INTERP_TICKS
         )
-        fireTrigger("submenu-open", basePlaceholders(player, mannequin))
+        plugin.server.pluginManager.callEvent(
+            MannequinSubmenuOpenEvent(mannequin.id, mannequin.location, player)
+        )
     }
 
     private fun despawnConfigGrid(player: Player, hud: PlayerHudState) {
@@ -2223,7 +2242,9 @@ class MannequinManager(
 
         val mannequin = mannequins[hud.mannequinId]
         if (mannequin != null) {
-            fireTrigger("submenu-close", basePlaceholders(player, mannequin))
+            plugin.server.pluginManager.callEvent(
+                MannequinSubmenuCloseEvent(hud.mannequinId, mannequin.location, player)
+            )
         }
 
         val playerId = player.uniqueId
@@ -2248,9 +2269,13 @@ class MannequinManager(
                     brightnessInfluenceResolver = brightnessInfluenceResolver
                 )
                 val uid = sessionManager.save(mannequin, player, rendered)
+                val saveEvent = MannequinSessionSaveEvent(manId, mannequin.location, player, uid = uid)
+                plugin.server.pluginManager.callEvent(saveEvent)
+                if (saveEvent.isCancelled) {
+                    updateStatus(manId, "Save blocked")
+                    return
+                }
                 updateStatus(manId, "Saved: $uid")
-                val ph = basePlaceholders(player, mannequin).apply { put("uid", uid) }
-                fireTrigger("session-save", ph)
             }
             "load" -> {
                 if (state.mode == ControlMode.LOAD) {
@@ -2387,51 +2412,6 @@ class MannequinManager(
     }
 
     // ── Trigger helpers ───────────────────────────────────────────────────────
-
-    /**
-     * Fire a list of console commands from a config path, substituting placeholders.
-     * @param configPath  path under `triggers`, e.g. "hover" or "click"
-     * @param placeholders  map of placeholder names (without braces) to values
-     */
-    private fun fireTrigger(configPath: String, placeholders: Map<String, String>) {
-        val commands = plugin.config.getStringList("triggers.$configPath")
-        dispatchCommands(commands, placeholders)
-    }
-
-    /**
-     * Fire a per-layer trigger. Looks for `triggers.<base>.<layerKey>` first,
-     * falling back to `triggers.<base>.default`.
-     */
-    private fun fireLayerTrigger(base: String, layerKey: String, placeholders: Map<String, String>) {
-        val perLayer = plugin.config.getStringList("triggers.$base.$layerKey")
-        val commands = perLayer.ifEmpty { plugin.config.getStringList("triggers.$base.default") }
-        dispatchCommands(commands, placeholders)
-    }
-
-    private fun dispatchCommands(commands: List<String>, placeholders: Map<String, String>) {
-        if (commands.isEmpty()) return
-        val consoleSender = plugin.server.consoleSender
-        for (template in commands) {
-            var cmd = template
-            for ((key, value) in placeholders) {
-                cmd = cmd.replace("{$key}", value)
-            }
-            if (cmd.isNotBlank()) {
-                plugin.server.dispatchCommand(consoleSender, cmd)
-            }
-        }
-    }
-
-    /** Build the base set of placeholders that every trigger gets. */
-    private fun basePlaceholders(player: Player, mannequin: Mannequin): MutableMap<String, String> {
-        val loc = mannequin.location
-        return mutableMapOf(
-            "player" to player.name,
-            "x" to String.format("%.2f", loc.x),
-            "y" to String.format("%.2f", loc.y),
-            "z" to String.format("%.2f", loc.z)
-        )
-    }
 
     private fun prettyName(raw: String): String =
         raw.trim()
