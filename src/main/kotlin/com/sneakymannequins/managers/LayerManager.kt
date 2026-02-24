@@ -158,6 +158,9 @@ class LayerManager(
 
             // Auto-detect active sub-channels from the blend map (scan entire image)
             val activeSubChannels = if (blendImage != null) detectSubChannels(blendImage) else emptySet()
+            if (activeSubChannels.isNotEmpty()) {
+                plugin.logger.info("Texture '$textureId' detected ${activeSubChannels.size} sub-channels: $activeSubChannels")
+            }
 
             val displayName = toDisplayName(textureId)
             textures[textureId] = TextureDefinition(
@@ -192,7 +195,7 @@ class LayerManager(
                 if (r > 0) active.add(0)
                 if (g > 0) active.add(1)
                 if (b > 0) active.add(2)
-                if (active.size == 3) return active // all found, short-circuit
+                if (active.size == 3) break
             }
         }
         return active

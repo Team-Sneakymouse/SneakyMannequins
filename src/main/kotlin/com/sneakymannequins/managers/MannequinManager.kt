@@ -471,21 +471,10 @@ class MannequinManager(
                 texturedColors = texturedColors,
                 selectedTexture = layerData.selectedTexture
             )
-
-            // Sync control state indices
-            val selOption = newSelections[layerId]?.option
-            state.partIndex[layerId] = opts.indexOfFirst { it.id == selOption?.id }.coerceAtLeast(0)
-            state.channelIndex[layerId] = 0
-            state.colorIndex[layerId] = 0
-            val rawTex = if (selOption != null) layerManager.resolveTextures(def, selOption, null) else emptyList()
-            val hasDefaultTex = "default" in rawTex
-            val actualTex = rawTex.filter { it != "default" }
-            state.textureIndex[layerId] = if (layerData.selectedTexture != null) {
-                actualTex.indexOf(layerData.selectedTexture).coerceAtLeast(0)
-            } else if (hasDefaultTex) -1 else 0
         }
 
         mannequin.selection = SkinSelection(newSelections)
+        syncControlState(mannequin, state)
         for (def in definitions) rememberCurrentPartSelection(mannequin, def)
         mannequin.lastFrame = PixelFrame.blank()
 
@@ -649,9 +638,10 @@ class MannequinManager(
         layer: LayerDefinition, option: LayerOption?, state: ControlState, player: Player
     ): List<ChannelSlot> {
         val maskChannels = option?.masks?.keys?.sorted() ?: emptyList()
-        val texIdx = state.textureIndex.getOrDefault(layer.id, -1)
-        val texId = if (option != null)
-            layerManager.resolveTextures(layer, option, player).getOrNull(texIdx) else null
+        val rawTexResolved = if (option != null) layerManager.resolveTextures(layer, option, player) else emptyList()
+        val texIdx = state.textureIndex.getOrDefault(layer.id, 0).coerceIn(0, (rawTexResolved.size - 1).coerceAtLeast(0))
+        val rawTexId = rawTexResolved.getOrNull(texIdx)
+        val texId = if (rawTexId == "default") null else rawTexId
         val texDef = texId?.let { layerManager.texture(it) }
         val activeSubs = if (texDef?.blendMapImage != null) texDef.activeSubChannels else null
         return buildChannelSlots(maskChannels, activeSubs)
@@ -1389,7 +1379,9 @@ class MannequinManager(
         interactionDebounce[debounceKey] = now
 
         val mannequin = mannequins[manId] ?: return
+        val isNewState = !controlState.containsKey(manId)
         val state = controlState.getOrPut(manId) { ControlState() }
+        if (isNewState) syncControlState(mannequin, state)
         val interactionValid = isValidControlInteraction(player, mannequin)
 
         // ── Open HUD on first interaction ────────────────────────────────
@@ -1585,20 +1577,18 @@ class MannequinManager(
             "texture" -> {
                 val option = freshOption(layer.id, mannequin)
                 val rawTexIds = if (option != null) layerManager.resolveTextures(layer, option, player) else emptyList()
-                val hasDefaultTex = "default" in rawTexIds
-                val texIds = rawTexIds.filter { it != "default" }
 
-                if (texIds.isEmpty() && !hasDefaultTex) {
+                if (rawTexIds.isEmpty()) {
                     updateStatus(manId, "Texture: N/A")
                 } else {
-                    val minIdx = if (hasDefaultTex) -1 else 0
-                    val total = texIds.size + (if (hasDefaultTex) 1 else 0)
-                    val current = state.textureIndex.getOrDefault(layer.id, minIdx).coerceIn(minIdx, texIds.size - 1)
+                    val total = rawTexIds.size
+                    val current = state.textureIndex.getOrDefault(layer.id, 0).coerceIn(0, total - 1)
                     val delta = if (backwards) -1 else 1
-                    val next = ((current - minIdx) + delta + total) % total + minIdx
+                    val next = (current + delta + total) % total
                     state.textureIndex[layer.id] = next
 
-                    val newTexId = if (next >= 0) texIds[next] else null
+                    val rawTexId = rawTexIds[next]
+                    val newTexId = if (rawTexId == "default") null else rawTexId
                     val sel = mannequin.selection.selections[layer.id]
                     if (sel != null && option != null) {
                         val newSel = migrateColors(layer, option, sel, newTexId, player)
@@ -1609,9 +1599,10 @@ class MannequinManager(
 
                     state.channelIndex[layer.id] = 0
                     state.colorIndex[layer.id] = 0
-                    val label = if (next == -1) "Default" else {
-                        val texDef = layerManager.texture(texIds[next])
-                        texDef?.displayName ?: prettyName(texIds[next])
+
+                    val label = if (rawTexId == "default") "Default" else {
+                        val texDef = layerManager.texture(rawTexId)
+                        texDef?.displayName ?: prettyName(rawTexId)
                     }
                     updateStatus(manId, "Texture: $label")
                 }
@@ -1708,10 +1699,10 @@ class MannequinManager(
         // Channel disabled when there are ≤1 slots in the flat channel list
         val channelSlotCount = if (option != null && layer != null && state != null) {
             val maskChannels = option.masks.keys.sorted()
-            val texIdx = state.textureIndex.getOrDefault(layer.id, -1)
             val rawTexResolved = layerManager.resolveTextures(layer, option, null)
-            val actualTexResolved = rawTexResolved.filter { it != "default" }
-            val texId = if (texIdx >= 0) actualTexResolved.getOrNull(texIdx) else null
+            val texIdx = state.textureIndex.getOrDefault(layer.id, 0).coerceIn(0, (rawTexResolved.size - 1).coerceAtLeast(0))
+            val rawTexId = rawTexResolved.getOrNull(texIdx)
+            val texId = if (rawTexId == "default") null else rawTexId
             val texDef = texId?.let { layerManager.texture(it) }
             val activeSubs = if (texDef?.blendMapImage != null) texDef.activeSubChannels else null
             buildChannelSlots(maskChannels, activeSubs).size
@@ -1858,11 +1849,11 @@ class MannequinManager(
         state.channelIndex[layer.id] = 0
         state.colorIndex[layer.id] = 0
         val rawTex = layerManager.resolveTextures(layer, chosen, player)
-        val hasDefaultTex = "default" in rawTex
         state.textureIndex[layer.id] = if (sel.selectedTexture != null) {
-            val actualTex = rawTex.filter { it != "default" }
-            actualTex.indexOf(sel.selectedTexture).coerceAtLeast(0)
-        } else if (hasDefaultTex) -1 else 0
+            rawTex.indexOf(sel.selectedTexture).coerceAtLeast(0)
+        } else {
+            rawTex.indexOf("default").coerceAtLeast(0)
+        }
 
         refreshDynamicLabels(mannequin.id, chosen, layer)
         val hud = playerHuds[player.uniqueId]
@@ -2625,21 +2616,25 @@ class MannequinManager(
 
         val state = controlState[mannequin.id]
         if (state != null) {
-            for (def in definitions) {
-                val opts = layerManager.optionsFor(def.id)
-                val sel = newSelections[def.id]
-                val idx = opts.indexOfFirst { it.id == sel?.option?.id }.coerceAtLeast(0)
-                state.partIndex[def.id] = idx
-                state.colorIndex[def.id] = 0
-                state.channelIndex[def.id] = 0
-                val rawTex = if (sel?.option != null) layerManager.resolveTextures(def, sel.option, null) else emptyList()
-                val hasDefaultTex = "default" in rawTex
-                state.textureIndex[def.id] = if (sel?.selectedTexture != null) {
-                    val actualTex = rawTex.filter { it != "default" }
-                    actualTex.indexOf(sel.selectedTexture).coerceAtLeast(0)
-                } else if (hasDefaultTex) -1 else 0
-            }
+            syncControlState(mannequin, state)
             state.mode = ControlMode.NONE
+        }
+    }
+
+    private fun syncControlState(mannequin: Mannequin, state: ControlState) {
+        val definitions = layerManager.definitionsInOrder()
+        for (def in definitions) {
+            val sel = mannequin.selection.selections[def.id]
+            val opts = layerManager.optionsFor(def.id)
+            state.partIndex[def.id] = opts.indexOfFirst { it.id == sel?.option?.id }.coerceAtLeast(0)
+            state.channelIndex[def.id] = 0
+            state.colorIndex[def.id] = 0
+            val rawTex = if (sel?.option != null) layerManager.resolveTextures(def, sel.option, null) else emptyList()
+            state.textureIndex[def.id] = if (sel?.selectedTexture != null) {
+                rawTex.indexOf(sel.selectedTexture).coerceAtLeast(0)
+            } else {
+                rawTex.indexOf("default").coerceAtLeast(0)
+            }
         }
     }
 
