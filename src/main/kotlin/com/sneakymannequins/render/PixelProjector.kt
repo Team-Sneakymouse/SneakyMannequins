@@ -1,6 +1,7 @@
 package com.sneakymannequins.render
 
 import com.sneakymannequins.model.PixelChange
+import com.sneakymannequins.util.SkinUv
 import org.bukkit.Location
 import kotlin.math.abs
 import kotlin.math.asin
@@ -97,6 +98,9 @@ object PixelProjector {
     )
 
     private fun mapSkinPixelToModel(x: Int, y: Int, s: Double, slimArms: Boolean, tPose: Boolean = false): PixelPose? {
+        // Skip any pixel outside the canonical UV map before evaluating face planes.
+        if (!SkinUv.isInAnyUv(x, y)) return null
+
         // Overlay gap: vanilla adds 0.5 pixels on each side.
         // Adjacent outer layers overlap by ~1 pixel.  Tiny per-part increments
         // give the renderer a clear depth ordering and prevent Z-fighting.

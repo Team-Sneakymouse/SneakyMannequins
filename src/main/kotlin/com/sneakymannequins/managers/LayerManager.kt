@@ -10,6 +10,7 @@ import com.sneakymannequins.model.PaletteSpec
 import com.sneakymannequins.model.TextureDefinition
 import com.sneakymannequins.model.TextureRef
 import com.sneakymannequins.model.TextureSpec
+import com.sneakymannequins.util.SkinUv
 import org.bukkit.configuration.ConfigurationSection
 import org.bukkit.entity.Player
 import java.awt.Color
@@ -461,35 +462,12 @@ class LayerManager(
             for (y in 0 until image.height) {
                 val argb = image.getRGB(x, y)
                 if ((argb ushr 24) == 0) continue
-                if (isInUv(x, y)) {
+                if (SkinUv.isInAnyUv(x, y)) {
                     out.setRGB(x, y, argb)
                 }
             }
         }
         return out
-    }
-
-    private fun isInUv(x: Int, y: Int): Boolean {
-        // Vanilla 64x64 skin layout (both layers)
-        val regions = listOf(
-            Rect(0, 0, 32, 16),    // Head base
-            Rect(32, 0, 64, 16),   // Head overlay
-            Rect(16, 16, 40, 32),  // Body base
-            Rect(16, 32, 56, 48),  // Body overlay
-            Rect(40, 16, 56, 32),  // Right arm base
-            Rect(40, 32, 56, 48),  // Right arm overlay
-            Rect(32, 48, 48, 64),  // Left arm base/overlay
-            Rect(48, 48, 64, 64),  // Left arm overlay
-            Rect(0, 16, 16, 32),   // Right leg base
-            Rect(0, 32, 16, 48),   // Right leg overlay
-            Rect(16, 48, 32, 64),  // Left leg base
-            Rect(0, 48, 16, 64)    // Left leg overlay
-        )
-        return regions.any { it.contains(x, y) }
-    }
-
-    private data class Rect(val x0: Int, val y0: Int, val x1: Int, val y1: Int) {
-        fun contains(x: Int, y: Int): Boolean = x in x0 until x1 && y in y0 until y1
     }
 
     // ── Slim → default arm-column fix ─────────────────────────────────────

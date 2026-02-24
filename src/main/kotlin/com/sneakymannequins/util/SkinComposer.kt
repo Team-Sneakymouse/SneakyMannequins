@@ -91,10 +91,18 @@ object SkinComposer {
         }
 
         graphics.dispose()
+        forceInnerLayerOpaque(output)
         return output
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
+
+    private fun forceInnerLayerOpaque(image: BufferedImage) {
+        SkinUv.forEachInnerBasePixel { x, y ->
+            val argb = image.getRGB(x, y)
+            image.setRGB(x, y, (0xFF shl 24) or (argb and 0x00FFFFFF))
+        }
+    }
 
     /** Sample a grayscale map's luminance at (x, y), returning a multiplier centred at 1.0. */
     private fun sampleMultiplier(map: BufferedImage, x: Int, y: Int): Float {
