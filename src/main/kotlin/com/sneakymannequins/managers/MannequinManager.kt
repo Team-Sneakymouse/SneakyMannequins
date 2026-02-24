@@ -58,7 +58,7 @@ private data class ControlState(
     var mode: ControlMode = ControlMode.NONE
 )
 
-private enum class ControlMode { NONE, PART, LOAD }
+private enum class ControlMode { NONE, LOAD }
 
 // ── Color picker grid structures ────────────────────────────────────────────
 
@@ -192,6 +192,19 @@ class MannequinManager(
     private val updateRadius: Double
         get() = plugin.config.getDouble("rendering.update-radius", 48.0)
 
+    /** Radius of the mannequin Interaction hitbox (blocks). */
+    private val interactRadius: Double
+        get() = plugin.config.getDouble("controls.interact-radius", INTERACT_RADIUS_DEFAULT).coerceAtLeast(0.5)
+
+    /** Distance required for control interaction logic (blocks). */
+    private val interactRange: Double
+        get() = plugin.config.getDouble("controls.interact-range", INTERACT_RANGE_DEFAULT).coerceAtLeast(0.5)
+
+    /** Horizontal facing tolerance for default part control (degrees). */
+    private val partFacingToleranceDeg: Double
+        get() = plugin.config.getDouble("controls.interaction-facing-tolerance-horizontal-deg", PART_FACING_TOLERANCE_DEG_DEFAULT)
+            .coerceIn(0.0, 180.0)
+
     /** Read [RenderSettings] from config for first-seen or update context. */
     private fun readRenderSettings(isFirstSeen: Boolean): RenderSettings {
         val path = if (isFirstSeen) "rendering.first-seen" else "rendering.update"
@@ -216,8 +229,9 @@ class MannequinManager(
 
     companion object {
         private const val HOVER_RANGE = 6.0
-        private const val INTERACT_RADIUS = 10.0f
-        private const val HUD_SUMMON_RANGE = 4.0
+        private const val INTERACT_RADIUS_DEFAULT = 10.0
+        private const val INTERACT_RANGE_DEFAULT = 2.0
+        private const val PART_FACING_TOLERANCE_DEG_DEFAULT = 60.0
         private const val HUD_BG_DEFAULT = 0x78000000.toInt()       // fallback semi-transparent black
         private const val HUD_BG_HIGHLIGHT = 0xB8336699.toInt()     // fallback translucent blue
         private const val BUTTON_TOLERANCE = 0.35
@@ -230,10 +244,10 @@ class MannequinManager(
         private const val HUD_DISMISS_RANGE = 8.0                   // dismiss HUD when player is this far (blocks)
 
         /** Canonical ordered list of button names. */
-        private val BUTTON_ORDER = listOf("status", "model", "pose", "layer", "random", "part", "texture", "channel", "color", "config")
+        private val BUTTON_ORDER = listOf("status", "model", "pose", "layer", "random", "texture", "channel", "color", "config")
 
         /** Button names that respond to clicks.  "status" is display-only. */
-        private val CLICKABLE_BUTTONS = setOf("model", "pose", "random", "layer", "part", "channel", "texture", "color", "config")
+        private val CLICKABLE_BUTTONS = setOf("model", "pose", "random", "layer", "channel", "texture", "color", "config")
 
         /** Hardcoded defaults used when a key is absent from config. */
         private data class BtnDefault(val text: String, val activeText: String?, val tx: Float, val ty: Float, val tz: Float, val lineWidth: Int)
@@ -241,9 +255,8 @@ class MannequinManager(
             "status"  to BtnDefault("<white>{message}", null,            0.0f,  2.8f, -2.0f, 256),
             "model"   to BtnDefault("<white>Model",    null,           -1.1f,  2.2f, -2.0f, 200),
             "pose"    to BtnDefault("<white>Pose",     null,           -1.1f,  1.7f, -2.0f, 200),
-            "layer"   to BtnDefault("<white>Layer",    null,           -1.1f,  1.2f, -2.0f, 200),
             "random"  to BtnDefault("<white>Random",   null,           -1.1f,  0.7f, -2.0f, 200),
-            "part"    to BtnDefault("<white>Part",     "<yellow>Part",  1.1f,  2.2f, -2.0f, 200),
+            "layer"   to BtnDefault("<white>Layer",    null,            1.1f,  2.2f, -2.0f, 200),
             "texture" to BtnDefault("<white>Texture",  null,            1.1f,  1.7f, -2.0f, 200),
             "channel" to BtnDefault("<white>Channel",  null,            1.1f,  1.2f, -2.0f, 200),
             "color"   to BtnDefault("<white>Color",    "<yellow>Color", 1.1f,  0.7f, -2.0f, 200),
@@ -710,8 +723,8 @@ class MannequinManager(
         if (existing) return
 
         world.spawn(loc, org.bukkit.entity.Interaction::class.java) { inter ->
-            inter.interactionWidth = INTERACT_RADIUS * 2
-            inter.interactionHeight = INTERACT_RADIUS * 2
+            inter.interactionWidth = (interactRadius * 2.0).toFloat()
+            inter.interactionHeight = (interactRadius * 2.0).toFloat()
             inter.isResponsive = true
             inter.scoreboardTags.add("sneakymannequin_control")
             inter.scoreboardTags.add("mannequin:$mannequinId")
@@ -1370,12 +1383,18 @@ class MannequinManager(
 
         val mannequin = mannequins[manId] ?: return
         val state = controlState.getOrPut(manId) { ControlState() }
+        val interactionValid = isValidControlInteraction(player, mannequin)
 
         // ── Open HUD on first interaction ────────────────────────────────
         val currentHud = playerHuds[player.uniqueId]
         if (currentHud == null || currentHud.mannequinId != manId || currentHud.flyingAway) {
-            if (mannequin.location.distance(player.location) > HUD_SUMMON_RANGE) return
-            // Destroy any stale / wrong-mannequin / flying-away HUD first
+            if (!interactionValid) return
+            // Switching mannequins: fly away old controls first, then open on next click.
+            if (currentHud != null && currentHud.mannequinId != manId && !currentHud.flyingAway) {
+                flyAwayPlayerHud(player, currentHud)
+                return
+            }
+            // Same mannequin or stale flying state: clean up immediately.
             if (currentHud != null) destroyPlayerHud(player)
             // Reset button labels before spawning so stale active-text doesn't carry over
             val layers = layerManager.definitionsInOrder()
@@ -1424,12 +1443,11 @@ class MannequinManager(
         player: Player,
         backwards: Boolean
     ) {
-        val willCycle = (button == "part" && state.mode == ControlMode.PART)
         val gridOpening = (button == "color" && playerHuds[player.uniqueId]?.gridState == null)
         val gridClosing = (button == "color" && playerHuds[player.uniqueId]?.gridState?.let { grid ->
             !grid.flyingOut && if (backwards) grid.page == 0 else grid.page >= grid.totalPages - 1
         } == true)
-        if (!willCycle && !gridOpening && !gridClosing) {
+        if (!gridOpening && !gridClosing) {
             val clickEvent = MannequinClickEvent(manId, mannequin.location, player, button = button)
             plugin.server.pluginManager.callEvent(clickEvent)
             if (clickEvent.isCancelled) return
@@ -1495,23 +1513,11 @@ class MannequinManager(
                 state.channelIndex[newLayer.id] = 0
                 state.textureIndex.remove(newLayer.id)
                 state.colorIndex[newLayer.id] = 0
-                state.mode = ControlMode.PART
+                state.mode = ControlMode.NONE
                 val option = freshOption(newLayer.id, mannequin)
                 refreshDynamicLabels(manId, option, newLayer)
                 val hud = playerHuds[player.uniqueId]
                 if (hud != null) refreshColorGrid(player, mannequin, state, hud)
-            }
-            "part" -> {
-                if (state.mode == ControlMode.PART) {
-                    cyclePart(layer, mannequin, state, player, backwards)?.let {
-                        updateStatus(manId, it)
-                        render(mannequin, nearbyViewers(mannequin))
-                    }
-                } else {
-                    state.mode = ControlMode.PART
-                    refreshDynamicLabels(manId, freshOption(layer.id, mannequin), layer)
-                    updateStatus(manId, "Mode: Part")
-                }
             }
             "channel" -> {
                 val option = freshOption(layer.id, mannequin)
@@ -1650,17 +1656,40 @@ class MannequinManager(
     }
 
     private fun executeModeAction(manId: UUID, mannequin: Mannequin, state: ControlState, player: Player, backwards: Boolean) {
+        if (state.mode == ControlMode.LOAD) return
+        val hud = playerHuds[player.uniqueId] ?: return
+        if (!canUseDefaultPartControl(player, mannequin, hud)) return
+
         val layers = layerManager.definitionsInOrder()
         if (layers.isEmpty()) return
         val layer = layers.getOrNull(state.layerIndex % layers.size) ?: layers.first()
-
-        when (state.mode) {
-            ControlMode.PART -> cyclePart(layer, mannequin, state, player, backwards)?.let {
-                updateStatus(manId, it)
-                render(mannequin, nearbyViewers(mannequin))
-            }
-            else -> {}
+        cyclePart(layer, mannequin, state, player, backwards)?.let {
+            updateStatus(manId, it)
+            render(mannequin, nearbyViewers(mannequin))
         }
+    }
+
+    private fun canUseDefaultPartControl(player: Player, mannequin: Mannequin, hud: PlayerHudState): Boolean {
+        if (!hud.ready || hud.flyingAway) return false
+        if (hud.mannequinId != mannequin.id) return false
+        return isValidControlInteraction(player, mannequin)
+    }
+
+    private fun isValidControlInteraction(player: Player, mannequin: Mannequin): Boolean {
+        if (player.world != mannequin.location.world) return false
+        if (player.location.distance(mannequin.location) > interactRange) return false
+
+        val eye = player.eyeLocation
+        val look = eye.direction
+        val toManX = mannequin.location.x - eye.x
+        val toManZ = mannequin.location.z - eye.z
+        val lookLen = sqrt(look.x * look.x + look.z * look.z)
+        val toManLen = sqrt(toManX * toManX + toManZ * toManZ)
+        if (toManLen < 1e-6 || lookLen < 1e-6) return true
+
+        val dot = (look.x * toManX + look.z * toManZ) / (lookLen * toManLen)
+        val dotThreshold = kotlin.math.cos(Math.toRadians(partFacingToleranceDeg))
+        return dot >= dotThreshold
     }
 
     // ── Status & label helpers ──────────────────────────────────────────────────
@@ -1695,15 +1724,6 @@ class MannequinManager(
                 chBtn.disabledTextJson
             } else {
                 chBtn?.textJson ?: textToJson("Channel")
-            }
-        }
-
-        val partBtn = buttonByName("part")
-        visuals["part"]?.let {
-            it.textJson = if (mode == ControlMode.PART && partBtn?.activeTextJson != null) {
-                partBtn.activeTextJson
-            } else {
-                partBtn?.textJson ?: textToJson("Part")
             }
         }
 
@@ -1744,7 +1764,6 @@ class MannequinManager(
 
         pushButtonToViewers(mannequinId, "channel")
         pushButtonToViewers(mannequinId, "texture")
-        pushButtonToViewers(mannequinId, "part")
         pushButtonToViewers(mannequinId, "color")
         pushButtonToViewers(mannequinId, "config")
     }

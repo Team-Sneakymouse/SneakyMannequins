@@ -46,6 +46,23 @@ integrations:
     # log a warning and continue without integration.
     enabled: true
 
+# ── Control Interaction ────────────────────────────────────────────────────────
+controls:
+  # Radius (blocks) of the mannequin interaction entity.
+  # Effective width/height are 2x this value.
+  interact-radius: 5.0
+
+  # Maximum distance (blocks) used for control interaction:
+  # - summoning controls on first interact
+  # - default part-cycling when controls are already open
+  interact-range: 4.0
+
+  # Horizontal look tolerance (degrees) for mannequin-control interaction checks.
+  # Applies to both:
+  # - summoning controls
+  # - default part-cycling when controls are open
+  interaction-facing-tolerance-horizontal-deg: 20.0
+
 # ── Rendering & Animation ─────────────────────────────────────────────────────
 rendering:
   # Radius (blocks) at which a mannequin first appears for a player.
@@ -185,24 +202,24 @@ hud-buttons:
       y: 1.7
       z: -2.0
 
-  layer:
-    text: "<white>Layer"
+  random:
+    text: "<white>Random"
     translation:
       x: -1.1
       y: 1.2
       z: -2.0
 
-  random:
-    text: "<white>Random"
+  config:
+    text: "<white>Config"
+    active-text: "<yellow>Config"
     translation:
       x: -1.1
       y: 0.7
       z: -2.0
 
   # Right column
-  part:
-    text: "<white>Part"
-    active-text: "<yellow>Part"
+  layer:
+    text: "<white>Layer"
     translation:
       x: 1.1
       y: 2.2
@@ -230,15 +247,6 @@ hud-buttons:
     translation:
       x: 1.1
       y: 0.7
-      z: -2.0
-
-  # Bottom-left – opens the config submenu (Save / Load / Apply)
-  config:
-    text: "<white>Config"
-    active-text: "<yellow>Config"
-    translation:
-      x: -1.1
-      y: 0.2
       z: -2.0
 
   # ── Config submenu ────────────────────────────────────────────────
