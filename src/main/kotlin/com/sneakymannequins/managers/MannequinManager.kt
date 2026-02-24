@@ -175,6 +175,8 @@ class MannequinManager(
     private val statusText = mutableMapOf<UUID, String>()              // mannequinId → last action
     private val poseState = mutableMapOf<UUID, Boolean>()              // mannequinId → true = T-pose
     private val controlState = mutableMapOf<UUID, ControlState>()
+    /** mannequin -> layerId -> partId(optionId) -> last selection used for that part */
+    private val partSelectionMemory = mutableMapOf<UUID, MutableMap<String, MutableMap<String, LayerSelection>>>()
     private val interactionDebounce = mutableMapOf<Pair<UUID, String>, Long>()
     /** playerId → expiry timestamp for random confirmation */
     private val randomConfirm = mutableMapOf<UUID, Long>()
@@ -338,6 +340,7 @@ class MannequinManager(
     // ── Lifecycle ───────────────────────────────────────────────────────────────
 
     fun loadFromDisk() {
+        partSelectionMemory.clear()
         val loaded = persistence.load()
         loaded.forEach { (id, loc, slim) ->
             val selection = bootstrapSelection()
@@ -380,6 +383,7 @@ class MannequinManager(
         controlState.remove(mannequinId)
         statusText.remove(mannequinId)
         poseState.remove(mannequinId)
+        partSelectionMemory.remove(mannequinId)
         persist()
     }
 
@@ -402,6 +406,7 @@ class MannequinManager(
         }
         persist()
         mannequins.clear()
+        partSelectionMemory.clear()
     }
 
     // ── Session save/load ────────────────────────────────────────────────────────
@@ -481,6 +486,7 @@ class MannequinManager(
         }
 
         mannequin.selection = SkinSelection(newSelections)
+        for (def in definitions) rememberCurrentPartSelection(mannequin, def)
         mannequin.lastFrame = PixelFrame.blank()
 
         state.mode = ControlMode.NONE
@@ -557,6 +563,7 @@ class MannequinManager(
         statusText.clear()
         poseState.clear()
         controlState.clear()
+        partSelectionMemory.clear()
         interactionDebounce.clear()
         playerHuds.clear()
 
@@ -1593,15 +1600,8 @@ class MannequinManager(
 
                     val newTexId = if (next >= 0) texIds[next] else null
                     val sel = mannequin.selection.selections[layer.id]
-                    if (sel != null) {
-                        val wasPrevTextured = sel.selectedTexture != null
-                        val isNowTextured = newTexId != null && layerManager.texture(newTexId)?.blendMapImage != null
-                        var newSel = sel.copy(selectedTexture = newTexId)
-                        if (wasPrevTextured && !isNowTextured) {
-                            newSel = newSel.copy(texturedColors = emptyMap())
-                        } else if (!wasPrevTextured && isNowTextured) {
-                            newSel = newSel.copy(channelColors = emptyMap())
-                        }
+                    if (sel != null && option != null) {
+                        val newSel = migrateColors(layer, option, sel, newTexId, player)
                         mannequin.selection = mannequin.selection.copy(
                             selections = mannequin.selection.selections + (layer.id to newSel)
                         )
@@ -1615,6 +1615,7 @@ class MannequinManager(
                     }
                     updateStatus(manId, "Texture: $label")
                 }
+                rememberCurrentPartSelection(mannequin, layer)
                 refreshDynamicLabels(manId, freshOption(layer.id, mannequin), layer)
             }
             "color" -> {
@@ -1770,7 +1771,59 @@ class MannequinManager(
 
     // ── Part cycling ────────────────────────────────────────────────────────────
 
+    private fun rememberCurrentPartSelection(mannequin: Mannequin, layer: LayerDefinition) {
+        val sel = mannequin.selection.selections[layer.id] ?: return
+        val option = sel.option ?: return
+        val byLayer = partSelectionMemory.getOrPut(mannequin.id) { mutableMapOf() }
+        val byPart = byLayer.getOrPut(layer.id) { mutableMapOf() }
+        byPart[option.id] = sel.copy(layerId = layer.id, option = option)
+    }
+
+    private fun canRestoreRememberedSelection(
+        layer: LayerDefinition,
+        option: LayerOption,
+        remembered: LayerSelection,
+        player: Player
+    ): Boolean {
+        val rawPal = layerManager.resolvePalettes(layer, option, player)
+        val hasDefaultColor = "default" in rawPal
+        val actualPal = rawPal.filter { it != "default" }
+        val allowedColors = mutableSetOf<Int>()
+        for (palId in actualPal) {
+            val palette = layerManager.palette(palId) ?: continue
+            for (entry in palette.colors) {
+                allowedColors += (entry.color.rgb and 0x00FFFFFF)
+            }
+        }
+
+        val rawTex = layerManager.resolveTextures(layer, option, player)
+        val hasDefaultTex = "default" in rawTex
+        val actualTex = rawTex.filter { it != "default" }
+        val texOk = when (val tex = remembered.selectedTexture) {
+            null -> hasDefaultTex
+            else -> tex in actualTex
+        }
+        if (!texOk) return false
+
+        val hasAnyChosenColor = remembered.channelColors.isNotEmpty() || remembered.texturedColors.values.any { it.isNotEmpty() }
+        if (!hasAnyChosenColor && !hasDefaultColor) return false
+
+        val flatOk = remembered.channelColors.values.all { c ->
+            (c.rgb and 0x00FFFFFF) in allowedColors
+        }
+        if (!flatOk) return false
+
+        val texturedOk = remembered.texturedColors.values
+            .flatMap { it.values }
+            .all { c -> (c.rgb and 0x00FFFFFF) in allowedColors }
+        if (!texturedOk) return false
+
+        return true
+    }
+
     private fun cyclePart(layer: LayerDefinition, mannequin: Mannequin, state: ControlState, player: Player, backwards: Boolean): String? {
+        rememberCurrentPartSelection(mannequin, layer)
+
         val opts = layerManager.optionsFor(layer.id)
         if (opts.isEmpty()) return null
         val delta = if (backwards) -1 else 1
@@ -1791,10 +1844,16 @@ class MannequinManager(
         state.partIndex[layer.id] = idx
         val chosen = opts[idx]
 
-        val sel = buildInitialSelection(layer, chosen, player)
+        val remembered = partSelectionMemory[mannequin.id]?.get(layer.id)?.get(chosen.id)
+        val sel = if (remembered != null && canRestoreRememberedSelection(layer, chosen, remembered, player)) {
+            remembered.copy(layerId = layer.id, option = chosen)
+        } else {
+            buildInitialSelection(layer, chosen, player)
+        }
         mannequin.selection = mannequin.selection.copy(
             selections = mannequin.selection.selections + (layer.id to sel)
         )
+        rememberCurrentPartSelection(mannequin, layer)
 
         state.channelIndex[layer.id] = 0
         state.colorIndex[layer.id] = 0
@@ -1874,6 +1933,7 @@ class MannequinManager(
         )
         plugin.server.pluginManager.callEvent(colorChangeEvent)
         if (colorChangeEvent.isCancelled) return
+        rememberCurrentPartSelection(mannequin, layer)
         updateStatus(manId, "Color: $colorLabel")
 
         // Re-render with the new colour; grid stays open
@@ -2401,35 +2461,116 @@ class MannequinManager(
      * Build a [LayerSelection] for the given layer/option, auto-assigning an
      * initial colour and texture when "default" is not in the resolved lists.
      */
-    private fun buildInitialSelection(
+    private fun getFallbackColor(
         def: LayerDefinition, chosen: LayerOption,
         player: Player? = null,
         rng: java.util.Random = java.util.concurrent.ThreadLocalRandom.current()
-    ): LayerSelection {
+    ): java.awt.Color? {
         val rawPal = layerManager.resolvePalettes(def, chosen, player)
-        val hasDefaultColor = "default" in rawPal
         val actualPal = rawPal.filter { it != "default" }
-
-        val rawTex = layerManager.resolveTextures(def, chosen, player)
-        val hasDefaultTex = "default" in rawTex
-        val actualTex = rawTex.filter { it != "default" }
-
-        val channelColors: Map<Int, java.awt.Color> = if (!hasDefaultColor && actualPal.isNotEmpty()) {
+        if (actualPal.isNotEmpty()) {
             val palette = layerManager.palette(actualPal.first())
             if (palette != null && palette.colors.isNotEmpty()) {
-                val color = palette.colors[rng.nextInt(palette.colors.size)].color
-                chosen.masks.keys.associateWith { color }
-            } else emptyMap()
-        } else emptyMap()
+                return palette.colors[rng.nextInt(palette.colors.size)].color
+            }
+        }
+        return null
+    }
 
-        val selectedTexture: String? = if (!hasDefaultTex && actualTex.isNotEmpty()) actualTex.first() else null
+    private fun resolveInitialTexture(
+        def: LayerDefinition,
+        option: LayerOption,
+        player: Player?
+    ): String? {
+        val rawTex = layerManager.resolveTextures(def, option, player)
+        val hasDefaultTex = "default" in rawTex
+        if (hasDefaultTex) return null
+        val actualTex = rawTex.filter { it != "default" }
+        return actualTex.firstOrNull()
+    }
 
-        return LayerSelection(
+    private fun resolveInitialColor(
+        def: LayerDefinition,
+        option: LayerOption,
+        player: Player?
+    ): java.awt.Color? {
+        val palettes = layerManager.resolvePalettes(def, option, player)
+        val defaultAllowed = "default" in palettes
+        if (defaultAllowed) return null
+
+        val rng = java.util.concurrent.ThreadLocalRandom.current()
+        return getFallbackColor(def, option, player, rng)
+    }
+
+    private fun buildSlots(option: LayerOption, texId: String?): List<ChannelSlot> {
+        val maskChannels = option.masks.keys.sorted()
+        val texDef = texId?.let { layerManager.texture(it) }
+        val activeSubs = if (texDef?.blendMapImage != null) texDef.activeSubChannels else null
+        return buildChannelSlots(maskChannels, activeSubs)
+    }
+
+    private fun migrateColors(
+        layer: LayerDefinition,
+        option: LayerOption,
+        currentSel: LayerSelection,
+        newTexId: String?,
+        player: Player?
+    ): LayerSelection {
+        var channelColors = currentSel.channelColors.toMutableMap()
+        var texturedColors = currentSel.texturedColors.mapValues { it.value.toMutableMap() }.toMutableMap()
+
+        // Sync colors for subchannel 0 ('a') and flat channel
+        val allMasks = (channelColors.keys + texturedColors.keys).toSet()
+        for (mask in allMasks) {
+            val flat = channelColors[mask]
+            val sub0 = texturedColors[mask]?.get(0)
+
+            if (flat != null && sub0 == null) {
+                texturedColors.getOrPut(mask) { mutableMapOf() }[0] = flat
+            } else if (sub0 != null && flat == null) {
+                channelColors[mask] = sub0
+            }
+        }
+
+        // Initialize any new slots that are missing a color
+        val newSlots = buildSlots(option, newTexId)
+        val fallback = resolveInitialColor(layer, option, player)
+
+        if (fallback != null) {
+            for (slot in newSlots) {
+                if (slot.subChannel != null) {
+                    val maskMap = texturedColors.getOrPut(slot.maskIdx) { mutableMapOf() }
+                    if (!maskMap.containsKey(slot.subChannel)) {
+                        maskMap[slot.subChannel] = fallback
+                    }
+                } else {
+                    if (!channelColors.containsKey(slot.maskIdx)) {
+                        channelColors[slot.maskIdx] = fallback
+                    }
+                }
+            }
+        }
+
+        return currentSel.copy(
+            selectedTexture = newTexId,
+            channelColors = channelColors,
+            texturedColors = texturedColors
+        )
+    }
+
+    private fun buildInitialSelection(
+        def: LayerDefinition, chosen: LayerOption,
+        player: Player? = null
+    ): LayerSelection {
+        val selectedTexture = resolveInitialTexture(def, chosen, player)
+
+        val sel = LayerSelection(
             layerId = def.id,
             option = chosen,
-            channelColors = channelColors,
             selectedTexture = selectedTexture
         )
+        // Use migrateColors to populate with default colors consistently
+        return migrateColors(def, chosen, sel, selectedTexture, player)
     }
 
     private fun bootstrapSelection(): SkinSelection {
@@ -2471,10 +2612,11 @@ class MannequinManager(
             val chosen = if (viable.isNotEmpty()) viable[rng.nextInt(viable.size)]
                          else options[rng.nextInt(options.size)]
 
-            newSelections[def.id] = buildInitialSelection(def, chosen, rng = rng)
+            newSelections[def.id] = buildInitialSelection(def, chosen)
         }
 
         mannequin.selection = SkinSelection(newSelections)
+        for (def in definitions) rememberCurrentPartSelection(mannequin, def)
         mannequin.lastFrame = PixelFrame.blank()
 
         if (randomizeModel) {

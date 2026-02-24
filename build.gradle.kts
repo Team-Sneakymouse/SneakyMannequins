@@ -36,6 +36,12 @@ tasks {
         minecraftVersion("1.21.4")
     }
     
+    processResources {
+        filesMatching("paper-plugin.yml") {
+            expand("version" to version)
+        }
+    }
+
     jar {
         from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
         duplicatesStrategy = DuplicatesStrategy.EXCLUDE
