@@ -606,11 +606,17 @@ class LayerManager(
         if (chromatic.isEmpty()) return emptyList()
         if (chromatic.size == 1 || k <= 1) return listOf(Cluster(mutableListOf<Pair<Int,Int>>().apply { chromatic.forEach { add(it.x to it.y) } }))
         val effectiveK = k.coerceAtMost(chromatic.size)
-        return when (strategy) {
+        val rawClusters = when (strategy) {
             MaskStrategy.HSB -> clusterKMeansHsb(chromatic, effectiveK)
             MaskStrategy.HUE -> clusterHueGap(chromatic, effectiveK)
             MaskStrategy.RGB -> clusterKMeansRgb(chromatic, effectiveK)
         }
+        return rawClusters.sortedWith(
+            compareByDescending<Cluster> { it.pixels.size }
+                .thenBy { cluster ->
+                    cluster.pixels.firstOrNull()?.let { (x, y) -> x * 10000 + y } ?: 0
+                }
+        )
     }
 
     private fun clusterKMeansHsb(chromatic: List<ColorPixel>, k: Int): List<Cluster> {
