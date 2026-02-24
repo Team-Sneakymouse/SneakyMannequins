@@ -1391,7 +1391,6 @@ class MannequinManager(
             // Switching mannequins: fly away old controls first, then open on next click.
             if (currentHud != null && currentHud.mannequinId != manId && !currentHud.flyingAway) {
                 flyAwayPlayerHud(player, currentHud)
-                return
             }
             // Same mannequin or stale flying state: clean up immediately.
             if (currentHud != null) destroyPlayerHud(player)
