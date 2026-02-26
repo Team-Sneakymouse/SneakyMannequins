@@ -85,7 +85,10 @@ class SneakyMannequins : JavaPlugin(), Listener {
             characterManagerBridge,
             appliedSessionRegistry,
             holoController
-        ).also { it.loadFromDisk() }
+        ).also { 
+            it.loadFromDisk()
+            it.startTickLoop()
+        }
 
 		// Register commands
         registerCommand("mannequin", CommandMannequin(this, mannequinManager, layerManager, sessionManager))
@@ -108,11 +111,6 @@ class SneakyMannequins : JavaPlugin(), Listener {
         logger.info("SneakyMannequins plugin has been disabled!")
     }
     
-    @EventHandler
-    fun onJoin(event: PlayerJoinEvent) {
-        mannequinManager.renderVisibleTo(event.player)
-    }
-
     @EventHandler
     fun onMove(event: PlayerMoveEvent) {
         val to = event.to ?: return

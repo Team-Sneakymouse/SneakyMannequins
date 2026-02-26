@@ -205,7 +205,7 @@ class MannequinManager(
     private val buttonVisuals = mutableMapOf<UUID, MutableMap<String, ButtonVisual>>()
 
 
-    private var hoverTaskId: Int = -1
+    private var tickTaskId: Int = -1
     private var viewCheckCounter: Int = 0
 
     // ── HUD button layout ───────────────────────────────────────────────────────
@@ -350,6 +350,16 @@ class MannequinManager(
         initButtonVisuals(mannequin.id)
         registerTrigger(mannequin)
         persist()
+
+        // Sync to all nearby viewers immediately
+        val viewers = nearbyViewers(mannequin)
+        if (viewers.isNotEmpty()) {
+            renderFull(mannequin, viewers, isFirstSeen = true)
+            viewers.forEach { viewer ->
+                sentTo.getOrPut(viewer.uniqueId) { mutableSetOf() }.add(mannequin.id)
+            }
+        }
+        
         return mannequin
     }
 
@@ -378,7 +388,7 @@ class MannequinManager(
     }
 
     fun shutdown() {
-        stopHoverTask()
+        stopTickLoop()
         animationManager.stop()
         val viewers = plugin.server.onlinePlayers
         mannequins.keys.forEach { id ->
@@ -387,6 +397,36 @@ class MannequinManager(
         persist()
         mannequins.clear()
         partSelectionMemory.clear()
+    }
+
+    // ── Tick Loop ───────────────────────────────────────────────────────────────
+
+    fun startTickLoop() {
+        if (tickTaskId != -1) return
+        animationManager.start()
+        tickTaskId = plugin.server.scheduler.scheduleSyncRepeatingTask(plugin, Runnable {
+            tick()
+        }, 0L, 1L)
+    }
+
+    fun stopTickLoop() {
+        if (tickTaskId != -1) {
+            plugin.server.scheduler.cancelTask(tickTaskId)
+            tickTaskId = -1
+        }
+    }
+
+    private fun tick() {
+        viewCheckCounter++
+        
+        if (viewCheckCounter % 100 == 0 && plugin.config.getBoolean("plugin.debug", false)) {
+            plugin.logger.info("[DEBUG] MannequinManager tick loop running (count: $viewCheckCounter)")
+        }
+
+        // Check first-seen every 10 ticks (~0.5s) to avoid excessive distance math
+        if (viewCheckCounter % 10 == 0) {
+            plugin.server.onlinePlayers.forEach { checkFirstSeen(it) }
+        }
     }
 
     // ── Session save/load ────────────────────────────────────────────────────────
@@ -497,7 +537,7 @@ class MannequinManager(
     }
 
     fun reloadAll() {
-        stopHoverTask()
+        stopTickLoop()
         animationManager.stop()
         val viewers = plugin.server.onlinePlayers
         mannequins.keys.forEach { id ->
@@ -516,6 +556,7 @@ class MannequinManager(
         hudButtons = loadHudButtons()
         loadFromDisk()
         animationManager.start()
+        startTickLoop()
         // HoloController handles its own tick task
 
         plugin.server.onlinePlayers.forEach { viewer -> renderVisibleTo(viewer) }
@@ -556,7 +597,13 @@ class MannequinManager(
         for (man in mannequins.values) {
             if (man.id in seen) continue
             if (man.location.world != viewer.world) continue
-            if (man.location.distanceSquared(viewer.location) > viewRadiusSq) continue
+            val distSq = man.location.distanceSquared(viewer.location)
+            if (distSq > viewRadiusSq) continue
+
+            if (plugin.config.getBoolean("plugin.debug", false)) {
+                plugin.logger.info("[DEBUG] Mannequin ${man.id} first seen by ${viewer.name} (dist: ${Math.sqrt(distSq)})")
+            }
+
             renderFull(man, listOf(viewer), isFirstSeen = true)
             seen += man.id
             plugin.server.pluginManager.callEvent(
@@ -628,6 +675,9 @@ class MannequinManager(
     }
 
     private fun renderFull(mannequin: Mannequin, viewers: Collection<Player>, isFirstSeen: Boolean = false, forceInstant: Boolean = false) {
+        if (plugin.config.getBoolean("plugin.debug", false)) {
+            plugin.logger.info("[DEBUG] renderFull for mannequin ${mannequin.id} to ${viewers.size} viewers (firstSeen: $isFirstSeen)")
+        }
         val definitions = layerManager.definitionsInOrder()
         val composed = SkinComposer.compose(definitions, mannequin.selection, useSlimModel = isSlimModel(mannequin), optionResolver = optionResolver, textureResolver = textureResolver(mannequin), brightnessInfluenceResolver = brightnessInfluenceResolver)
         mannequin.lastFrame = PixelFrame.fromImage(composed)

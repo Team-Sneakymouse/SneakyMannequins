@@ -1,6 +1,5 @@
 plugins {
     kotlin("jvm")
-    id("xyz.jpenilla.run-paper")
 }
 
 dependencies {
@@ -22,10 +21,6 @@ tasks {
         kotlinOptions {
             jvmTarget = "21"
         }
-    }
-    
-    runServer {
-        minecraftVersion("1.21.4")
     }
     
     processResources {

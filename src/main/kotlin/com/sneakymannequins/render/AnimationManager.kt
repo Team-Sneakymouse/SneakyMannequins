@@ -71,6 +71,10 @@ class AnimationManager(
     ) {
         if (projected.isEmpty()) return
 
+        if (plugin.config.getBoolean("plugin.debug", false)) {
+            plugin.logger.info("[DEBUG] AnimationManager deliver: mannequin=$mannequinId, viewer=${viewer.name}, pixels=${projected.size}, mode=${settings.mode}")
+        }
+
         when (settings.mode) {
             RenderMode.INSTANT -> {
                 // Scale at delivery time so each viewer sees the correct size.
@@ -164,6 +168,11 @@ class AnimationManager(
                 if (result.pixels.isNotEmpty()) {
                     val scaled = if (viewerScale == 1.0) result.pixels
                                  else result.pixels.map { it.scaled(viewerScale) }
+                    
+                    if (plugin.config.getBoolean("plugin.debug", false)) {
+                        plugin.logger.info("[DEBUG] AnimationManager tick: sending ${scaled.size} pixels for mannequin ${anim.mannequinId} to ${player.name}")
+                    }
+
                     if (result.flyInOffsets.isNotEmpty() || result.riseUpIndices.isNotEmpty()) {
                         handler.applyProjectedPixelsAnimated(
                             player, anim.mannequinId, scaled,
@@ -174,6 +183,9 @@ class AnimationManager(
                     }
                 }
                 if (anim.isComplete()) {
+                    if (plugin.config.getBoolean("plugin.debug", false)) {
+                        plugin.logger.info("[DEBUG] AnimationManager: animation complete for mannequin ${anim.mannequinId} to ${player.name}")
+                    }
                     iter.remove()
                 }
             }

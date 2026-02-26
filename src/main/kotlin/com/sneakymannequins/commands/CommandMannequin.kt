@@ -90,8 +90,7 @@ class CommandMannequin(
         try {
             val location = player.location.clone()
             val mannequin = mannequinManager.create(location)
-            val pixelCount = mannequinManager.render(mannequin, listOf(player))
-            player.sendMessage(TextUtility.convertToComponent("&aMannequin created at (${location.blockX}, ${location.blockY}, ${location.blockZ}) with id ${mannequin.id} &7[$pixelCount pixels]"))
+            player.sendMessage(TextUtility.convertToComponent("&aMannequin created at (${location.blockX}, ${location.blockY}, ${location.blockZ}) with id ${mannequin.id}"))
         } catch (e: Exception) {
             player.sendMessage(TextUtility.convertToComponent("&cFailed to create mannequin: ${e.message}"))
             e.printStackTrace()
