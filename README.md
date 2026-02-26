@@ -1,6 +1,6 @@
 # SneakyMannequins
 
-A Paper 1.21.4 plugin that renders fully interactive mannequin previews built from per-pixel text displays. Players can walk up to a mannequin, browse a holographic HUD, and customise a live 3D skin preview assembled on the server from configurable layers — hair, shirt, pants, body, and more. No resource pack is required; all rendering uses clientbound NMS packets.
+A Paper 1.21.4 plugin that renders fully interactive mannequin previews built from per-pixel text displays. Players can walk up to a mannequin, browse a holographic HUD, and customise a live 3D skin preview assembled on the server from configurable layers. This plugin utilizes the [HoloUI](../HoloUI) library for high-performance interaction and UI management.
 
 ## Features
 
@@ -18,8 +18,8 @@ When a layer PNG is loaded, the plugin analyses its pixels and splits them into 
 
 Each channel can be tinted independently from a named colour palette. Tinting preserves the original luminance and colour variance of the artwork, so shading detail is maintained.
 
-### Holographic HUD
-When a player approaches a mannequin, a virtual control panel spawns as packet-only `TextDisplay` entities that orbit the mannequin based on the player's position — like a holographic heads-up display. Buttons highlight when the crosshair hovers over them, and clicks are resolved by look-direction through a single `Interaction` entity.
+### Holographic HUD (via HoloUI)
+When a player approaches a mannequin, a virtual control panel spawns as packet-only `TextDisplay` entities. This HUD is managed by the **HoloUI** library, which provides zero-raycast click detection via virtual per-player `Interaction` entities.
 
 **Buttons:**
 
@@ -72,25 +72,28 @@ Place 64×64 RGBA PNGs in `plugins/SneakyMannequins/layers/<Layer>/`. On load, t
 
 ## Development
 
-- **Build:** `./gradlew build`
-- **Test server:** `./gradlew runServer` (Paper 1.21.4)
+This module is part of the [HoloUX Workspace](../) and depends on the `:HoloUI` library.
+
+- **Build Library + Plugin:** `./gradlew build` (from workspace root)
+- **Run Test Server:** `./gradlew runServer` (from workspace root)
+- **Standalone Build:** `./gradlew build` (from this directory)
 - **Entry point:** `com.sneakymannequins.SneakyMannequins`
-- **NMS:** Version-specific handlers live in `src/main/kotlin/com/sneakymannequins/nms/v1_21_4/`. Other versions fall back to a no-op handler.
 
 ## Architecture
 
 ```
-SneakyMannequins (main plugin)
+SneakyMannequins (plugin submodule)
 ├── commands/         Command registration (Brigadier)
 ├── managers/
-│   ├── MannequinManager   Lifecycle, HUD, hover, interaction, triggers
+│   ├── MannequinManager   Lifecycle, HoloTrigger registration, triggers
 │   ├── LayerManager        Layer/option/palette loading, colour masking
 │   └── MannequinPersistence   Save/load mannequin locations
 ├── model/            Data classes (Mannequin, SkinSelection, LayerOption, …)
-├── nms/              VolatileHandler interface + per-version implementations
 ├── render/           PixelProjector (maps 2D skin pixels → 3D world positions)
 └── util/             SkinComposer, TextUtility, …
 ```
+
+Highly visual and interactive logic is delegated to the **HoloUI** library.
 
 ## Known Limitations
 

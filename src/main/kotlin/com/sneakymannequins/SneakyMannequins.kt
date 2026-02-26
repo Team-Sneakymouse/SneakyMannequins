@@ -13,6 +13,8 @@ import com.sneakymannequins.listeners.CharacterManagerListener
 import com.sneakymannequins.listeners.TriggerListener
 import com.sneakymannequins.nms.VolatileHandler
 import com.sneakymannequins.nms.VolatileHandlerRegistry
+import com.sneakymouse.holoui.HoloController
+import com.sneakymouse.holoui.v1_21_4.HoloHandler1214
 import io.papermc.paper.event.player.AsyncChatEvent
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.bukkit.event.EventHandler
@@ -53,6 +55,8 @@ class SneakyMannequins : JavaPlugin(), Listener {
     private lateinit var sessionManager: SessionManager
     private lateinit var characterManagerBridge: CharacterManagerBridge
     private lateinit var appliedSessionRegistry: AppliedSessionRegistry
+    lateinit var holoController: HoloController
+        private set
     
     override fun onEnable() {
         logger.info("SneakyMannequins plugin has been enabled!")
@@ -71,6 +75,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
             logger = logger,
             characterScopedMode = { characterManagerBridge.active }
         )
+        holoController = HoloController(this, HoloHandler1214()).also { it.start() }
         mannequinManager = MannequinManager(
             this,
             layerManager,
@@ -78,7 +83,8 @@ class SneakyMannequins : JavaPlugin(), Listener {
             persistence,
             sessionManager,
             characterManagerBridge,
-            appliedSessionRegistry
+            appliedSessionRegistry,
+            holoController
         ).also { it.loadFromDisk() }
 
 		// Register commands
@@ -90,13 +96,14 @@ class SneakyMannequins : JavaPlugin(), Listener {
             logger.info("CharacterManager integration enabled.")
         }
         
-        // Start the per-tick hover detection task
-        mannequinManager.startHoverTask()
     }
     
     override fun onDisable() {
         if (this::mannequinManager.isInitialized) {
             mannequinManager.shutdown()
+        }
+        if (this::holoController.isInitialized) {
+            holoController.shutdown()
         }
         logger.info("SneakyMannequins plugin has been disabled!")
     }
@@ -119,29 +126,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
         }
     }
 
-    // Right-click the Interaction entity → backwards
-    @EventHandler
-    fun onInteractControl(event: PlayerInteractAtEntityEvent) {
-        if (event.hand != EquipmentSlot.HAND) return
-        mannequinManager.handleInteract(event.rightClicked, event.player, backwards = true)
-        event.isCancelled = true
-    }
-
-    @EventHandler
-    fun onInteractControlGeneric(event: PlayerInteractEntityEvent) {
-        if (event.hand != EquipmentSlot.HAND) return
-        if (event.isCancelled) return
-        mannequinManager.handleInteract(event.rightClicked, event.player, backwards = true)
-        event.isCancelled = true
-    }
-
-    // Left-click (punch) the Interaction entity → forwards
-    @EventHandler
-    fun onDamageControl(event: EntityDamageByEntityEvent) {
-        val player = event.damager as? org.bukkit.entity.Player ?: return
-        mannequinManager.handleInteract(event.entity, player, backwards = false)
-        event.isCancelled = true
-    }
+    // Moving interaction handling to HoloController library-side listener
 
     @EventHandler
     fun onQuit(event: PlayerQuitEvent) {

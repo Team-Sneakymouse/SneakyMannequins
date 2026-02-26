@@ -42,45 +42,5 @@ class UnsupportedVolatileHandler(
 
     override fun allocateEntityId(): Int = nextId++
 
-    override fun spawnHudTextDisplay(
-        viewer: Player, entityId: Int,
-        x: Double, y: Double, z: Double,
-        textJson: String, bgColor: Int,
-        tx: Float, ty: Float, tz: Float,
-        yaw: Float, lineWidth: Int,
-        pitch: Float,
-        scaleX: Float, scaleY: Float
-    ) { /* no-op */ }
-
-    override fun updateHudTextDisplay(
-        viewer: Player, entityId: Int,
-        textJson: String, bgColor: Int,
-        tx: Float, ty: Float, tz: Float,
-        yaw: Float, lineWidth: Int,
-        interpolationTicks: Int,
-        pitch: Float,
-        scaleX: Float, scaleY: Float
-    ) { /* no-op */ }
-
-    override fun sendHudBackground(viewer: Player, entityId: Int, bgColor: Int) { /* no-op */ }
-
-    override fun spawnHudItemDisplay(
-        viewer: Player, entityId: Int,
-        x: Double, y: Double, z: Double,
-        item: String, customModelData: Int, displayContext: String,
-        tx: Float, ty: Float, tz: Float,
-        sx: Float, sy: Float, sz: Float,
-        yaw: Float
-    ) { /* no-op */ }
-
-    override fun updateHudItemDisplay(
-        viewer: Player, entityId: Int,
-        item: String, customModelData: Int, displayContext: String,
-        tx: Float, ty: Float, tz: Float,
-        sx: Float, sy: Float, sz: Float,
-        yaw: Float,
-        interpolationTicks: Int
-    ) { /* no-op */ }
-
     override fun destroyEntities(viewer: Player, entityIds: IntArray) { /* no-op */ }
 }
