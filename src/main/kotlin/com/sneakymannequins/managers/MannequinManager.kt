@@ -658,7 +658,8 @@ class MannequinManager(
         val diff = mannequin.lastFrame.diff(nextFrame)
         mannequin.lastFrame = nextFrame
         if (plugin.config.getBoolean("plugin.debug", false)) {
-            plugin.logger.info("Rendering mannequin ${mannequin.id} with ${diff.size} pixel changes to ${viewers.size} viewers")
+            val changeStatus = if (diff.isEmpty()) "ZERO (potential geometry only change)" else "${diff.size}"
+            plugin.logger.info("Rendering mannequin ${mannequin.id} with $changeStatus pixel changes to ${viewers.size} viewers")
         }
         val projected = PixelProjector.project(
             origin = mannequin.location,
@@ -818,12 +819,12 @@ class MannequinManager(
             "model" -> {
                 mannequin.slimModel = !mannequin.slimModel
                 updateStatus(mannequinId, if (mannequin.slimModel) "Model: Slim" else "Model: Steve")
-                render(mannequin, nearbyViewers(mannequin))
+                renderFull(mannequin, nearbyViewers(mannequin))
             }
             "pose" -> {
                 poseState[mannequinId] = !(poseState[mannequinId] ?: false)
                 updateStatus(mannequinId, if (poseState[mannequinId] == true) "Pose: T-Pose" else "Pose: Standard")
-                render(mannequin, nearbyViewers(mannequin))
+                renderFull(mannequin, nearbyViewers(mannequin))
             }
             "random" -> {
                 randomize(mannequin, randomizeModel = true)
