@@ -179,7 +179,7 @@ class MannequinManager(
 
     /** Radius of the mannequin Interaction hitbox (blocks). */
     private val interactRadius: Double
-        get() = plugin.config.getDouble("controls.interact-radius", INTERACT_RADIUS_DEFAULT).coerceAtLeast(0.5)
+        get() = plugin.config.getDouble("controls.interact-radius", 8.0).coerceAtLeast(0.5)
 
     /** Distance required for control interaction logic (blocks). */
     private val interactRange: Double
@@ -423,9 +423,21 @@ class MannequinManager(
             plugin.logger.info("[DEBUG] MannequinManager tick loop running (count: $viewCheckCounter)")
         }
 
-        // Check first-seen every 10 ticks (~0.5s) to avoid excessive distance math
+        // Check first-seen and range-based HUD removal every 10 ticks (~0.5s)
         if (viewCheckCounter % 10 == 0) {
-            plugin.server.onlinePlayers.forEach { checkFirstSeen(it) }
+            plugin.server.onlinePlayers.forEach { player ->
+                checkFirstSeen(player)
+                
+                // Bug 4: Range-based HUD removal
+                val hud = holoController.getHud(player.uniqueId)
+                if (hud != null) {
+                    val mannequin = mannequins[hud.mannequinId]
+                    if (mannequin == null || player.world != mannequin.location.world || 
+                        player.location.distanceSquared(mannequin.location) > 8.0 * 8.0) {
+                        holoController.closeHud(player.uniqueId, animate = true)
+                    }
+                }
+            }
         }
     }
 
@@ -803,9 +815,13 @@ class MannequinManager(
             handler = holoController.handler,
             buttons = buttons,
             frameItem = frameItem,
-            frameCustomModelData = frameCmd
+            frameCustomModelData = frameCmd,
+            onClose = { p ->
+                plugin.server.pluginManager.callEvent(MannequinControlClosedEvent(mannequin.id, mannequin.location, p))
+            }
         )
         holoController.openHud(hud)
+        plugin.server.pluginManager.callEvent(MannequinControlOpenEvent(mannequin.id, mannequin.location, player))
     }
 
     private fun handleButtonClick(buttonName: String, mannequinId: UUID, player: Player, backwards: Boolean) {
@@ -906,8 +922,9 @@ class MannequinManager(
     private fun refreshColorGrid(player: Player, mannequin: Mannequin, state: ControlState, hud: HoloHUD) {
         val gridVisible = hud.buttons.any { it.id.startsWith("color_") }
         if (gridVisible) {
-            despawnColorGrid(player, hud)
-            spawnColorGrid(player, mannequin, state, hud)
+            // Note: refreshing skips submenu close/open triggers to avoid noise
+            despawnColorGrid(player, hud, quiet = true)
+            spawnColorGrid(player, mannequin, state, hud, quiet = true)
         }
     }
 
@@ -1083,7 +1100,7 @@ class MannequinManager(
     /**
      * Spawns the color picker grid for a player.
      */
-    private fun spawnColorGrid(player: Player, mannequin: Mannequin, state: ControlState, hud: HoloHUD) {
+    private fun spawnColorGrid(player: Player, mannequin: Mannequin, state: ControlState, hud: HoloHUD, quiet: Boolean = false) {
         val layers = layerManager.definitionsInOrder()
         val layer = layers.getOrNull(state.layerIndex % layers.size) ?: return
         val option = freshOption(layer.id, mannequin) ?: return
@@ -1109,6 +1126,7 @@ class MannequinManager(
                 lineWidth = config.headerLineWidth,
                 bgDefault = config.bgHeader, bgHighlight = HUD_BG_HIGHLIGHT,
                 pitch = config.pitch,
+                playerRelative = true,
                 onClick = { p, _ -> applyGridCellColor(null, "Default", null, mannequin.id, mannequin, state, p) }
             ))
         }
@@ -1125,7 +1143,8 @@ class MannequinManager(
                 tx = config.originX, ty = rowY, tz = config.originZ,
                 lineWidth = config.headerLineWidth,
                 bgDefault = config.bgHeader, bgHighlight = config.bgHeader,
-                pitch = config.pitch
+                pitch = config.pitch,
+                playerRelative = true
             ))
 
             // Color swatches
@@ -1143,13 +1162,16 @@ class MannequinManager(
                     bgDefault = if (isSelected) config.bgSelected else bgNormal,
                     bgHighlight = HUD_BG_HIGHLIGHT,
                     pitch = config.pitch,
+                    playerRelative = true,
                     onClick = { p, _ -> applyGridCellColor(palId, prettyName(namedColor.name), rgb, mannequin.id, mannequin, state, p) }
                 ))
             }
         }
 
         hud.addButtons(buttons)
-        plugin.server.pluginManager.callEvent(MannequinSubmenuOpenEvent(mannequin.id, mannequin.location, player))
+        if (!quiet) {
+            plugin.server.pluginManager.callEvent(MannequinSubmenuOpenEvent(mannequin.id, mannequin.location, player))
+        }
     }
 
     private fun applyGridCellColor(
@@ -1208,9 +1230,15 @@ class MannequinManager(
         }
     }
 
-    private fun despawnColorGrid(player: Player, hud: HoloHUD) {
+    private fun despawnColorGrid(player: Player, hud: HoloHUD, quiet: Boolean = false) {
         val toRemove = hud.buttons.filter { it.id.startsWith("color_") || it.id.startsWith("pal_header_") }.map { it.id }
-        hud.removeButtons(toRemove)
+        if (toRemove.isNotEmpty()) {
+            hud.removeButtons(toRemove)
+            if (!quiet) {
+                val mannequin = mannequins[hud.mannequinId] ?: return
+                plugin.server.pluginManager.callEvent(MannequinSubmenuCloseEvent(mannequin.id, mannequin.location, player))
+            }
+        }
     }
 
     private fun currentSelectedGridColor(mannequin: Mannequin, state: ControlState): java.awt.Color? {
@@ -1231,7 +1259,7 @@ class MannequinManager(
      * Spawns the configuration submenu.
      */
     private fun spawnConfigGrid(player: Player, mannequin: Mannequin, state: ControlState, hud: HoloHUD) {
-        val config = loadGridConfig()
+        val config = loadGridConfig("hud-buttons.config-menu")
         val buttons = mutableListOf<HoloButton>()
         
         val options = listOf("Save", "Load", "Clear")
@@ -1243,15 +1271,21 @@ class MannequinManager(
                 lineWidth = config.headerLineWidth,
                 bgDefault = config.bgHeader, bgHighlight = HUD_BG_HIGHLIGHT,
                 pitch = config.pitch,
+                playerRelative = true,
                 onClick = { p, _ -> executeConfigAction(opt, mannequin.id, p, state, hud) }
             ))
         }
         hud.addButtons(buttons)
+        plugin.server.pluginManager.callEvent(MannequinSubmenuOpenEvent(mannequin.id, mannequin.location, player))
     }
 
     private fun despawnConfigGrid(player: Player, hud: HoloHUD) {
         val toRemove = hud.buttons.filter { it.id.startsWith("config_") }.map { it.id }
-        hud.removeButtons(toRemove)
+        if (toRemove.isNotEmpty()) {
+            hud.removeButtons(toRemove)
+            val mannequin = mannequins[hud.mannequinId] ?: return
+            plugin.server.pluginManager.callEvent(MannequinSubmenuCloseEvent(mannequin.id, mannequin.location, player))
+        }
     }
 
     private fun executeConfigAction(action: String, manId: UUID, player: Player, state: ControlState, hud: HoloHUD) {
@@ -1282,7 +1316,18 @@ class MannequinManager(
         val hud = holoController.getHud(player.uniqueId)
         
         if (hud != null && hud.mannequinId == mannequinId) {
-            // Already interacting with this one via HUD
+            val state = controlState[mannequinId] ?: return
+            // Bug 3: Interacting with mannequin cycles parts, not layers
+            val layers = layerManager.definitionsInOrder()
+            val layer = layers.getOrNull(state.layerIndex % layers.size)
+            if (layer != null) {
+                val chosen = cyclePart(layer, mannequin, state, player, backwards)
+                render(mannequin, nearbyViewers(mannequin))
+                refreshDynamicLabels(mannequinId, freshOption(layer.id, mannequin), layer)
+                if (chosen != null) {
+                    updateStatus(mannequinId, "Part: ${prettyName(chosen)}")
+                }
+            }
             return
         }
         
@@ -1307,24 +1352,32 @@ class MannequinManager(
         val headerTextMM: String, val bgHeader: Int, val bgSelected: Int
     )
 
-    private fun loadGridConfig(): GridConfig {
-        val sec = plugin.config.getConfigurationSection("hud-buttons.color-grid")
+    private fun loadGridConfig(path: String = "hud-buttons.color-grid"): GridConfig {
+        val sec = plugin.config.getConfigurationSection(path)
+        val defaultHeaderText = if (path.contains("config")) "{message}" else "<white><font:minecraft:uniform>{message}"
+        
         return GridConfig(
             maxRows = sec?.getInt("max-rows", 6) ?: 6,
             cellSpacingX = sec?.getDouble("cell-spacing-x", 0.12)?.toFloat() ?: 0.12f,
-            cellSpacingY = sec?.getDouble("cell-spacing-y", 0.18)?.toFloat() ?: 0.18f,
+            cellSpacingY = sec?.let { 
+                if (it.contains("item-spacing-y")) it.getDouble("item-spacing-y")
+                else it.getDouble("cell-spacing-y", 0.18)
+            }?.toFloat() ?: 0.18f,
             originX = sec?.getDouble("origin-x", 0.3)?.toFloat() ?: 0.3f,
             originY = sec?.getDouble("origin-y", -0.3)?.toFloat() ?: -0.3f,
             originZ = sec?.getDouble("origin-z", -1.8)?.toFloat() ?: -1.8f,
             pitch = sec?.getDouble("pitch", -0.35)?.toFloat() ?: -0.35f,
             yawOffset = sec?.getDouble("yaw", 0.0)?.toFloat() ?: 0f,
-            cellLineWidth = sec?.getInt("cell-line-width", 18) ?: 18,
+            cellLineWidth = sec?.let {
+                if (it.contains("item-line-width")) it.getInt("item-line-width")
+                else it.getInt("cell-line-width", 18)
+            } ?: 18,
             cellScaleX = sec?.getDouble("cell-scale-x", 1.0)?.toFloat() ?: 1f,
             cellScaleY = sec?.getDouble("cell-scale-y", 1.0)?.toFloat() ?: 1f,
-            headerLineWidth = sec?.getInt("header-line-width", 80) ?: 80,
+            headerLineWidth = 80, // Default for label
             headerScale = sec?.getDouble("header-scale", 1.0)?.toFloat() ?: 1f,
             headerGap = sec?.getDouble("header-gap", 0.35)?.toFloat() ?: 0.35f,
-            headerTextMM = sec?.getString("header-text") ?: "<white><font:minecraft:uniform>{message}",
+            headerTextMM = sec?.getString("header-text") ?: defaultHeaderText,
             bgHeader = parseArgb(sec?.getString("bg-header")) ?: 0x60000000,
             bgSelected = parseArgb(sec?.getString("bg-selected")) ?: 0xFF44AA44.toInt()
         )
