@@ -1320,16 +1320,26 @@ class MannequinManager(
         val hud = holoController.getHud(player.uniqueId)
         
         if (hud != null && hud.mannequinId == mannequinId) {
-            val state = controlState[mannequinId] ?: return
-            // Bug 3: Interacting with mannequin cycles parts, not layers
-            val layers = layerManager.definitionsInOrder()
-            val layer = layers.getOrNull(state.layerIndex % layers.size)
-            if (layer != null) {
-                val chosen = cyclePart(layer, mannequin, state, player, backwards)
-                render(mannequin, nearbyViewers(mannequin))
-                refreshDynamicLabels(mannequinId, freshOption(layer.id, mannequin), layer)
-                if (chosen != null) {
-                    updateStatus(mannequinId, "Part: ${prettyName(chosen)}")
+            val hover = hud.isAnyButtonHovered
+            val tolerance = meetsInteractionTolerances(player, mannequin)
+            
+            if (plugin.config.getBoolean("plugin.debug", false)) {
+                plugin.logger.info("[DEBUG] handleInteract: hudOpen=true hoverButton=$hover tolerance=$tolerance")
+            }
+
+            // Only cycle if not hovering a button and within tolerance
+            if (!hover && tolerance) {
+                val state = controlState[mannequinId] ?: return
+                // Bug 3: Interacting with mannequin cycles parts, not layers
+                val layers = layerManager.definitionsInOrder()
+                val layer = layers.getOrNull(state.layerIndex % layers.size)
+                if (layer != null) {
+                    val chosen = cyclePart(layer, mannequin, state, player, backwards)
+                    render(mannequin, nearbyViewers(mannequin))
+                    refreshDynamicLabels(mannequinId, freshOption(layer.id, mannequin), layer)
+                    if (chosen != null) {
+                        updateStatus(mannequinId, "${prettyName(chosen)}")
+                    }
                 }
             }
             return
@@ -1342,6 +1352,18 @@ class MannequinManager(
         val hud = holoController.getHud(viewerId) ?: return false
         val state = controlState[hud.mannequinId] ?: return false
         return state.mode == ControlMode.LOAD
+    }
+
+    private fun meetsInteractionTolerances(player: Player, mannequin: Mannequin): Boolean {
+        val pLoc = player.location
+        val mLoc = mannequin.location
+        if (pLoc.distance(mLoc) > interactRange) return false
+
+        val toMannequin = mLoc.toVector().subtract(pLoc.toVector()).setY(0).normalize()
+        val facing = pLoc.direction.setY(0).normalize()
+
+        val angle = facing.angle(toMannequin)
+        return Math.toDegrees(angle.toDouble()) <= partFacingToleranceDeg
     }
 
     fun startHoverTask() { /* No-op, handled by HoloController */ }
