@@ -933,6 +933,41 @@ class MannequinManager(
                 state.channelIndex[layer.id] = nextIdx
                 updateStatus(mannequinId, "Channel: ${slots[nextIdx].label}")
                 refreshColorGrid(player, mannequin, state, hud)
+
+                // Flash the selected channel white for 10 ticks
+                val slot = slots[nextIdx]
+                val currentSel = mannequin.selection.selections[layer.id]
+                val flashColors: MutableMap<Int, java.awt.Color>
+                val flashTextured: MutableMap<Int, Map<Int, java.awt.Color>>
+                if (slot.subChannel != null) {
+                    flashColors = (currentSel?.channelColors ?: emptyMap()).toMutableMap()
+                    flashTextured = (currentSel?.texturedColors ?: emptyMap()).toMutableMap()
+                    val sub = flashTextured.getOrPut(slot.maskIdx) { emptyMap() }.toMutableMap()
+                    sub[slot.subChannel] = java.awt.Color.WHITE
+                    flashTextured[slot.maskIdx] = sub
+                } else {
+                    flashColors = (currentSel?.channelColors ?: emptyMap()).toMutableMap()
+                    flashColors[slot.maskIdx] = java.awt.Color.WHITE
+                    flashTextured = (currentSel?.texturedColors ?: emptyMap()).toMutableMap()
+                }
+
+                val flashSel = currentSel?.copy(channelColors = flashColors, texturedColors = flashTextured)
+                    ?: LayerSelection(layer.id, option, channelColors = flashColors, texturedColors = flashTextured)
+                mannequin.selection = mannequin.selection.copy(
+                    selections = mannequin.selection.selections + (layer.id to flashSel)
+                )
+
+                val viewers = nearbyViewers(mannequin)
+                render(mannequin, viewers, forceInstant = true)
+
+                // Restore original colors after 10 ticks (500ms)
+                val restoreSel = currentSel ?: LayerSelection(layer.id, option)
+                plugin.server.scheduler.runTaskLater(plugin, Runnable {
+                    mannequin.selection = mannequin.selection.copy(
+                        selections = mannequin.selection.selections + (layer.id to restoreSel)
+                    )
+                    render(mannequin, viewers, forceInstant = true)
+                }, 10L)
             }
             "color" -> {
                 val gridVisible = hud.buttons.any { it.id.startsWith("color_") }
