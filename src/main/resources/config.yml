@@ -256,7 +256,7 @@ hud-buttons:
   # color picker grid on the right.
   config-menu:
     # Grid origin in HUD-local space (rotated by yaw)
-    origin-x: -1
+    origin-x: 1
     origin-y: 1
     origin-z: -3
     # Extra pitch (radians, negative = tilt up toward viewer)
@@ -283,7 +283,7 @@ hud-buttons:
     # origin-x/y are relative to the mannequin.
     # origin-z is relative to the *player* (negative = toward mannequin).
     # The grid follows the player so it stays at a constant depth.
-    origin-x: 1
+    origin-x: -1
     origin-y: 1
     origin-z: -2
     # Extra pitch (radians, negative = tilt up toward viewer)

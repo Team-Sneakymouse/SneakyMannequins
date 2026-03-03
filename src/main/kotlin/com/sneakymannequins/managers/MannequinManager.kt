@@ -565,6 +565,7 @@ class MannequinManager(
         stopTickLoop()
         animationManager.stop()
         val viewers = plugin.server.onlinePlayers
+        viewers.forEach { viewer -> holoController.closeHud(viewer.uniqueId, animate = false) }
         mannequins.keys.forEach { id ->
             viewers.forEach { viewer -> handler.destroyMannequin(viewer, id) }
             cleanupControlEntities(id)
@@ -1169,6 +1170,8 @@ class MannequinManager(
                 bgDefault = config.bgHeader, bgHighlight = HUD_BG_HIGHLIGHT,
                 pitch = config.pitch,
                 yawOffset = config.yawOffset,
+                scaleX = config.headerScale,
+                scaleY = config.headerScale,
                 playerRelative = true,
                 onClick = { p, _ -> applyGridCellColor(null, "Default", null, mannequin.id, mannequin, state, p) },
                 onHover = { p, entering ->
@@ -1193,6 +1196,8 @@ class MannequinManager(
                 bgDefault = config.bgHeader, bgHighlight = config.bgHeader,
                 pitch = config.pitch,
                 yawOffset = config.yawOffset,
+                scaleX = config.headerScale,
+                scaleY = config.headerScale,
                 playerRelative = true,
                 onHover = { p, entering ->
                     if (entering) {
@@ -1217,6 +1222,8 @@ class MannequinManager(
                     bgHighlight = HUD_BG_HIGHLIGHT,
                     pitch = config.pitch,
                     yawOffset = config.yawOffset,
+                    scaleX = config.cellScaleX,
+                    scaleY = config.cellScaleY,
                     playerRelative = true,
                     onClick = { p, _ -> applyGridCellColor(palId, prettyName(namedColor.name), rgb, mannequin.id, mannequin, state, p) },
                     onHover = { p, entering ->
@@ -1332,6 +1339,8 @@ class MannequinManager(
                 bgDefault = config.bgHeader, bgHighlight = HUD_BG_HIGHLIGHT,
                 pitch = config.pitch,
                 yawOffset = config.yawOffset,
+                scaleX = config.headerScale,
+                scaleY = config.headerScale,
                 playerRelative = true,
                 onClick = { p, _ -> executeConfigAction(opt, mannequin.id, p, state, hud) },
                 onHover = { p, entering ->
