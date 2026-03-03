@@ -798,6 +798,11 @@ class MannequinManager(
                 bgHighlight = btn.bgHighlight,
                 onClick = { viewer, backwards ->
                     handleButtonClick(btn.name, mannequin.id, viewer, backwards)
+                },
+                onHover = { viewer, entering ->
+                    if (entering) {
+                        plugin.server.pluginManager.callEvent(MannequinHoverEvent(mannequin.id, mannequin.location, viewer, btn.name))
+                    }
                 }
             )
         }.toMutableList()
@@ -830,6 +835,10 @@ class MannequinManager(
         val layers = layerManager.definitionsInOrder()
         val layer = layers.getOrNull(state.layerIndex % layers.size)
         val hud = holoController.getHud(player.uniqueId) ?: return
+        
+        if (buttonName != "color" && buttonName != "config") {
+            plugin.server.pluginManager.callEvent(MannequinClickEvent(mannequinId, mannequin.location, player, buttonName))
+        }
 
         when (buttonName) {
             "model" -> {
@@ -1128,7 +1137,12 @@ class MannequinManager(
                 pitch = config.pitch,
                 yawOffset = config.yawOffset,
                 playerRelative = true,
-                onClick = { p, _ -> applyGridCellColor(null, "Default", null, mannequin.id, mannequin, state, p) }
+                onClick = { p, _ -> applyGridCellColor(null, "Default", null, mannequin.id, mannequin, state, p) },
+                onHover = { p, entering ->
+                    if (entering) {
+                        plugin.server.pluginManager.callEvent(MannequinHoverEvent(mannequin.id, mannequin.location, p, "color_default"))
+                    }
+                }
             ))
         }
 
@@ -1146,7 +1160,12 @@ class MannequinManager(
                 bgDefault = config.bgHeader, bgHighlight = config.bgHeader,
                 pitch = config.pitch,
                 yawOffset = config.yawOffset,
-                playerRelative = true
+                playerRelative = true,
+                onHover = { p, entering ->
+                    if (entering) {
+                        plugin.server.pluginManager.callEvent(MannequinHoverEvent(mannequin.id, mannequin.location, p, "pal_header_$palId"))
+                    }
+                }
             ))
 
             // Color swatches
@@ -1166,7 +1185,12 @@ class MannequinManager(
                     pitch = config.pitch,
                     yawOffset = config.yawOffset,
                     playerRelative = true,
-                    onClick = { p, _ -> applyGridCellColor(palId, prettyName(namedColor.name), rgb, mannequin.id, mannequin, state, p) }
+                    onClick = { p, _ -> applyGridCellColor(palId, prettyName(namedColor.name), rgb, mannequin.id, mannequin, state, p) },
+                    onHover = { p, entering ->
+                        if (entering) {
+                            plugin.server.pluginManager.callEvent(MannequinHoverEvent(mannequin.id, mannequin.location, p, "color_${palId}_${namedColor.name}"))
+                        }
+                    }
                 ))
             }
         }
@@ -1276,7 +1300,12 @@ class MannequinManager(
                 pitch = config.pitch,
                 yawOffset = config.yawOffset,
                 playerRelative = true,
-                onClick = { p, _ -> executeConfigAction(opt, mannequin.id, p, state, hud) }
+                onClick = { p, _ -> executeConfigAction(opt, mannequin.id, p, state, hud) },
+                onHover = { p, entering ->
+                    if (entering) {
+                        plugin.server.pluginManager.callEvent(MannequinHoverEvent(mannequin.id, mannequin.location, p, "config_${opt.lowercase()}"))
+                    }
+                }
             ))
         }
         hud.addButtons(buttons)
@@ -1297,6 +1326,7 @@ class MannequinManager(
         when (action) {
             "Save" -> {
                 val uid = sessionManager.save(mannequin, player)
+                plugin.server.pluginManager.callEvent(MannequinSessionSaveEvent(manId, mannequin.location, player, uid))
                 updateStatus(manId, "Saved: $uid")
                 player.sendMessage(Component.text("Session saved: ").color(net.kyori.adventure.text.format.NamedTextColor.GREEN).append(Component.text(uid).color(net.kyori.adventure.text.format.NamedTextColor.YELLOW)))
             }
