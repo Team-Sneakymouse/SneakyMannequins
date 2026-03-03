@@ -425,6 +425,19 @@ class MannequinManager(
 
         // Check first-seen and range-based HUD removal every 10 ticks (~0.5s)
         if (viewCheckCounter % 10 == 0) {
+            val now = System.currentTimeMillis()
+            val expiredConfirms = randomConfirm.filterValues { now >= it }.keys
+            for (uid in expiredConfirms) {
+                randomConfirm.remove(uid)
+                val hud = holoController.getHud(uid)
+                val btn = hud?.buttons?.find { it.id == "random" }
+                if (btn != null) {
+                    val baseJson = plugin.config.getString("hud-buttons.random.text", "<white>Random")!!
+                    btn.textJson = mmToJson(baseJson)
+                    hud.updateButtonText("random", btn.textJson)
+                }
+            }
+
             plugin.server.onlinePlayers.forEach { player ->
                 checkFirstSeen(player)
                 
@@ -852,11 +865,31 @@ class MannequinManager(
                 renderFull(mannequin, nearbyViewers(mannequin))
             }
             "random" -> {
-                randomize(mannequin, randomizeModel = true)
-                updateStatus(mannequinId, "Randomized")
-                render(mannequin, nearbyViewers(mannequin), forceInstant = true)
-                refreshDynamicLabels(mannequinId, freshOption(layer?.id ?: "", mannequin), layer)
-                refreshColorGrid(player, mannequin, state, hud)
+                val now = System.currentTimeMillis()
+                val expires = randomConfirm[player.uniqueId] ?: 0L
+                if (now < expires) {
+                    randomConfirm[player.uniqueId] = now + 5000L
+                    randomize(mannequin, randomizeModel = true)
+                    updateStatus(mannequinId, "Randomized")
+                    render(mannequin, nearbyViewers(mannequin), forceInstant = true)
+                    refreshDynamicLabels(mannequinId, freshOption(layer?.id ?: "", mannequin), layer)
+                    refreshColorGrid(player, mannequin, state, hud)
+                    
+                    val btn = hud.buttons.find { it.id == "random" }
+                    if (btn != null) {
+                        val baseJson = plugin.config.getString("hud-buttons.random.text", "<white>Random")!!
+                        btn.textJson = mmToJson(baseJson)
+                        hud.updateButtonText("random", btn.textJson)
+                    }
+                } else {
+                    randomConfirm[player.uniqueId] = now + 5000L
+                    val btn = hud.buttons.find { it.id == "random" }
+                    if (btn != null) {
+                        val confirmJson = plugin.config.getString("hud-buttons.random.confirm-text", "<yellow>Confirm?")!!
+                        btn.textJson = mmToJson(confirmJson)
+                        hud.updateButtonText("random", btn.textJson)
+                    }
+                }
             }
             "layer" -> {
                 state.layerIndex = if (backwards) (state.layerIndex - 1 + layers.size) % layers.size
