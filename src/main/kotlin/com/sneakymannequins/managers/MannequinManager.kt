@@ -1126,6 +1126,7 @@ class MannequinManager(
                 lineWidth = config.headerLineWidth,
                 bgDefault = config.bgHeader, bgHighlight = HUD_BG_HIGHLIGHT,
                 pitch = config.pitch,
+                yawOffset = config.yawOffset,
                 playerRelative = true,
                 onClick = { p, _ -> applyGridCellColor(null, "Default", null, mannequin.id, mannequin, state, p) }
             ))
@@ -1144,6 +1145,7 @@ class MannequinManager(
                 lineWidth = config.headerLineWidth,
                 bgDefault = config.bgHeader, bgHighlight = config.bgHeader,
                 pitch = config.pitch,
+                yawOffset = config.yawOffset,
                 playerRelative = true
             ))
 
@@ -1162,6 +1164,7 @@ class MannequinManager(
                     bgDefault = if (isSelected) config.bgSelected else bgNormal,
                     bgHighlight = HUD_BG_HIGHLIGHT,
                     pitch = config.pitch,
+                    yawOffset = config.yawOffset,
                     playerRelative = true,
                     onClick = { p, _ -> applyGridCellColor(palId, prettyName(namedColor.name), rgb, mannequin.id, mannequin, state, p) }
                 ))
@@ -1271,6 +1274,7 @@ class MannequinManager(
                 lineWidth = config.headerLineWidth,
                 bgDefault = config.bgHeader, bgHighlight = HUD_BG_HIGHLIGHT,
                 pitch = config.pitch,
+                yawOffset = config.yawOffset,
                 playerRelative = true,
                 onClick = { p, _ -> executeConfigAction(opt, mannequin.id, p, state, hud) }
             ))
