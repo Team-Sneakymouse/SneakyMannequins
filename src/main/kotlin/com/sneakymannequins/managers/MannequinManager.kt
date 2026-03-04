@@ -1422,7 +1422,13 @@ class MannequinManager(
                 val uid = sessionManager.save(mannequin, player)
                 plugin.server.pluginManager.callEvent(MannequinSessionSaveEvent(manId, mannequin.location, player, uid))
                 updateStatus(manId, "Saved: $uid")
-                player.sendMessage(Component.text("Session saved: ").color(net.kyori.adventure.text.format.NamedTextColor.GREEN).append(Component.text(uid).color(net.kyori.adventure.text.format.NamedTextColor.YELLOW)))
+                player.sendMessage(Component.text("Session saved: ").color(NamedTextColor.GREEN)
+                    .append(Component.text(uid)
+                        .color(NamedTextColor.YELLOW)
+                        .hoverEvent(HoverEvent.showText(Component.text("Click to copy UID")))
+                        .clickEvent(ClickEvent.copyToClipboard(uid))
+                    )
+                )
             }
             "Load" -> {
                 state.mode = ControlMode.LOAD
