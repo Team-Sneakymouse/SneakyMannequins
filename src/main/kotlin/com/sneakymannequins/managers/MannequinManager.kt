@@ -873,7 +873,7 @@ class MannequinManager(
                     randomize(mannequin, randomizeModel = true)
                     updateStatus(mannequinId, "Randomized")
                     render(mannequin, nearbyViewers(mannequin), forceInstant = true)
-                    refreshDynamicLabels(mannequinId, freshOption(layer?.id ?: "", mannequin), layer)
+                    refreshDynamicLabels(mannequinId)
                     refreshColorGrid(player, mannequin, state, hud)
                     
                     val btn = hud.buttons.find { it.id == "random" }
@@ -1025,13 +1025,22 @@ class MannequinManager(
         }
     }
 
-    private fun refreshDynamicLabels(mannequinId: UUID, option: LayerOption?, layer: LayerDefinition?) {
+    private fun refreshDynamicLabels(mannequinId: UUID, option: LayerOption? = null, layer: LayerDefinition? = null) {
         val state = controlState[mannequinId] ?: return
         val mode = state.mode
         val mannequin = mannequins[mannequinId] ?: return
 
-        val channelSlotCount = if (option != null && layer != null) {
-            resolveChannelSlots(layer, option, state, plugin.server.onlinePlayers.firstOrNull() ?: return).size
+        val (finalLayer, finalOption) = if (option != null && layer != null) {
+            layer to option
+        } else {
+            val layers = layerManager.definitionsInOrder()
+            val def = layers.getOrNull(state.layerIndex % layers.size)
+            val opt = def?.let { freshOption(it.id, mannequin) }
+            def to opt
+        }
+
+        val channelSlotCount = if (finalOption != null && finalLayer != null) {
+            resolveChannelSlots(finalLayer, finalOption, state, plugin.server.onlinePlayers.firstOrNull() ?: return).size
         } else 0
         val channelDisabled = channelSlotCount <= 1
 
@@ -1039,7 +1048,7 @@ class MannequinManager(
         val channelJson = if (channelDisabled && chBtn?.disabledTextJson != null) chBtn.disabledTextJson else chBtn?.textJson ?: textToJson("Channel")
 
         val texBtn = buttonByName("texture")
-        val texCount = if (option != null && layer != null) layerManager.resolveTextures(layer, option, null).size else 0
+        val texCount = if (finalOption != null && finalLayer != null) layerManager.resolveTextures(finalLayer, finalOption, null).size else 0
         val textureJson = if (texCount <= 1 && texBtn?.disabledTextJson != null) texBtn.disabledTextJson else texBtn?.textJson ?: textToJson("Texture")
 
         val colorBtn = buttonByName("color")
@@ -1424,11 +1433,11 @@ class MannequinManager(
                 mannequin.selection = bootstrapSelection()
                 updateStatus(manId, "Cleared")
                 render(mannequin, nearbyViewers(mannequin))
-                refreshDynamicLabels(manId, null, null)
+                refreshDynamicLabels(manId)
             }
         }
-        despawnConfigGrid(player, hud)
-        refreshDynamicLabels(manId, null, null)
+        // despawnConfigGrid(player, hud) // Removed: keep menu open
+        refreshDynamicLabels(manId)
     }
 
     fun handleInteract(mannequinId: UUID, player: Player, backwards: Boolean) {
