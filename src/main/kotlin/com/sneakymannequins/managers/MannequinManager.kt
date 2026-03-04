@@ -1207,6 +1207,8 @@ class MannequinManager(
                 yawOffset = config.yawOffset,
                 scaleX = config.headerScale,
                 scaleY = config.headerScale,
+                interactionWidth = 0.6f,
+                interactionHeight = 0.3f,
                 playerRelative = true,
                 onClick = { p, _ -> applyGridCellColor(null, "Default", null, mannequin.id, mannequin, state, p) },
                 onHover = { p, entering ->
@@ -1259,6 +1261,8 @@ class MannequinManager(
                     yawOffset = config.yawOffset,
                     scaleX = config.cellScaleX,
                     scaleY = config.cellScaleY,
+                    interactionWidth = 0.1f,
+                    interactionHeight = 0.15f,
                     playerRelative = true,
                     onClick = { p, _ -> applyGridCellColor(palId, prettyName(namedColor.name), rgb, mannequin.id, mannequin, state, p) },
                     onHover = { p, entering ->
