@@ -4,7 +4,7 @@ import com.sneakymannequins.SneakyMannequins
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymannequins.managers.MannequinManager
 import com.sneakymannequins.managers.SessionManager
-import com.sneakymannequins.util.TextUtility
+import com.sneakymouse.holoui.util.TextUtility
 import io.papermc.paper.command.brigadier.CommandSourceStack
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.event.ClickEvent

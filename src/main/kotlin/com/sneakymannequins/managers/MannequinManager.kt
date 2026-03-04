@@ -16,6 +16,8 @@ import com.sneakymannequins.model.ChannelSlot
 import com.sneakymannequins.model.buildChannelSlots
 import com.sneakymannequins.model.hexToColor
 import com.sneakymouse.holoui.*
+import com.sneakymouse.holoui.util.TextUtility
+import com.sneakymouse.holoui.util.HoloGridBuilder
 import com.sneakymannequins.nms.VolatileHandler
 import com.sneakymannequins.render.AnimationManager
 import com.sneakymannequins.render.PixelProjector
@@ -61,69 +63,11 @@ private data class ControlState(
 
 private enum class ControlMode { NONE, LOAD }
 
-// ── Color picker grid structures ────────────────────────────────────────────
+// ── HUD button layout ───────────────────────────────────────────────────────
 
-/** Clickable cell metadata (palette name, colour, etc.). Null for headers. */
-private data class GridCellData(
-    val paletteId: String?,
-    val colorName: String,
-    val color: java.awt.Color?
-)
-
-/**
- * Rendering info for a single grid entity (header *or* cell).
- * Stores everything needed to re-send an [updateHudTextDisplay] on rotation.
- */
-private data class GridEntityInfo(
-    val tx: Float, val ty: Float, val tz: Float,
-    val textJson: String,
-    val bgNormal: Int,
-    val lineWidth: Int,
-    val scaleX: Float = 1f, val scaleY: Float = 1f,
-    val pitch: Float = 0f,
-    val yawOffset: Float = 0f,
-    /** Non-null only for clickable colour cells. */
-    val cellData: GridCellData? = null,
-    /** Non-null only for clickable config-menu items. */
-    val menuItemData: MenuItemData? = null
-)
-
-/** Tracks the spawned grid for a single player. */
-private data class GridState(
-    val entities: Map<Int, GridEntityInfo>,
-    val allEntityIds: IntArray,
-    var page: Int = 0,
-    val totalPages: Int = 1,
-    /** Remaining ticks for the grid fly-in animation (0 = done). */
-    var flyInTicksLeft: Int = 0,
-    /** True while the grid is flying out before destruction. */
-    var flyingOut: Boolean = false
-)
-
-/** Clickable item in the config submenu (Save/Load/Apply). */
-private data class MenuItemData(
-    val action: String,
-    val label: String
-)
-
-/** What the crosshair is pointing at. */
-private sealed class HoverTarget {
-    data class ButtonTarget(val name: String) : HoverTarget()
-    data class CellTarget(val entityId: Int, val cell: GridCellData) : HoverTarget()
-    data class MenuTarget(val entityId: Int, val item: MenuItemData) : HoverTarget()
-}
-
-/**
- * Describes one HUD button loaded from config.
- * Translations are in entity-local space (billboard FIXED, rotated by yaw):
- *   tx: positive = right from the viewer's POV
- *   ty: positive = up
- *   tz: negative = behind the mannequin
- */
 private data class HudButton(
     val name: String,
     val textMM: String,            // raw MiniMessage string (for generating variants)
-    val textJson: String,          // pre-serialised JSON component
     val activeTextJson: String?,   // JSON component for part/color active mode
     val disabledTextJson: String?, // JSON component when button is disabled (e.g. channel with no masks)
     val tx: Float,
@@ -246,20 +190,6 @@ class MannequinManager(
             "config"  to BtnDefault("<white>Config",   "<yellow>Config", -1.1f, 0.2f, -2.0f, 200),
         )
 
-        private const val GRID_CELL_TOLERANCE = 0.20
-
-        private val mm = MiniMessage.miniMessage()
-        private val gsonSer = GsonComponentSerializer.gson()
-
-        /** Parse a MiniMessage string and serialise to JSON (for NMS). */
-        fun mmToJson(miniMsg: String): String = gsonSer.serialize(mm.deserialize(miniMsg))
-
-        /** Build a JSON component from plain text + RGB colour. */
-        fun textToJson(text: String, color: Int = 0xFFFFFF): String =
-            gsonSer.serialize(Component.text(text).color(TextColor.color(color)))
-
-        fun mm(miniMsg: String): Component = mm.deserialize(miniMsg)
-
         /** Parse an ARGB hex string (e.g. "B8336699") to an Int. */
         private fun parseArgb(hex: String?): Int? {
             if (hex.isNullOrBlank()) return null
@@ -309,9 +239,8 @@ class MannequinManager(
             HudButton(
                 name = name,
                 textMM = textMM,
-                textJson = mmToJson(textMM),
-                activeTextJson = activeMM?.let { mmToJson(it) },
-                disabledTextJson = disabledMM?.let { mmToJson(it) },
+                activeTextJson = activeMM?.let { TextUtility.mmToJson(it) },
+                disabledTextJson = disabledMM?.let { TextUtility.mmToJson(it) },
                 tx = tx, ty = ty, tz = tz,
                 lineWidth = lw,
                 bgDefault = bgDef,
@@ -433,7 +362,7 @@ class MannequinManager(
                 val btn = hud?.buttons?.find { it.id == "random" }
                 if (btn != null) {
                     val baseJson = plugin.config.getString("hud-buttons.random.text", "<white>Random")!!
-                    btn.textJson = mmToJson(baseJson)
+                    btn.textJson = TextUtility.mmToJson(baseJson)
                     hud.updateButtonText("random", btn.textJson)
                 }
             }
@@ -774,7 +703,7 @@ class MannequinManager(
             val json = if (btn.name == "status") {
                 formatStatusText(statusText[mannequinId])
             } else {
-                btn.textJson
+                TextUtility.mmToJson(btn.textMM)
             }
             visuals[btn.name] = ButtonVisual(textJson = json, bgColor = btn.bgDefault)
         }
@@ -792,7 +721,7 @@ class MannequinManager(
         val defaultMsg = plugin.config.getString("hud-buttons.status.default-message") ?: "Controls"
         val text = msg ?: defaultMsg
         val formatted = if ("{message}" in template) template.replace("{message}", text) else text
-        return mmToJson(formatted)
+        return TextUtility.mmToJson(formatted)
     }
 
     /** Spawn the full virtual HUD for a player viewing a mannequin.
@@ -802,7 +731,7 @@ class MannequinManager(
     private fun buildHoloButtons(mannequin: Mannequin, player: Player): MutableList<HoloButton> {
         val state = controlState[mannequin.id] ?: ControlState()
         return hudButtons.map { btn ->
-            val initialJson = if (btn.name == "status") formatStatusText(statusText[mannequin.id]) else btn.textJson
+            val initialJson = if (btn.name == "status") formatStatusText(statusText[mannequin.id]) else TextUtility.mmToJson(btn.textMM)
             HoloButton(
                 id = btn.name,
                 textJson = initialJson,
@@ -879,7 +808,7 @@ class MannequinManager(
                     val btn = hud.buttons.find { it.id == "random" }
                     if (btn != null) {
                         val baseJson = plugin.config.getString("hud-buttons.random.text", "<white>Random")!!
-                        btn.textJson = mmToJson(baseJson)
+                        btn.textJson = TextUtility.mmToJson(baseJson)
                         hud.updateButtonText("random", btn.textJson)
                     }
                 } else {
@@ -887,7 +816,7 @@ class MannequinManager(
                     val btn = hud.buttons.find { it.id == "random" }
                     if (btn != null) {
                         val confirmJson = plugin.config.getString("hud-buttons.random.confirm-text", "<yellow>Confirm?")!!
-                        btn.textJson = mmToJson(confirmJson)
+                        btn.textJson = TextUtility.mmToJson(confirmJson)
                         hud.updateButtonText("random", btn.textJson)
                     }
                 }
@@ -1045,11 +974,19 @@ class MannequinManager(
         val channelDisabled = channelSlotCount <= 1
 
         val chBtn = buttonByName("channel")
-        val channelJson = if (channelDisabled && chBtn?.disabledTextJson != null) chBtn.disabledTextJson else chBtn?.textJson ?: textToJson("Channel")
+        val channelJson = if (channelDisabled && chBtn?.disabledTextJson != null) {
+            chBtn.disabledTextJson
+        } else {
+            chBtn?.textMM?.let { TextUtility.mmToJson(it) } ?: TextUtility.mmToJson("Channel")
+        }
 
         val texBtn = buttonByName("texture")
         val texCount = if (finalOption != null && finalLayer != null) layerManager.resolveTextures(finalLayer, finalOption, null).size else 0
-        val textureJson = if (texCount <= 1 && texBtn?.disabledTextJson != null) texBtn.disabledTextJson else texBtn?.textJson ?: textToJson("Texture")
+        val textureJson = if (texCount <= 1 && texBtn?.disabledTextJson != null) {
+            texBtn.disabledTextJson
+        } else {
+            texBtn?.textMM?.let { TextUtility.mmToJson(it) } ?: TextUtility.mmToJson("Texture")
+        }
 
         val colorBtn = buttonByName("color")
         val configBtn = buttonByName("config")
@@ -1062,11 +999,19 @@ class MannequinManager(
             hud.updateButtonText("texture", textureJson)
 
             val gridVisible = hud.isButtonActive("color_")
-            val colorJson = if (gridVisible && colorBtn?.activeTextJson != null) colorBtn.activeTextJson else colorBtn?.textJson ?: textToJson("Color")
+            val colorJson = if (gridVisible && colorBtn?.activeTextJson != null) {
+                colorBtn.activeTextJson
+            } else {
+                colorBtn?.textMM?.let { TextUtility.mmToJson(it) } ?: TextUtility.mmToJson("Color")
+            }
             hud.updateButtonText("color", colorJson)
 
             val configGridVisible = hud.isButtonActive("config_")
-            val configJson = if ((configGridVisible || mode == ControlMode.LOAD) && configBtn?.activeTextJson != null) configBtn.activeTextJson else configBtn?.textJson ?: textToJson("Config")
+            val configJson = if ((configGridVisible || mode == ControlMode.LOAD) && configBtn?.activeTextJson != null) {
+                configBtn.activeTextJson
+            } else {
+                configBtn?.textMM?.let { TextUtility.mmToJson(it) } ?: TextUtility.mmToJson("Config")
+            }
             hud.updateButtonText("config", configJson)
         }
     }
@@ -1201,89 +1146,63 @@ class MannequinManager(
         }
 
         val config = loadGridConfig()
-        val buttons = mutableListOf<HoloButton>()
         val selectedColor = currentSelectedGridColor(mannequin, state)
+
+        val grid = HoloGridBuilder(
+            config.originX, config.originY, config.originZ,
+            config.cellSpacingX, config.cellSpacingY,
+            config.yawOffset, config.pitch, true
+        )
 
         // Default button
         if (hasDefaultColor) {
-            buttons.add(HoloButton(
+            grid.addButton(
                 id = "color_default",
-                textJson = mmToJson(config.headerTextMM.replace("{message}", "Default")),
-                tx = config.originX, ty = config.originY + config.cellSpacingY, tz = config.originZ,
-                lineWidth = config.headerLineWidth,
+                textMM = config.headerTextMM.replace("{message}", "Default"),
+                column = 0, row = -1,
                 bgDefault = config.bgHeader, bgHighlight = HUD_BG_HIGHLIGHT,
-                pitch = config.pitch,
-                yawOffset = config.yawOffset,
-                scaleX = config.headerScale,
-                scaleY = config.headerScale,
-                interactionWidth = 0.6f,
-                interactionHeight = 0.3f,
-                playerRelative = true,
-                onClick = { p, _ -> applyGridCellColor(null, "Default", null, mannequin.id, mannequin, state, p) },
-                onHover = { p, entering ->
-                    if (entering) {
-                        plugin.server.pluginManager.callEvent(MannequinHoverEvent(mannequin.id, mannequin.location, p, "color_default"))
-                    }
-                }
-            ))
+                lineWidth = config.headerLineWidth,
+                scaleX = config.headerScale, scaleY = config.headerScale,
+                interactionWidth = 0.6f, interactionHeight = 0.3f,
+                onClick = { p, _ -> applyGridCellColor(null, "Default", null, mannequin.id, mannequin, state, p) }
+            )
         }
 
         // Palette rows
         for ((row, palId) in allPaletteIds.withIndex()) {
             val palette = layerManager.palette(palId) ?: continue
-            val rowY = config.originY - row * config.cellSpacingY
 
             // Palette header
-            buttons.add(HoloButton(
+            grid.addButton(
                 id = "pal_header_$palId",
-                textJson = mmToJson(config.headerTextMM.replace("{message}", prettyName(palId))),
-                tx = config.originX, ty = rowY, tz = config.originZ,
-                lineWidth = config.headerLineWidth,
+                textMM = config.headerTextMM.replace("{message}", prettyName(palId)),
+                column = 0, row = row,
                 bgDefault = config.bgHeader, bgHighlight = config.bgHeader,
-                pitch = config.pitch,
-                yawOffset = config.yawOffset,
-                scaleX = config.headerScale,
-                scaleY = config.headerScale,
-                playerRelative = true,
-                onHover = { p, entering ->
-                    if (entering) {
-                        plugin.server.pluginManager.callEvent(MannequinHoverEvent(mannequin.id, mannequin.location, p, "pal_header_$palId"))
-                    }
-                }
-            ))
+                lineWidth = config.headerLineWidth,
+                scaleX = config.headerScale, scaleY = config.headerScale
+            )
 
             // Color swatches
             for ((col, namedColor) in palette.colors.withIndex()) {
                 val rgb = namedColor.color
                 val bgNormal = (0xFF shl 24) or ((rgb.red and 0xFF) shl 16) or ((rgb.green and 0xFF) shl 8) or (rgb.blue and 0xFF)
                 val isSelected = selectedColor != null && rgb == selectedColor
-                val cellTx = config.originX + config.headerGap + col * config.cellSpacingX
                 
-                buttons.add(HoloButton(
+                grid.addButton(
                     id = "color_${palId}_${namedColor.name}",
-                    textJson = textToJson(" "),
-                    tx = cellTx, ty = rowY, tz = config.originZ,
-                    lineWidth = config.cellLineWidth,
+                    textMM = " ",
+                    column = (config.headerGap / config.cellSpacingX).toInt() + col, row = row,
                     bgDefault = if (isSelected) config.bgSelected else bgNormal,
                     bgHighlight = HUD_BG_HIGHLIGHT,
-                    pitch = config.pitch,
-                    yawOffset = config.yawOffset,
-                    scaleX = config.cellScaleX,
-                    scaleY = config.cellScaleY,
-                    interactionWidth = 0.1f,
-                    interactionHeight = 0.15f,
-                    playerRelative = true,
-                    onClick = { p, _ -> applyGridCellColor(palId, prettyName(namedColor.name), rgb, mannequin.id, mannequin, state, p) },
-                    onHover = { p, entering ->
-                        if (entering) {
-                            plugin.server.pluginManager.callEvent(MannequinHoverEvent(mannequin.id, mannequin.location, p, "color_${palId}_${namedColor.name}"))
-                        }
-                    }
-                ))
+                    lineWidth = config.cellLineWidth,
+                    scaleX = config.cellScaleX, scaleY = config.cellScaleY,
+                    interactionWidth = 0.1f, interactionHeight = 0.15f,
+                    onClick = { p, _ -> applyGridCellColor(palId, prettyName(namedColor.name), rgb, mannequin.id, mannequin, state, p) }
+                )
             }
         }
 
-        hud.addButtons(buttons, instant = quiet)
+        hud.addButtons(grid.build(), instant = quiet)
         if (!quiet) {
             plugin.server.pluginManager.callEvent(MannequinSubmenuOpenEvent(mannequin.id, mannequin.location, player))
         }
@@ -1375,30 +1294,25 @@ class MannequinManager(
      */
     private fun spawnConfigGrid(player: Player, mannequin: Mannequin, state: ControlState, hud: HoloHUD, quiet: Boolean = false) {
         val config = loadGridConfig("hud-buttons.config-menu")
-        val buttons = mutableListOf<HoloButton>()
+        val grid = HoloGridBuilder(
+            config.originX, config.originY, config.originZ,
+            config.cellSpacingX, config.cellSpacingY,
+            config.yawOffset, config.pitch, true
+        )
         
         val options = listOf("Save", "Load", "Clear")
         for ((i, opt) in options.withIndex()) {
-            buttons.add(HoloButton(
+            grid.addButton(
                 id = "config_${opt.lowercase()}",
-                textJson = mmToJson(config.headerTextMM.replace("{message}", opt)),
-                tx = config.originX, ty = config.originY - i * config.cellSpacingY, tz = config.originZ,
-                lineWidth = config.headerLineWidth,
+                textMM = config.headerTextMM.replace("{message}", opt),
+                column = 0, row = i,
                 bgDefault = config.bgHeader, bgHighlight = HUD_BG_HIGHLIGHT,
-                pitch = config.pitch,
-                yawOffset = config.yawOffset,
-                scaleX = config.headerScale,
-                scaleY = config.headerScale,
-                playerRelative = true,
-                onClick = { p, _ -> executeConfigAction(opt, mannequin.id, p, state, hud) },
-                onHover = { p, entering ->
-                    if (entering) {
-                        plugin.server.pluginManager.callEvent(MannequinHoverEvent(mannequin.id, mannequin.location, p, "config_${opt.lowercase()}"))
-                    }
-                }
-            ))
+                lineWidth = config.headerLineWidth,
+                scaleX = config.headerScale, scaleY = config.headerScale,
+                onClick = { p, _ -> executeConfigAction(opt, mannequin.id, p, state, hud) }
+            )
         }
-        hud.addButtons(buttons, instant = quiet)
+        hud.addButtons(grid.build(), instant = quiet)
         if (!quiet) {
             plugin.server.pluginManager.callEvent(MannequinSubmenuOpenEvent(mannequin.id, mannequin.location, player))
         }
