@@ -1270,7 +1270,7 @@ class MannequinManager(
             }
         }
 
-        hud.addButtons(buttons)
+        hud.addButtons(buttons, instant = quiet)
         if (!quiet) {
             plugin.server.pluginManager.callEvent(MannequinSubmenuOpenEvent(mannequin.id, mannequin.location, player))
         }
@@ -1335,7 +1335,7 @@ class MannequinManager(
     private fun despawnColorGrid(player: Player, hud: HoloHUD, quiet: Boolean = false) {
         val toRemove = hud.buttons.filter { it.id.startsWith("color_") || it.id.startsWith("pal_header_") }.map { it.id }
         if (toRemove.isNotEmpty()) {
-            hud.removeButtons(toRemove)
+            hud.removeButtons(toRemove, instant = quiet)
             if (!quiet) {
                 val mannequin = mannequins[hud.mannequinId] ?: return
                 plugin.server.pluginManager.callEvent(MannequinSubmenuCloseEvent(mannequin.id, mannequin.location, player))
@@ -1360,7 +1360,7 @@ class MannequinManager(
     /**
      * Spawns the configuration submenu.
      */
-    private fun spawnConfigGrid(player: Player, mannequin: Mannequin, state: ControlState, hud: HoloHUD) {
+    private fun spawnConfigGrid(player: Player, mannequin: Mannequin, state: ControlState, hud: HoloHUD, quiet: Boolean = false) {
         val config = loadGridConfig("hud-buttons.config-menu")
         val buttons = mutableListOf<HoloButton>()
         
@@ -1385,16 +1385,20 @@ class MannequinManager(
                 }
             ))
         }
-        hud.addButtons(buttons)
-        plugin.server.pluginManager.callEvent(MannequinSubmenuOpenEvent(mannequin.id, mannequin.location, player))
+        hud.addButtons(buttons, instant = quiet)
+        if (!quiet) {
+            plugin.server.pluginManager.callEvent(MannequinSubmenuOpenEvent(mannequin.id, mannequin.location, player))
+        }
     }
 
-    private fun despawnConfigGrid(player: Player, hud: HoloHUD) {
+    private fun despawnConfigGrid(player: Player, hud: HoloHUD, quiet: Boolean = false) {
         val toRemove = hud.buttons.filter { it.id.startsWith("config_") }.map { it.id }
         if (toRemove.isNotEmpty()) {
-            hud.removeButtons(toRemove)
-            val mannequin = mannequins[hud.mannequinId] ?: return
-            plugin.server.pluginManager.callEvent(MannequinSubmenuCloseEvent(mannequin.id, mannequin.location, player))
+            hud.removeButtons(toRemove, instant = quiet)
+            if (!quiet) {
+                val mannequin = mannequins[hud.mannequinId] ?: return
+                plugin.server.pluginManager.callEvent(MannequinSubmenuCloseEvent(mannequin.id, mannequin.location, player))
+            }
         }
     }
 
