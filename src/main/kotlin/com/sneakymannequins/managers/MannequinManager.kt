@@ -863,7 +863,7 @@ class MannequinManager(
             "pose" -> {
                 poseState[mannequinId] = !(poseState[mannequinId] ?: false)
                 updateStatus(mannequinId, if (poseState[mannequinId] == true) "Pose: T-Pose" else "Pose: Standard")
-                renderFull(mannequin, nearbyViewers(mannequin))
+                renderFull(mannequin, nearbyViewers(mannequin), forceInstant = true)
             }
             "random" -> {
                 val now = System.currentTimeMillis()
