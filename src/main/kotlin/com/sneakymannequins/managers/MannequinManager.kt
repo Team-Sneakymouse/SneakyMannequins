@@ -1656,7 +1656,6 @@ class MannequinManager(
 
         mannequin.selection = SkinSelection(newSelections)
         for (def in definitions) rememberCurrentPartSelection(mannequin, def)
-        mannequin.lastFrame = PixelFrame.blank()
         if (randomizeModel) mannequin.slimModel = rng.nextBoolean()
 
         val state = controlState[mannequin.id]
