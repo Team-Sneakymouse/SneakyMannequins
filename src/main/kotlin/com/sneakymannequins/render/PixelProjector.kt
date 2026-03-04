@@ -160,8 +160,7 @@ object PixelProjector {
             val psH = if (overlay) (h + 1.0) / h * s else s  // Z axis
             val lx = x - x0
             val lz = (y0 + h - 1) - y
-            val shift = psH * 0.5
-            return PixelPose(cx + (lx - (w - 1) / 2.0) * psW, topY + 0.5 * s, depth - (lz - (h - 1) / 2.0) * psH + shift, 0f, -90f, psW, psH)
+            return PixelPose(cx + (lx - (w - 1) / 2.0) * psW, topY, depth - (lz - (h - 1) / 2.0) * psH, 0f, -90f, psW, psH)
         }
 
         fun faceBottom(x0: Int, y0: Int, w: Int, h: Int, cx: Double, bottomY: Double, depth: Double, overlay: Boolean = false): PixelPose? {
@@ -170,8 +169,7 @@ object PixelProjector {
             val psH = if (overlay) (h + 1.0) / h * s else s
             val lx = x - x0
             val lz = y - y0
-            val shift = psH * 0.5
-            return PixelPose(cx + (lx - (w - 1) / 2.0) * psW, bottomY + 0.5 * s, depth + (lz - (h - 1) / 2.0) * psH - shift, 0f, 90f, psW, psH)
+            return PixelPose(cx + (lx - (w - 1) / 2.0) * psW, bottomY, depth + (lz - (h - 1) / 2.0) * psH, 0f, 90f, psW, psH)
         }
 
         val headY = 24.0 * s
@@ -378,12 +376,8 @@ object PixelProjector {
         val newPitch = Math.toDegrees(asin((-ny2).coerceIn(-1.0, 1.0))).toFloat()
         val newYaw = Math.toDegrees(atan2(-nx2, nz)).toFloat()
 
-        // Swap scales when face orientation flips between vertical and horizontal
-        val wasVertical = abs(pose.pitch) < 45f
-        val isVertical = abs(newPitch) < 45f
-        val sw = if (wasVertical != isVertical) pose.scaleH else pose.scaleW
-        val sh = if (wasVertical != isVertical) pose.scaleW else pose.scaleH
-
-        return PixelPose(newX, newY, pose.z, newYaw, newPitch, sw, sh)
+        // Every arm face effectively rotates 90° in the XY plane;
+        // swap local scales to match the new world-space orientation.
+        return PixelPose(newX, newY, pose.z, newYaw, newPitch, pose.scaleH, pose.scaleW)
     }
 }
