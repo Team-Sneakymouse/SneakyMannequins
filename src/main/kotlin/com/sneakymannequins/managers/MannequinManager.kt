@@ -1052,11 +1052,11 @@ class MannequinManager(
             hud.updateButtonText("channel", channelJson)
             hud.updateButtonText("texture", textureJson)
 
-            val gridVisible = hud.buttons.any { it.id.startsWith("color_") }
+            val gridVisible = hud.isButtonActive("color_")
             val colorJson = if (gridVisible && colorBtn?.activeTextJson != null) colorBtn.activeTextJson else colorBtn?.textJson ?: textToJson("Color")
             hud.updateButtonText("color", colorJson)
 
-            val configGridVisible = hud.buttons.any { it.id.startsWith("config_") }
+            val configGridVisible = hud.isButtonActive("config_")
             val configJson = if ((configGridVisible || mode == ControlMode.LOAD) && configBtn?.activeTextJson != null) configBtn.activeTextJson else configBtn?.textJson ?: textToJson("Config")
             hud.updateButtonText("config", configJson)
         }
@@ -1428,6 +1428,7 @@ class MannequinManager(
             }
         }
         despawnConfigGrid(player, hud)
+        refreshDynamicLabels(manId, null, null)
     }
 
     fun handleInteract(mannequinId: UUID, player: Player, backwards: Boolean) {
