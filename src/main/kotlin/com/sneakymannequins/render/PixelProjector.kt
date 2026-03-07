@@ -150,7 +150,8 @@ object PixelProjector {
             val isOverlay: Boolean = false,
             val isBottom: Boolean = false,
             val nudge: Double = 0.0,
-            val isArm: Boolean = false
+            val isArm: Boolean = false,
+            val isHand: Boolean = false
     )
 
     private fun mapSkinPixelToModel(
@@ -354,6 +355,7 @@ object PixelProjector {
                     isCap = true,
                     isOverlay = overlay,
                     isBottom = true,
+                    isHand = true, // Added for T-pose end-cap alignment
                     nudge = if (overlay) nudge else 0.0
             )
         }
@@ -454,19 +456,19 @@ object PixelProjector {
 
         val rightArm =
                 if (slimArms) {
-                    ArmSpec(3, 3, -5.5 * s, -7.0 * s, -4.0 * s, 51, 51)
+                    ArmSpec(3, 3, -5.5 * s, -7.0 * s, -4.0 * s, 52, 52)
                 } else {
                     ArmSpec(4, 4, -6.0 * s, -8.0 * s, -4.0 * s, 52, 52)
                 }
         val leftArm =
                 if (slimArms) {
-                    ArmSpec(3, 3, 5.5 * s, 7.0 * s, 4.0 * s, 43, 59)
+                    ArmSpec(3, 3, 5.5 * s, 7.0 * s, 4.0 * s, 44, 60)
                 } else {
                     ArmSpec(4, 4, 6.0 * s, 8.0 * s, 4.0 * s, 44, 60)
                 }
 
         fun renderRightArmInternal(spec: ArmSpec): PixelPose? {
-            // Base
+            // Base layer
             return faceFront(44, 20, spec.frontWidth, 12, spec.centerX, bodyY, 2.0 * s)
                     ?: faceBack(
                             spec.backBaseX,
@@ -489,7 +491,7 @@ object PixelProjector {
                             0.0
                     )
                             ?: faceBottom(48, 16, spec.topWidth, 4, spec.centerX, bodyY, 0.0)
-                    // Overlay
+                    // Overlay layer
                     ?: faceFront(
                             44,
                             36,
@@ -563,9 +565,7 @@ object PixelProjector {
         }
 
         fun renderLeftArmInternal(spec: ArmSpec): PixelPose? {
-            val outerBaseUvX = if (spec.frontWidth == 3) 39 else 40
-            val outerOverlayUvX = if (spec.frontWidth == 3) 55 else 56
-            // Base
+            // Base layer
             return faceFront(36, 52, spec.frontWidth, 12, spec.centerX, bodyY, 2.0 * s)
                     ?: faceBack(
                             spec.backBaseX,
@@ -577,7 +577,7 @@ object PixelProjector {
                             -2.0 * s
                     )
                             ?: faceLeftFlipped(32, 52, 4, 12, spec.innerX, bodyY, 0.0)
-                            ?: faceRightFlipped(outerBaseUvX, 52, 4, 12, spec.outerX, bodyY, 0.0)
+                            ?: faceRightFlipped(40, 52, 4, 12, spec.outerX, bodyY, 0.0)
                             ?: faceTop(
                             36,
                             48,
@@ -588,7 +588,7 @@ object PixelProjector {
                             0.0
                     )
                             ?: faceBottom(40, 48, spec.topWidth, 4, spec.centerX, bodyY, 0.0)
-                    // Overlay
+                    // Overlay layer
                     ?: faceFront(
                             52,
                             52,
@@ -623,7 +623,7 @@ object PixelProjector {
                             nudge = ogLeftArm
                     )
                             ?: faceRightFlipped(
-                            outerOverlayUvX,
+                            56,
                             52,
                             4,
                             12,
