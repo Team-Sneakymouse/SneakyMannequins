@@ -424,7 +424,7 @@ object PixelProjector {
                             ho.w,
                             ho.h,
                             0.0,
-                            headY,
+                            headY - ogHead,
                             ho.d / 2.0 * s,
                             overlay = true,
                             nudge = ogHead
@@ -438,7 +438,7 @@ object PixelProjector {
                             ho.w,
                             ho.h,
                             0.0,
-                            headY,
+                            headY - ogHead,
                             -ho.d / 2.0 * s,
                             overlay = true,
                             nudge = ogHead
@@ -452,7 +452,7 @@ object PixelProjector {
                             ho.d,
                             ho.h,
                             -ho.w / 2.0 * s,
-                            headY,
+                            headY - ogHead,
                             0.0,
                             overlay = true,
                             nudge = ogHead
@@ -466,7 +466,7 @@ object PixelProjector {
                             ho.d,
                             ho.h,
                             ho.w / 2.0 * s,
-                            headY,
+                            headY - ogHead,
                             0.0,
                             overlay = true,
                             nudge = ogHead
@@ -534,7 +534,7 @@ object PixelProjector {
                             bo.w,
                             bo.h,
                             0.0,
-                            bodyY,
+                            bodyY - ogBody,
                             bo.d / 2.0 * s,
                             overlay = true,
                             nudge = ogBody
@@ -548,7 +548,7 @@ object PixelProjector {
                             bo.w,
                             bo.h,
                             0.0,
-                            bodyY,
+                            bodyY - ogBody,
                             -bo.d / 2.0 * s,
                             overlay = true,
                             nudge = ogBody
@@ -562,7 +562,7 @@ object PixelProjector {
                             bo.d,
                             bo.h,
                             -bo.w / 2.0 * s,
-                            bodyY,
+                            bodyY - ogBody,
                             0.0,
                             overlay = true,
                             nudge = ogBody
@@ -576,7 +576,7 @@ object PixelProjector {
                             bo.d,
                             bo.h,
                             bo.w / 2.0 * s,
-                            bodyY,
+                            bodyY - ogBody,
                             0.0,
                             overlay = true,
                             nudge = ogBody
@@ -736,7 +736,7 @@ object PixelProjector {
                                 spec.frontWidth,
                                 uvO.h,
                                 spec.centerX,
-                                bodyY,
+                                bodyY - ogRightArm,
                                 uvO.d / 2.0 * s,
                                 overlay = true,
                                 nudge = ogRightArm
@@ -747,7 +747,7 @@ object PixelProjector {
                                         spec.frontWidth,
                                         uvO.h,
                                         spec.centerX,
-                                        bodyY,
+                                        bodyY - ogRightArm,
                                         -uvO.d / 2.0 * s,
                                         overlay = true,
                                         nudge = ogRightArm
@@ -758,7 +758,7 @@ object PixelProjector {
                                         uvO.d,
                                         uvO.h,
                                         spec.outerX,
-                                        bodyY,
+                                        bodyY - ogRightArm,
                                         0.0,
                                         overlay = true,
                                         nudge = ogRightArm
@@ -769,7 +769,7 @@ object PixelProjector {
                                         uvO.d,
                                         uvO.h,
                                         spec.innerX,
-                                        bodyY,
+                                        bodyY - ogRightArm,
                                         0.0,
                                         overlay = true,
                                         nudge = ogRightArm
@@ -868,7 +868,7 @@ object PixelProjector {
                                 spec.frontWidth,
                                 uvO.h,
                                 spec.centerX,
-                                bodyY,
+                                bodyY - ogLeftArm,
                                 uvO.d / 2.0 * s,
                                 overlay = true,
                                 nudge = ogLeftArm
@@ -879,7 +879,7 @@ object PixelProjector {
                                         spec.frontWidth,
                                         uvO.h,
                                         spec.centerX,
-                                        bodyY,
+                                        bodyY - ogLeftArm,
                                         -uvO.d / 2.0 * s,
                                         overlay = true,
                                         nudge = ogLeftArm
@@ -890,7 +890,7 @@ object PixelProjector {
                                         uvO.d,
                                         uvO.h,
                                         spec.innerX,
-                                        bodyY,
+                                        bodyY - ogLeftArm,
                                         0.0,
                                         overlay = true,
                                         nudge = ogLeftArm
@@ -901,7 +901,7 @@ object PixelProjector {
                                         uvO.d,
                                         uvO.h,
                                         spec.outerX,
-                                        bodyY,
+                                        bodyY - ogLeftArm,
                                         0.0,
                                         overlay = true,
                                         nudge = ogLeftArm
@@ -989,7 +989,7 @@ object PixelProjector {
                             lo.w,
                             lo.h,
                             -2.0 * s,
-                            legY,
+                            legY - ogRightLeg,
                             lo.d / 2.0 * s,
                             overlay = true,
                             nudge = ogRightLeg
@@ -1003,7 +1003,7 @@ object PixelProjector {
                             lo.w,
                             lo.h,
                             -2.0 * s,
-                            legY,
+                            legY - ogRightLeg,
                             -lo.d / 2.0 * s,
                             overlay = true,
                             nudge = ogRightLeg
@@ -1017,7 +1017,7 @@ object PixelProjector {
                             lo.d,
                             lo.h,
                             -4.0 * s,
-                            legY,
+                            legY - ogRightLeg,
                             0.0,
                             overlay = true,
                             nudge = ogRightLeg
@@ -1031,7 +1031,7 @@ object PixelProjector {
                             lo.d,
                             lo.h,
                             0.0,
-                            legY,
+                            legY - ogRightLeg,
                             0.0,
                             overlay = true,
                             nudge = ogRightLeg
@@ -1099,7 +1099,7 @@ object PixelProjector {
                             llo.w,
                             llo.h,
                             2.0 * s,
-                            legY,
+                            legY - ogLeftLeg,
                             llo.d / 2.0 * s,
                             overlay = true,
                             nudge = ogLeftLeg
@@ -1113,7 +1113,7 @@ object PixelProjector {
                             llo.w,
                             llo.h,
                             2.0 * s,
-                            legY,
+                            legY - ogLeftLeg,
                             -llo.d / 2.0 * s,
                             overlay = true,
                             nudge = ogLeftLeg
@@ -1127,7 +1127,7 @@ object PixelProjector {
                             llo.d,
                             llo.h,
                             0.0,
-                            legY,
+                            legY - ogLeftLeg,
                             0.0,
                             overlay = true,
                             nudge = ogLeftLeg
@@ -1141,7 +1141,7 @@ object PixelProjector {
                             llo.d,
                             llo.h,
                             4.0 * s,
-                            legY,
+                            legY - ogLeftLeg,
                             0.0,
                             overlay = true,
                             nudge = ogLeftLeg
