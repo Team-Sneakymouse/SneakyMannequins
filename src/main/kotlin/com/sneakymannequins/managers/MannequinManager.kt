@@ -715,6 +715,7 @@ class MannequinManager(
                         pixelScale = 1.0 / 16.0,
                         scaleMultiplier = handler.pixelScaleMultiplier(),
                         slimArms = isSlimModel(mannequin),
+                        showOverlay = mannequin.showOverlay,
                         tPose = poseState[mannequin.id] == true
                 )
         val settings =
@@ -771,6 +772,7 @@ class MannequinManager(
                         pixelScale = 1.0 / 16.0,
                         scaleMultiplier = handler.pixelScaleMultiplier(),
                         slimArms = isSlimModel(mannequin),
+                        showOverlay = mannequin.showOverlay,
                         tPose = poseState[mannequin.id] == true
                 )
         val settings =
@@ -1650,7 +1652,7 @@ class MannequinManager(
                         true
                 )
 
-        val options = listOf("Save", "Load", "Clear")
+        val options = listOf("Save", "Load", "Clear", "Overlay")
         for ((i, opt) in options.withIndex()) {
             grid.addButton(
                     id = "config_${opt.lowercase()}",
@@ -1698,9 +1700,9 @@ class MannequinManager(
             "Save" -> {
                 val uid = sessionManager.save(mannequin, player)
                 plugin.server.pluginManager.callEvent(
-                        MannequinSessionSaveEvent(manId, mannequin.location, player, uid)
+                        MannequinSessionSaveEvent(mannequin.id, mannequin.location, player, uid)
                 )
-                updateStatus(manId, "Saved: $uid")
+                updateStatus(manId, "Saved to session '$uid'")
                 player.sendMessage(
                         Component.text("Session saved: ")
                                 .color(NamedTextColor.GREEN)
@@ -1727,8 +1729,13 @@ class MannequinManager(
             "Clear" -> {
                 mannequin.selection = bootstrapSelection()
                 updateStatus(manId, "Cleared")
-                render(mannequin, nearbyViewers(mannequin))
+                renderFull(mannequin, nearbyViewers(mannequin))
                 refreshDynamicLabels(manId)
+            }
+            "Overlay" -> {
+                mannequin.showOverlay = !mannequin.showOverlay
+                updateStatus(manId, "Outer Layer: ${if (mannequin.showOverlay) "ON" else "OFF"}")
+                renderFull(mannequin, nearbyViewers(mannequin))
             }
         }
         // despawnConfigGrid(player, hud) // Removed: keep menu open
