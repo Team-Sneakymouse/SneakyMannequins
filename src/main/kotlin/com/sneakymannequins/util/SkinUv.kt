@@ -24,7 +24,7 @@ object SkinUv {
             val right: FaceUv
     )
 
-    // Dimensions: (Head=8x8x8, Torso=8x12x4, Arms=4x12x4, Legs=4x12x4)
+    // Dimensions: (Head=8x8x8, Torso=8x12x4, Arms=4x12x4, SlimArms=3x12x4, Legs=4x12x4)
     val HEAD_BASE =
             PartUv(
                     8,
@@ -75,7 +75,8 @@ object SkinUv {
                     FaceUv(28, 36)
             )
 
-    val RIGHT_ARM_BASE =
+    // Steve (4x) Arms
+    val STEVE_RIGHT_ARM_BASE =
             PartUv(
                     4,
                     12,
@@ -87,7 +88,7 @@ object SkinUv {
                     FaceUv(40, 20),
                     FaceUv(48, 20)
             )
-    val RIGHT_ARM_OVERLAY =
+    val STEVE_RIGHT_ARM_OVERLAY =
             PartUv(
                     4,
                     12,
@@ -99,8 +100,7 @@ object SkinUv {
                     FaceUv(40, 36),
                     FaceUv(48, 36)
             )
-
-    val LEFT_ARM_BASE =
+    val STEVE_LEFT_ARM_BASE =
             PartUv(
                     4,
                     12,
@@ -112,7 +112,7 @@ object SkinUv {
                     FaceUv(32, 52),
                     FaceUv(40, 52)
             )
-    val LEFT_ARM_OVERLAY =
+    val STEVE_LEFT_ARM_OVERLAY =
             PartUv(
                     4,
                     12,
@@ -123,6 +123,56 @@ object SkinUv {
                     FaceUv(60, 52),
                     FaceUv(48, 52),
                     FaceUv(56, 52)
+            )
+
+    // Alex (3x) Arms
+    val ALEX_RIGHT_ARM_BASE =
+            PartUv(
+                    3,
+                    12,
+                    4,
+                    FaceUv(44, 16),
+                    FaceUv(47, 16),
+                    FaceUv(44, 20),
+                    FaceUv(51, 20),
+                    FaceUv(40, 20),
+                    FaceUv(47, 20)
+            )
+    val ALEX_RIGHT_ARM_OVERLAY =
+            PartUv(
+                    3,
+                    12,
+                    4,
+                    FaceUv(44, 32),
+                    FaceUv(47, 32),
+                    FaceUv(44, 36),
+                    FaceUv(51, 36),
+                    FaceUv(40, 36),
+                    FaceUv(47, 36)
+            )
+    val ALEX_LEFT_ARM_BASE =
+            PartUv(
+                    3,
+                    12,
+                    4,
+                    FaceUv(36, 48),
+                    FaceUv(39, 48),
+                    FaceUv(36, 52),
+                    FaceUv(43, 52),
+                    FaceUv(32, 52),
+                    FaceUv(39, 52)
+            )
+    val ALEX_LEFT_ARM_OVERLAY =
+            PartUv(
+                    3,
+                    12,
+                    4,
+                    FaceUv(52, 48),
+                    FaceUv(55, 48),
+                    FaceUv(52, 52),
+                    FaceUv(59, 52),
+                    FaceUv(48, 52),
+                    FaceUv(55, 52)
             )
 
     val RIGHT_LEG_BASE =
