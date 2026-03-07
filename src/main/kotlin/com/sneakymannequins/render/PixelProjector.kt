@@ -365,82 +365,220 @@ object PixelProjector {
         val legY = 0.0
 
         // ── Head (8x8x8) ──
-        faceFront(8, 8, 8, 8, 0.0, headY, 4.0 * s)?.let {
+        val hb = SkinUv.HEAD_BASE
+        faceFront(hb.front.u, hb.front.v, hb.w, hb.h, 0.0, headY, hb.d / 2.0 * s)?.let {
             return it
         }
-        faceBack(24, 8, 8, 8, 0.0, headY, -4.0 * s)?.let {
+        faceBack(hb.back.u, hb.back.v, hb.w, hb.h, 0.0, headY, -hb.d / 2.0 * s)?.let {
             return it
         }
-        faceLeftFlipped(0, 8, 8, 8, -4.0 * s, headY, 0.0)?.let {
+        faceLeftFlipped(hb.left.u, hb.left.v, hb.d, hb.h, -hb.w / 2.0 * s, headY, 0.0)?.let {
             return it
         }
-        faceRightFlipped(16, 8, 8, 8, 4.0 * s, headY, 0.0)?.let {
+        faceRightFlipped(hb.right.u, hb.right.v, hb.d, hb.h, hb.w / 2.0 * s, headY, 0.0)?.let {
             return it
         }
-        faceTop(8, 0, 8, 8, 0.0, headY + 8.0 * s, 0.0)?.let {
+        faceTop(hb.top.u, hb.top.v, hb.w, hb.d, 0.0, headY + hb.h * s, 0.0)?.let {
             return it
         }
-        faceBottom(16, 0, 8, 8, 0.0, headY, 0.0)?.let {
-            return it
-        }
-        // Hat overlay
-        faceFront(40, 8, 8, 8, 0.0, headY, 4.0 * s, overlay = true, nudge = ogHead)?.let {
-            return it
-        }
-        faceBack(56, 8, 8, 8, 0.0, headY, -4.0 * s, overlay = true, nudge = ogHead)?.let {
-            return it
-        }
-        faceLeftFlipped(32, 8, 8, 8, -4.0 * s, headY, 0.0, overlay = true, nudge = ogHead)?.let {
-            return it
-        }
-        faceRightFlipped(48, 8, 8, 8, 4.0 * s, headY, 0.0, overlay = true, nudge = ogHead)?.let {
-            return it
-        }
-        faceTop(40, 0, 8, 8, 0.0, headY + 8.0 * s, 0.0, overlay = true, nudge = ogHead)?.let {
-            return it
-        }
-        faceBottom(48, 0, 8, 8, 0.0, headY, 0.0, overlay = true, nudge = ogHead)?.let {
+        faceBottom(hb.bottom.u, hb.bottom.v, hb.w, hb.d, 0.0, headY, 0.0)?.let {
             return it
         }
 
+        // Hat overlay
+        val ho = SkinUv.HEAD_OVERLAY
+        faceFront(
+                        ho.front.u,
+                        ho.front.v,
+                        ho.w,
+                        ho.h,
+                        0.0,
+                        headY,
+                        ho.d / 2.0 * s,
+                        overlay = true,
+                        nudge = ogHead
+                )
+                ?.let {
+                    return it
+                }
+        faceBack(
+                        ho.back.u,
+                        ho.back.v,
+                        ho.w,
+                        ho.h,
+                        0.0,
+                        headY,
+                        -ho.d / 2.0 * s,
+                        overlay = true,
+                        nudge = ogHead
+                )
+                ?.let {
+                    return it
+                }
+        faceLeftFlipped(
+                        ho.left.u,
+                        ho.left.v,
+                        ho.d,
+                        ho.h,
+                        -ho.w / 2.0 * s,
+                        headY,
+                        0.0,
+                        overlay = true,
+                        nudge = ogHead
+                )
+                ?.let {
+                    return it
+                }
+        faceRightFlipped(
+                        ho.right.u,
+                        ho.right.v,
+                        ho.d,
+                        ho.h,
+                        ho.w / 2.0 * s,
+                        headY,
+                        0.0,
+                        overlay = true,
+                        nudge = ogHead
+                )
+                ?.let {
+                    return it
+                }
+        faceTop(
+                        ho.top.u,
+                        ho.top.v,
+                        ho.w,
+                        ho.d,
+                        0.0,
+                        headY + ho.h * s,
+                        0.0,
+                        overlay = true,
+                        nudge = ogHead
+                )
+                ?.let {
+                    return it
+                }
+        faceBottom(
+                        ho.bottom.u,
+                        ho.bottom.v,
+                        ho.w,
+                        ho.d,
+                        0.0,
+                        headY,
+                        0.0,
+                        overlay = true,
+                        nudge = ogHead
+                )
+                ?.let {
+                    return it
+                }
+
         // ── Body (8w x 12h x 4d) ──
-        faceFront(20, 20, 8, 12, 0.0, bodyY, 2.0 * s)?.let {
+        val bb = SkinUv.TORSO_BASE
+        faceFront(bb.front.u, bb.front.v, bb.w, bb.h, 0.0, bodyY, bb.d / 2.0 * s)?.let {
             return it
         }
-        faceBack(32, 20, 8, 12, 0.0, bodyY, -2.0 * s)?.let {
+        faceBack(bb.back.u, bb.back.v, bb.w, bb.h, 0.0, bodyY, -bb.d / 2.0 * s)?.let {
             return it
         }
-        faceLeftFlipped(16, 20, 4, 12, -4.0 * s, bodyY, 0.0)?.let {
+        faceLeftFlipped(bb.left.u, bb.left.v, bb.d, bb.h, -bb.w / 2.0 * s, bodyY, 0.0)?.let {
             return it
         }
-        faceRightFlipped(28, 20, 4, 12, 4.0 * s, bodyY, 0.0)?.let {
+        faceRightFlipped(bb.right.u, bb.right.v, bb.d, bb.h, bb.w / 2.0 * s, bodyY, 0.0)?.let {
             return it
         }
-        faceTop(20, 16, 8, 4, 0.0, bodyY + 12.0 * s, 0.0)?.let {
+        faceTop(bb.top.u, bb.top.v, bb.w, bb.d, 0.0, bodyY + bb.h * s, 0.0)?.let {
             return it
         }
-        faceBottom(28, 16, 8, 4, 0.0, bodyY, 0.0)?.let {
+        faceBottom(bb.bottom.u, bb.bottom.v, bb.w, bb.d, 0.0, bodyY, 0.0)?.let {
             return it
         }
+
         // Jacket overlay
-        faceFront(20, 36, 8, 12, 0.0, bodyY, 2.0 * s, overlay = true, nudge = ogBody)?.let {
-            return it
-        }
-        faceBack(32, 36, 8, 12, 0.0, bodyY, -2.0 * s, overlay = true, nudge = ogBody)?.let {
-            return it
-        }
-        faceLeftFlipped(16, 36, 4, 12, -4.0 * s, bodyY, 0.0, overlay = true, nudge = ogBody)?.let {
-            return it
-        }
-        faceRightFlipped(28, 36, 4, 12, 4.0 * s, bodyY, 0.0, overlay = true, nudge = ogBody)?.let {
-            return it
-        }
-        faceTop(20, 32, 8, 4, 0.0, bodyY + 12.0 * s, 0.0, overlay = true, nudge = ogBody)?.let {
-            return it
-        }
-        faceBottom(28, 32, 8, 4, 0.0, bodyY, 0.0, overlay = true, nudge = ogBody)?.let {
-            return it
-        }
+        val bo = SkinUv.TORSO_OVERLAY
+        faceFront(
+                        bo.front.u,
+                        bo.front.v,
+                        bo.w,
+                        bo.h,
+                        0.0,
+                        bodyY,
+                        bo.d / 2.0 * s,
+                        overlay = true,
+                        nudge = ogBody
+                )
+                ?.let {
+                    return it
+                }
+        faceBack(
+                        bo.back.u,
+                        bo.back.v,
+                        bo.w,
+                        bo.h,
+                        0.0,
+                        bodyY,
+                        -bo.d / 2.0 * s,
+                        overlay = true,
+                        nudge = ogBody
+                )
+                ?.let {
+                    return it
+                }
+        faceLeftFlipped(
+                        bo.left.u,
+                        bo.left.v,
+                        bo.d,
+                        bo.h,
+                        -bo.w / 2.0 * s,
+                        bodyY,
+                        0.0,
+                        overlay = true,
+                        nudge = ogBody
+                )
+                ?.let {
+                    return it
+                }
+        faceRightFlipped(
+                        bo.right.u,
+                        bo.right.v,
+                        bo.d,
+                        bo.h,
+                        bo.w / 2.0 * s,
+                        bodyY,
+                        0.0,
+                        overlay = true,
+                        nudge = ogBody
+                )
+                ?.let {
+                    return it
+                }
+        faceTop(
+                        bo.top.u,
+                        bo.top.v,
+                        bo.w,
+                        bo.d,
+                        0.0,
+                        bodyY + bo.h * s,
+                        0.0,
+                        overlay = true,
+                        nudge = ogBody
+                )
+                ?.let {
+                    return it
+                }
+        faceBottom(
+                        bo.bottom.u,
+                        bo.bottom.v,
+                        bo.w,
+                        bo.d,
+                        0.0,
+                        bodyY,
+                        0.0,
+                        overlay = true,
+                        nudge = ogBody
+                )
+                ?.let {
+                    return it
+                }
 
         // ── Arms ──
 
@@ -456,108 +594,176 @@ object PixelProjector {
 
         val rightArm =
                 if (slimArms) {
-                    ArmSpec(3, 3, -5.5 * s, -7.0 * s, -4.0 * s, 52, 52)
+                    ArmSpec(
+                            3,
+                            3,
+                            -5.5 * s,
+                            -7.0 * s,
+                            -4.0 * s,
+                            SkinUv.RIGHT_ARM_BASE.back.u,
+                            SkinUv.RIGHT_ARM_OVERLAY.back.u
+                    )
                 } else {
-                    ArmSpec(4, 4, -6.0 * s, -8.0 * s, -4.0 * s, 52, 52)
+                    ArmSpec(
+                            4,
+                            4,
+                            -6.0 * s,
+                            -8.0 * s,
+                            -4.0 * s,
+                            SkinUv.RIGHT_ARM_BASE.back.u,
+                            SkinUv.RIGHT_ARM_OVERLAY.back.u
+                    )
                 }
         val leftArm =
                 if (slimArms) {
-                    ArmSpec(3, 3, 5.5 * s, 7.0 * s, 4.0 * s, 44, 60)
+                    ArmSpec(
+                            3,
+                            3,
+                            5.5 * s,
+                            7.0 * s,
+                            4.0 * s,
+                            SkinUv.LEFT_ARM_BASE.back.u,
+                            SkinUv.LEFT_ARM_OVERLAY.back.u
+                    )
                 } else {
-                    ArmSpec(4, 4, 6.0 * s, 8.0 * s, 4.0 * s, 44, 60)
+                    ArmSpec(
+                            4,
+                            4,
+                            6.0 * s,
+                            8.0 * s,
+                            4.0 * s,
+                            SkinUv.LEFT_ARM_BASE.back.u,
+                            SkinUv.LEFT_ARM_OVERLAY.back.u
+                    )
                 }
 
         fun renderRightArmInternal(spec: ArmSpec): PixelPose? {
+            val rab = SkinUv.RIGHT_ARM_BASE
             // Base layer
-            return faceFront(44, 20, spec.frontWidth, 12, spec.centerX, bodyY, 2.0 * s)
+            return faceFront(
+                    rab.front.u,
+                    rab.front.v,
+                    spec.frontWidth,
+                    12,
+                    spec.centerX,
+                    bodyY,
+                    rab.d / 2.0 * s
+            )
                     ?: faceBack(
                             spec.backBaseX,
-                            20,
+                            rab.back.v,
                             spec.frontWidth,
                             12,
                             spec.centerX,
                             bodyY,
-                            -2.0 * s
+                            -rab.d / 2.0 * s
                     )
-                            ?: faceLeftFlipped(40, 20, 4, 12, spec.outerX, bodyY, 0.0)
-                            ?: faceRightFlipped(48, 20, 4, 12, spec.innerX, bodyY, 0.0)
+                            ?: faceLeftFlipped(
+                            rab.left.u,
+                            rab.left.v,
+                            rab.d,
+                            12,
+                            spec.outerX,
+                            bodyY,
+                            0.0
+                    )
+                            ?: faceRightFlipped(
+                            rab.right.u,
+                            rab.right.v,
+                            rab.d,
+                            12,
+                            spec.innerX,
+                            bodyY,
+                            0.0
+                    )
                             ?: faceTop(
-                            44,
-                            16,
+                            rab.top.u,
+                            rab.top.v,
                             spec.topWidth,
-                            4,
+                            rab.d,
                             spec.centerX,
                             bodyY + 12.0 * s,
                             0.0
                     )
-                            ?: faceBottom(48, 16, spec.topWidth, 4, spec.centerX, bodyY, 0.0)
-                    // Overlay layer
-                    ?: faceFront(
-                            44,
-                            36,
-                            spec.frontWidth,
-                            12,
-                            spec.centerX,
-                            bodyY,
-                            2.0 * s,
-                            overlay = true,
-                            nudge = ogRightArm
-                    )
-                            ?: faceBack(
-                            spec.backOverlayX,
-                            36,
-                            spec.frontWidth,
-                            12,
-                            spec.centerX,
-                            bodyY,
-                            -2.0 * s,
-                            overlay = true,
-                            nudge = ogRightArm
-                    )
-                            ?: faceLeftFlipped(
-                            40,
-                            36,
-                            4,
-                            12,
-                            spec.outerX,
-                            bodyY,
-                            0.0,
-                            overlay = true,
-                            nudge = ogRightArm
-                    )
-                            ?: faceRightFlipped(
-                            48,
-                            36,
-                            4,
-                            12,
-                            spec.innerX,
-                            bodyY,
-                            0.0,
-                            overlay = true,
-                            nudge = ogRightArm
-                    )
-                            ?: faceTop(
-                            44,
-                            32,
-                            spec.topWidth,
-                            4,
-                            spec.centerX,
-                            bodyY + 12.0 * s,
-                            0.0,
-                            overlay = true,
-                            nudge = ogRightArm
-                    )
                             ?: faceBottom(
-                            48,
-                            32,
+                            rab.bottom.u,
+                            rab.bottom.v,
                             spec.topWidth,
-                            4,
+                            rab.d,
                             spec.centerX,
                             bodyY,
-                            0.0,
-                            overlay = true,
-                            nudge = ogRightArm
+                            0.0
                     )
+                    // Overlay layer
+                    ?: let {
+                        val rao = SkinUv.RIGHT_ARM_OVERLAY
+                        faceFront(
+                                rao.front.u,
+                                rao.front.v,
+                                spec.frontWidth,
+                                12,
+                                spec.centerX,
+                                bodyY,
+                                rao.d / 2.0 * s,
+                                overlay = true,
+                                nudge = ogRightArm
+                        )
+                                ?: faceBack(
+                                        spec.backOverlayX,
+                                        rao.back.v,
+                                        spec.frontWidth,
+                                        12,
+                                        spec.centerX,
+                                        bodyY,
+                                        -rao.d / 2.0 * s,
+                                        overlay = true,
+                                        nudge = ogRightArm
+                                )
+                                        ?: faceLeftFlipped(
+                                        rao.left.u,
+                                        rao.left.v,
+                                        rao.d,
+                                        12,
+                                        spec.outerX,
+                                        bodyY,
+                                        0.0,
+                                        overlay = true,
+                                        nudge = ogRightArm
+                                )
+                                        ?: faceRightFlipped(
+                                        rao.right.u,
+                                        rao.right.v,
+                                        rao.d,
+                                        12,
+                                        spec.innerX,
+                                        bodyY,
+                                        0.0,
+                                        overlay = true,
+                                        nudge = ogRightArm
+                                )
+                                        ?: faceTop(
+                                        rao.top.u,
+                                        rao.top.v,
+                                        spec.topWidth,
+                                        rao.d,
+                                        spec.centerX,
+                                        bodyY + 12.0 * s,
+                                        0.0,
+                                        overlay = true,
+                                        nudge = ogRightArm
+                                )
+                                        ?: faceBottom(
+                                        rao.bottom.u,
+                                        rao.bottom.v,
+                                        spec.topWidth,
+                                        rao.d,
+                                        spec.centerX,
+                                        bodyY,
+                                        0.0,
+                                        overlay = true,
+                                        nudge = ogRightArm
+                                )
+                    }
         }
 
         fun renderRightArm(spec: ArmSpec): PixelPose? {
@@ -565,96 +771,132 @@ object PixelProjector {
         }
 
         fun renderLeftArmInternal(spec: ArmSpec): PixelPose? {
+            val lab = SkinUv.LEFT_ARM_BASE
             // Base layer
-            return faceFront(36, 52, spec.frontWidth, 12, spec.centerX, bodyY, 2.0 * s)
+            return faceFront(
+                    lab.front.u,
+                    lab.front.v,
+                    spec.frontWidth,
+                    12,
+                    spec.centerX,
+                    bodyY,
+                    lab.d / 2.0 * s
+            )
                     ?: faceBack(
                             spec.backBaseX,
-                            52,
+                            lab.back.v,
                             spec.frontWidth,
                             12,
                             spec.centerX,
                             bodyY,
-                            -2.0 * s
+                            -lab.d / 2.0 * s
                     )
-                            ?: faceLeftFlipped(32, 52, 4, 12, spec.innerX, bodyY, 0.0)
-                            ?: faceRightFlipped(40, 52, 4, 12, spec.outerX, bodyY, 0.0)
+                            ?: faceLeftFlipped(
+                            lab.left.u,
+                            lab.left.v,
+                            lab.d,
+                            12,
+                            spec.innerX,
+                            bodyY,
+                            0.0
+                    )
+                            ?: faceRightFlipped(
+                            lab.right.u,
+                            lab.right.v,
+                            lab.d,
+                            12,
+                            spec.outerX,
+                            bodyY,
+                            0.0
+                    )
                             ?: faceTop(
-                            36,
-                            48,
+                            lab.top.u,
+                            lab.top.v,
                             spec.topWidth,
-                            4,
+                            lab.d,
                             spec.centerX,
                             bodyY + 12.0 * s,
                             0.0
                     )
-                            ?: faceBottom(40, 48, spec.topWidth, 4, spec.centerX, bodyY, 0.0)
-                    // Overlay layer
-                    ?: faceFront(
-                            52,
-                            52,
-                            spec.frontWidth,
-                            12,
-                            spec.centerX,
-                            bodyY,
-                            2.0 * s,
-                            overlay = true,
-                            nudge = ogLeftArm
-                    )
-                            ?: faceBack(
-                            spec.backOverlayX,
-                            52,
-                            spec.frontWidth,
-                            12,
-                            spec.centerX,
-                            bodyY,
-                            -2.0 * s,
-                            overlay = true,
-                            nudge = ogLeftArm
-                    )
-                            ?: faceLeftFlipped(
-                            48,
-                            52,
-                            4,
-                            12,
-                            spec.innerX,
-                            bodyY,
-                            0.0,
-                            overlay = true,
-                            nudge = ogLeftArm
-                    )
-                            ?: faceRightFlipped(
-                            56,
-                            52,
-                            4,
-                            12,
-                            spec.outerX,
-                            bodyY,
-                            0.0,
-                            overlay = true,
-                            nudge = ogLeftArm
-                    )
-                            ?: faceTop(
-                            52,
-                            48,
-                            spec.topWidth,
-                            4,
-                            spec.centerX,
-                            bodyY + 12.0 * s,
-                            0.0,
-                            overlay = true,
-                            nudge = ogLeftArm
-                    )
                             ?: faceBottom(
-                            56,
-                            48,
+                            lab.bottom.u,
+                            lab.bottom.v,
                             spec.topWidth,
-                            4,
+                            lab.d,
                             spec.centerX,
                             bodyY,
-                            0.0,
-                            overlay = true,
-                            nudge = ogLeftArm
+                            0.0
                     )
+                    // Overlay layer
+                    ?: let {
+                        val lao = SkinUv.LEFT_ARM_OVERLAY
+                        faceFront(
+                                lao.front.u,
+                                lao.front.v,
+                                spec.frontWidth,
+                                12,
+                                spec.centerX,
+                                bodyY,
+                                lao.d / 2.0 * s,
+                                overlay = true,
+                                nudge = ogLeftArm
+                        )
+                                ?: faceBack(
+                                        spec.backOverlayX,
+                                        lao.back.v,
+                                        spec.frontWidth,
+                                        12,
+                                        spec.centerX,
+                                        bodyY,
+                                        -lao.d / 2.0 * s,
+                                        overlay = true,
+                                        nudge = ogLeftArm
+                                )
+                                        ?: faceLeftFlipped(
+                                        lao.left.u,
+                                        lao.left.v,
+                                        lao.d,
+                                        12,
+                                        spec.innerX,
+                                        bodyY,
+                                        0.0,
+                                        overlay = true,
+                                        nudge = ogLeftArm
+                                )
+                                        ?: faceRightFlipped(
+                                        lao.right.u,
+                                        lao.right.v,
+                                        lao.d,
+                                        12,
+                                        spec.outerX,
+                                        bodyY,
+                                        0.0,
+                                        overlay = true,
+                                        nudge = ogLeftArm
+                                )
+                                        ?: faceTop(
+                                        lao.top.u,
+                                        lao.top.v,
+                                        spec.topWidth,
+                                        lao.d,
+                                        spec.centerX,
+                                        bodyY + 12.0 * s,
+                                        0.0,
+                                        overlay = true,
+                                        nudge = ogLeftArm
+                                )
+                                        ?: faceBottom(
+                                        lao.bottom.u,
+                                        lao.bottom.v,
+                                        spec.topWidth,
+                                        lao.d,
+                                        spec.centerX,
+                                        bodyY,
+                                        0.0,
+                                        overlay = true,
+                                        nudge = ogLeftArm
+                                )
+                    }
         }
 
         fun renderLeftArm(spec: ArmSpec): PixelPose? {
@@ -686,85 +928,220 @@ object PixelProjector {
         }
 
         // ── Right leg (4x12x4) ──
-        faceFront(4, 20, 4, 12, -2.0 * s, legY, 2.0 * s)?.let {
+        val lb = SkinUv.RIGHT_LEG_BASE
+        faceFront(lb.front.u, lb.front.v, lb.w, lb.h, -2.0 * s, legY, lb.d / 2.0 * s)?.let {
             return it
         }
-        faceBack(12, 20, 4, 12, -2.0 * s, legY, -2.0 * s)?.let {
+        faceBack(lb.back.u, lb.back.v, lb.w, lb.h, -2.0 * s, legY, -lb.d / 2.0 * s)?.let {
             return it
         }
-        faceLeftFlipped(0, 20, 4, 12, -4.0 * s, legY, 0.0)?.let {
+        faceLeftFlipped(lb.left.u, lb.left.v, lb.d, lb.h, -4.0 * s, legY, 0.0)?.let {
             return it
         }
-        faceRightFlipped(8, 20, 4, 12, 0.0, legY, 0.0)?.let {
+        faceRightFlipped(lb.right.u, lb.right.v, lb.d, lb.h, 0.0, legY, 0.0)?.let {
             return it
         }
-        faceTop(4, 16, 4, 4, -2.0 * s, legY + 12.0 * s, 0.0)?.let {
+        faceTop(lb.top.u, lb.top.v, lb.w, lb.d, -2.0 * s, legY + lb.h * s, 0.0)?.let {
             return it
         }
-        faceBottom(8, 16, 4, 4, -2.0 * s, legY, 0.0)?.let {
-            return it
-        }
-        // Right leg overlay
-        faceFront(4, 36, 4, 12, -2.0 * s, legY, 2.0 * s, overlay = true, nudge = ogRightLeg)?.let {
-            return it
-        }
-        faceBack(12, 36, 4, 12, -2.0 * s, legY, -2.0 * s, overlay = true, nudge = ogRightLeg)?.let {
-            return it
-        }
-        faceLeftFlipped(0, 36, 4, 12, -4.0 * s, legY, 0.0, overlay = true, nudge = ogRightLeg)
-                ?.let {
-                    return it
-                }
-        faceRightFlipped(8, 36, 4, 12, 0.0, legY, 0.0, overlay = true, nudge = ogRightLeg)?.let {
-            return it
-        }
-        faceTop(4, 32, 4, 4, -2.0 * s, legY + 12.0 * s, 0.0, overlay = true, nudge = ogRightLeg)
-                ?.let {
-                    return it
-                }
-        faceBottom(8, 32, 4, 4, -2.0 * s, legY, 0.0, overlay = true, nudge = ogRightLeg)?.let {
+        faceBottom(lb.bottom.u, lb.bottom.v, lb.w, lb.d, -2.0 * s, legY, 0.0)?.let {
             return it
         }
 
-        // ── Left leg (4x12x4) ──
-        faceFront(20, 52, 4, 12, 2.0 * s, legY, 2.0 * s)?.let {
-            return it
-        }
-        faceBack(28, 52, 4, 12, 2.0 * s, legY, -2.0 * s)?.let {
-            return it
-        }
-        faceLeftFlipped(16, 52, 4, 12, 0.0, legY, 0.0)?.let {
-            return it
-        }
-        faceRightFlipped(24, 52, 4, 12, 4.0 * s, legY, 0.0)?.let {
-            return it
-        }
-        faceTop(20, 48, 4, 4, 2.0 * s, legY + 12.0 * s, 0.0)?.let {
-            return it
-        }
-        faceBottom(24, 48, 4, 4, 2.0 * s, legY, 0.0)?.let {
-            return it
-        }
-        // Left leg overlay
-        faceFront(4, 52, 4, 12, 2.0 * s, legY, 2.0 * s, overlay = true, nudge = ogLeftLeg)?.let {
-            return it
-        }
-        faceBack(12, 52, 4, 12, 2.0 * s, legY, -2.0 * s, overlay = true, nudge = ogLeftLeg)?.let {
-            return it
-        }
-        faceLeftFlipped(0, 52, 4, 12, 0.0, legY, 0.0, overlay = true, nudge = ogLeftLeg)?.let {
-            return it
-        }
-        faceRightFlipped(8, 52, 4, 12, 4.0 * s, legY, 0.0, overlay = true, nudge = ogLeftLeg)?.let {
-            return it
-        }
-        faceTop(4, 48, 4, 4, 2.0 * s, legY + 12.0 * s, 0.0, overlay = true, nudge = ogLeftLeg)
+        // Right leg overlay
+        val lo = SkinUv.RIGHT_LEG_OVERLAY
+        faceFront(
+                        lo.front.u,
+                        lo.front.v,
+                        lo.w,
+                        lo.h,
+                        -2.0 * s,
+                        legY,
+                        lo.d / 2.0 * s,
+                        overlay = true,
+                        nudge = ogRightLeg
+                )
                 ?.let {
                     return it
                 }
-        faceBottom(8, 48, 4, 4, 2.0 * s, legY, 0.0, overlay = true, nudge = ogLeftLeg)?.let {
+        faceBack(
+                        lo.back.u,
+                        lo.back.v,
+                        lo.w,
+                        lo.h,
+                        -2.0 * s,
+                        legY,
+                        -lo.d / 2.0 * s,
+                        overlay = true,
+                        nudge = ogRightLeg
+                )
+                ?.let {
+                    return it
+                }
+        faceLeftFlipped(
+                        lo.left.u,
+                        lo.left.v,
+                        lo.d,
+                        lo.h,
+                        -4.0 * s,
+                        legY,
+                        0.0,
+                        overlay = true,
+                        nudge = ogRightLeg
+                )
+                ?.let {
+                    return it
+                }
+        faceRightFlipped(
+                        lo.right.u,
+                        lo.right.v,
+                        lo.d,
+                        lo.h,
+                        0.0,
+                        legY,
+                        0.0,
+                        overlay = true,
+                        nudge = ogRightLeg
+                )
+                ?.let {
+                    return it
+                }
+        faceTop(
+                        lo.top.u,
+                        lo.top.v,
+                        lo.w,
+                        lo.d,
+                        -2.0 * s,
+                        legY + lo.h * s,
+                        0.0,
+                        overlay = true,
+                        nudge = ogRightLeg
+                )
+                ?.let {
+                    return it
+                }
+        faceBottom(
+                        lo.bottom.u,
+                        lo.bottom.v,
+                        lo.w,
+                        lo.d,
+                        -2.0 * s,
+                        legY,
+                        0.0,
+                        overlay = true,
+                        nudge = ogRightLeg
+                )
+                ?.let {
+                    return it
+                }
+
+        // ── Left leg (4x12x4) ──
+        val llb = SkinUv.LEFT_LEG_BASE
+        faceFront(llb.front.u, llb.front.v, llb.w, llb.h, 2.0 * s, legY, llb.d / 2.0 * s)?.let {
             return it
         }
+        faceBack(llb.back.u, llb.back.v, llb.w, llb.h, 2.0 * s, legY, -llb.d / 2.0 * s)?.let {
+            return it
+        }
+        faceLeftFlipped(llb.left.u, llb.left.v, llb.d, llb.h, 0.0, legY, 0.0)?.let {
+            return it
+        }
+        faceRightFlipped(llb.right.u, llb.right.v, llb.d, llb.h, 4.0 * s, legY, 0.0)?.let {
+            return it
+        }
+        faceTop(llb.top.u, llb.top.v, llb.w, llb.d, 2.0 * s, legY + llb.h * s, 0.0)?.let {
+            return it
+        }
+        faceBottom(llb.bottom.u, llb.bottom.v, llb.w, llb.d, 2.0 * s, legY, 0.0)?.let {
+            return it
+        }
+
+        // Left leg overlay
+        val llo = SkinUv.LEFT_LEG_OVERLAY
+        faceFront(
+                        llo.front.u,
+                        llo.front.v,
+                        llo.w,
+                        llo.h,
+                        2.0 * s,
+                        legY,
+                        llo.d / 2.0 * s,
+                        overlay = true,
+                        nudge = ogLeftLeg
+                )
+                ?.let {
+                    return it
+                }
+        faceBack(
+                        llo.back.u,
+                        llo.back.v,
+                        llo.w,
+                        llo.h,
+                        2.0 * s,
+                        legY,
+                        -llo.d / 2.0 * s,
+                        overlay = true,
+                        nudge = ogLeftLeg
+                )
+                ?.let {
+                    return it
+                }
+        faceLeftFlipped(
+                        llo.left.u,
+                        llo.left.v,
+                        llo.d,
+                        llo.h,
+                        0.0,
+                        legY,
+                        0.0,
+                        overlay = true,
+                        nudge = ogLeftLeg
+                )
+                ?.let {
+                    return it
+                }
+        faceRightFlipped(
+                        llo.right.u,
+                        llo.right.v,
+                        llo.d,
+                        llo.h,
+                        4.0 * s,
+                        legY,
+                        0.0,
+                        overlay = true,
+                        nudge = ogLeftLeg
+                )
+                ?.let {
+                    return it
+                }
+        faceTop(
+                        llo.top.u,
+                        llo.top.v,
+                        llo.w,
+                        llo.d,
+                        2.0 * s,
+                        legY + llo.h * s,
+                        0.0,
+                        overlay = true,
+                        nudge = ogLeftLeg
+                )
+                ?.let {
+                    return it
+                }
+        faceBottom(
+                        llo.bottom.u,
+                        llo.bottom.v,
+                        llo.w,
+                        llo.d,
+                        2.0 * s,
+                        legY,
+                        0.0,
+                        overlay = true,
+                        nudge = ogLeftLeg
+                )
+                ?.let {
+                    return it
+                }
 
         return null
     }
