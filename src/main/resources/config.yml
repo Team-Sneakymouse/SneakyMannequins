@@ -13,7 +13,7 @@ images:
 # Plugin settings
 plugin:
   # Enable debug logging
-  debug: true
+  debug: false
   
   # Default skin model for mannequins
   default-skin-model: "CLASSIC"
