@@ -9,8 +9,6 @@ import com.sneakymouse.sneakyholos.util.TextUtility
 import io.papermc.paper.command.brigadier.CommandSourceStack
 import java.io.File
 import net.kyori.adventure.text.Component
-import net.kyori.adventure.text.event.ClickEvent
-import net.kyori.adventure.text.event.HoverEvent
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
@@ -353,7 +351,9 @@ class CommandMannequin(
                                 }
                 mannequinManager.applySession(man.id, session, player)
                 player.sendMessage(
-                        TextUtility.convertToComponent("&aApplied '$target' to mannequin ${man.id}")
+                        TextUtility.convertToComponent(
+                                "&aApplied '${TextUtility.clickableCopy(target)}'&a to mannequin ${man.id}"
+                        )
                 )
         }
 
@@ -404,7 +404,9 @@ class CommandMannequin(
                                 characterName = charContext?.characterName
                         )
                 player.sendMessage(
-                        TextUtility.convertToComponent("&aMannequin state saved with UID: &e$uid")
+                        TextUtility.convertToComponent(
+                                "&aMannequin state saved with UID: ${TextUtility.clickableCopy(uid)}"
+                        )
                 )
         }
 
@@ -420,7 +422,9 @@ class CommandMannequin(
                 if (file.exists()) {
                         file.delete()
                         player.sendMessage(
-                                TextUtility.convertToComponent("&aSession '$uid' deleted.")
+                                TextUtility.convertToComponent(
+                                        "&aSession '${TextUtility.clickableCopy(uid)}'&a deleted."
+                                )
                         )
                 } else {
                         player.sendMessage(
@@ -579,20 +583,13 @@ class CommandMannequin(
                         val entry =
                                 Component.text("  ")
                                         .append(
-                                                Component.text(session.uid)
-                                                        .color(NamedTextColor.YELLOW)
-                                                        .clickEvent(
-                                                                ClickEvent.copyToClipboard(
-                                                                        session.uid
-                                                                )
+                                                TextUtility.convertToComponent(
+                                                        TextUtility.clickableCopy(
+                                                                session.uid,
+                                                                "&e",
+                                                                "Click to copy UID"
                                                         )
-                                                        .hoverEvent(
-                                                                HoverEvent.showText(
-                                                                        Component.text(
-                                                                                "Click to copy UID"
-                                                                        )
-                                                                )
-                                                        )
+                                                )
                                         )
                                         .append(Component.text(" | ").color(NamedTextColor.GRAY))
                                         .append(Component.text(date).color(NamedTextColor.WHITE))
@@ -735,7 +732,7 @@ class CommandMannequin(
 
                 player.sendMessage(
                         TextUtility.convertToComponent(
-                                "&aMerged &7'${args[2]}'&a onto &7'${args[3]}'&a. Result saved as: &e$uid"
+                                "&aMerged &7'${TextUtility.clickableCopy(args[2], "&7")}'&a onto &7'${TextUtility.clickableCopy(args[3], "&7")}'&a. Result saved as: ${TextUtility.clickableCopy(uid)}"
                         )
                 )
         }
