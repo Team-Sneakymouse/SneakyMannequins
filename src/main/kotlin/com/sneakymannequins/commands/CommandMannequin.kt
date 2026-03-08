@@ -238,15 +238,10 @@ class CommandMannequin(
                                                         .toMutableList()
                                         "debug" ->
                                                 when (args[1].lowercase()) {
-                                                        "merge" ->
-                                                                (sessionManager
-                                                                                .listTemplateNames() +
-                                                                                sessionManager
-                                                                                        .listSessionUids() +
-                                                                                listOf(
-                                                                                        "nearest",
-                                                                                        "null"
-                                                                                ))
+                                                        "merge", "finalize", "apply" ->
+                                                                plugin.server
+                                                                        .onlinePlayers
+                                                                        .map { it.name }
                                                                         .filter {
                                                                                 it.startsWith(
                                                                                         args[3],
@@ -428,7 +423,7 @@ class CommandMannequin(
                                 true
                         }
                         "apply" -> {
-                                handleApply(player, args.drop(1).toTypedArray())
+                                handleApply(player, args)
                                 true
                         }
                         "info" -> {
@@ -470,42 +465,57 @@ class CommandMannequin(
                 }
         }
 
-        private fun handleApply(player: Player, args: Array<out String>) {
-                if (args.size < 2) {
-                        player.sendMessage(
+        private fun handleApply(requester: Player, args: Array<out String>) {
+                if (args.size < 3) {
+                        requester.sendMessage(
                                 TextUtility.convertToComponent(
-                                        "&cUsage: /mannequin apply <uid/template>"
+                                        "&cUsage: /mannequin debug apply <uid/template/nearest> [player]"
                                 )
                         )
                         return
                 }
-                val target = args[1]
+
+                val sessionInput = args[2]
+                val targetPlayerName = if (args.size >= 4) args[3] else requester.name
+                val targetPlayer =
+                        plugin.server.getPlayer(targetPlayerName)
+                                ?: run {
+                                        requester.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&cPlayer '$targetPlayerName' not found."
+                                                )
+                                        )
+                                        return
+                                }
+
                 val session =
-                        sessionManager.load(target)
+                        sessionManager.resolveSession(sessionInput, requester, mannequinManager)
                                 ?: run {
-                                        player.sendMessage(
+                                        requester.sendMessage(
                                                 TextUtility.convertToComponent(
-                                                        "&cSession or template '$target' not found."
+                                                        "&cSession or template '$sessionInput' not found."
                                                 )
                                         )
                                         return
                                 }
+
                 val man =
-                        mannequinManager.nearestMannequin(player.location)
+                        mannequinManager.nearestMannequin(requester.location, 5.0)
                                 ?: run {
-                                        player.sendMessage(
+                                        requester.sendMessage(
                                                 TextUtility.convertToComponent(
-                                                        "&cNo mannequin nearby."
+                                                        "&cNo mannequin nearby for location context."
                                                 )
                                         )
                                         return
                                 }
-                mannequinManager.applySession(man.id, session, player)
-                player.sendMessage(
+
+                requester.sendMessage(
                         TextUtility.convertToComponent(
-                                "&aApplied '${TextUtility.clickableCopy(target)}'&a to mannequin ${man.id}"
+                                "&eApplying finalized skin to ${targetPlayer.name}..."
                         )
                 )
+                mannequinManager.finalizeAndApply(requester, man, targetPlayer)
         }
 
         private fun handleInfo(player: Player) {
@@ -608,14 +618,26 @@ class CommandMannequin(
                                         return
                                 }
 
+                val contextPlayerName = if (args.size >= 4) args[3] else player.name
+                val contextPlayer =
+                        plugin.server.getPlayer(contextPlayerName)
+                                ?: run {
+                                        player.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&cPlayer '$contextPlayerName' not found."
+                                                )
+                                        )
+                                        return
+                                }
+
                 player.sendMessage(TextUtility.convertToComponent("&eFinalizing session..."))
 
                 sessionManager
-                        .finalizeSession(player, man, session)
-                        .thenAccept { file ->
+                        .finalizeSession(player, man, session, contextPlayer = contextPlayer)
+                        .thenAccept { result ->
                                 player.sendMessage(
                                         TextUtility.convertToComponent(
-                                                "&aSession finalized and exported to &7${file.name}&a."
+                                                "&aSession finalized and exported to &7${result.file.name}&a using context of &d${contextPlayer.name}&a."
                                         )
                                 )
                         }
@@ -832,11 +854,23 @@ class CommandMannequin(
                 if (args.size < 4) {
                         player.sendMessage(
                                 TextUtility.convertToComponent(
-                                        "&cUsage: /mannequin debug merge <source> <target/null>"
+                                        "&cUsage: /mannequin debug merge <source> <target/null> [player]"
                                 )
                         )
                         return
                 }
+
+                val contextPlayerName = if (args.size >= 5) args[4] else player.name
+                val contextPlayer =
+                        plugin.server.getPlayer(contextPlayerName)
+                                ?: run {
+                                        player.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&cPlayer '$contextPlayerName' not found."
+                                                )
+                                        )
+                                        return
+                                }
 
                 val sourceSession =
                         sessionManager.resolveSession(args[2], player, mannequinManager)
@@ -860,7 +894,7 @@ class CommandMannequin(
                                         return
                                 }
 
-                val defaultSlim = player.playerProfile.textures.skinModel == SkinModel.SLIM
+                val defaultSlim = contextPlayer.playerProfile.textures.skinModel == SkinModel.SLIM
                 val merged = sessionManager.merge(sourceSession, targetSession, defaultSlim)
 
                 // Save for debug purposes

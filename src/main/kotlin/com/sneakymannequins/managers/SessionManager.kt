@@ -24,6 +24,8 @@ import javax.imageio.ImageIO
 import org.bukkit.entity.Player
 import org.bukkit.profile.PlayerTextures.SkinModel
 
+data class FinalizedResult(val file: File, val slim: Boolean)
+
 class SessionManager(
         private val dataFolder: File,
         private val layerManager: LayerManager,
@@ -229,14 +231,15 @@ class SessionManager(
     }
 
     fun finalizeSession(
-            player: Player,
+            requester: Player,
             man: Mannequin,
-            sessionOverride: SessionData? = null
-    ): CompletableFuture<File> {
+            sessionOverride: SessionData? = null,
+            contextPlayer: Player = requester
+    ): CompletableFuture<FinalizedResult> {
         val targetDir = ConfigManager.instance.getImageStoragePath().toFile()
         val mannequinSession = sessionOverride ?: sessionFromMannequin(man)
-        val charUuid = characterManagerBridge.currentCharacter(player)?.characterUuid
-        val lastAppliedUid = appliedSessionRegistry.getLastApplied(player.uniqueId, charUuid)
+        val charUuid = characterManagerBridge.currentCharacter(contextPlayer)?.characterUuid
+        val lastAppliedUid = appliedSessionRegistry.getLastApplied(contextPlayer.uniqueId, charUuid)
 
         val baseSession = lastAppliedUid?.let { load(it) }
         val merged =
@@ -244,10 +247,11 @@ class SessionManager(
                     merge(
                             mannequinSession,
                             baseSession,
-                            player.playerProfile.textures.skinModel == SkinModel.SLIM
+                            contextPlayer.playerProfile.textures.skinModel == SkinModel.SLIM
                     )
                 } else {
-                    val defaultSlim = player.playerProfile.textures.skinModel == SkinModel.SLIM
+                    val defaultSlim =
+                            contextPlayer.playerProfile.textures.skinModel == SkinModel.SLIM
                     mannequinSession.copy(slimModel = mannequinSession.slimModel ?: defaultSlim)
                 }
 
@@ -271,13 +275,15 @@ class SessionManager(
 
         val isComplete = isComplete(merged, slim)
         if (isComplete) {
-            return saveImage(sessionImage, targetDir, "finalized_${merged.uid}")
+            return saveImage(sessionImage, targetDir, "finalized_${merged.uid}").thenApply {
+                FinalizedResult(it, slim)
+            }
         }
 
         val skinUrl =
-                player.playerProfile.textures.skin
+                contextPlayer.playerProfile.textures.skin
                         ?: return CompletableFuture.failedFuture(
-                                IllegalStateException("Player has no skin URL")
+                                IllegalStateException("Context player has no skin URL")
                         )
 
         return downloadSkin(skinUrl).thenCompose { downloadedSkin ->
@@ -297,7 +303,9 @@ class SessionManager(
                     } else downloadedSkin
 
             overlayWithPunchThrough(sessionImage, baseSkin)
-            saveImage(baseSkin, targetDir, "finalized_${merged.uid}")
+            saveImage(baseSkin, targetDir, "finalized_${merged.uid}").thenApply {
+                FinalizedResult(it, slim)
+            }
         }
     }
 
