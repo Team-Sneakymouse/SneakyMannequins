@@ -5,16 +5,18 @@ import com.google.gson.GsonBuilder
 import com.sneakymannequins.model.LayerSessionData
 import com.sneakymannequins.model.Mannequin
 import com.sneakymannequins.model.SessionData
+import com.sneakymannequins.util.SkinUv
 import java.awt.image.BufferedImage
 import java.io.File
 import java.security.MessageDigest
 import java.time.Instant
+import java.util.BitSet
 import java.util.UUID
 import java.util.concurrent.ThreadLocalRandom
 import javax.imageio.ImageIO
 import org.bukkit.entity.Player
 
-class SessionManager(private val dataFolder: File) {
+class SessionManager(private val dataFolder: File, private val layerManager: LayerManager) {
 
     private val sessionsDir = File(dataFolder, "sessions")
     private val templatesDir = File(dataFolder, "templates")
@@ -153,6 +155,54 @@ class SessionManager(private val dataFolder: File) {
                 characterUuid = s1.characterUuid ?: s2.characterUuid,
                 characterName = s1.characterName ?: s2.characterName
         )
+    }
+
+    fun isValid(session: SessionData, slim: Boolean): Boolean {
+        for ((layerId, layerData) in session.layers) {
+            val optionId = layerData.option ?: continue
+            val options = layerManager.optionsFor(layerId)
+            val option = options.find { it.id == optionId } ?: return false
+
+            if (slim) {
+                if (option.imageSlim == null) return false
+            } else {
+                if (option.imageDefault == null) return false
+            }
+
+            if (layerData.selectedTexture != null) {
+                if (layerManager.texture(layerData.selectedTexture) == null) return false
+            }
+        }
+        return true
+    }
+
+    fun isComplete(session: SessionData, slim: Boolean): Boolean {
+        val covered = BitSet(64 * 64)
+
+        for ((layerId, layerData) in session.layers) {
+            val optionId = layerData.option ?: continue
+            val options = layerManager.optionsFor(layerId)
+            val option = options.find { it.id == optionId } ?: continue
+
+            val image = if (slim) option.imageSlim else option.imageDefault
+            if (image == null) continue
+
+            for (x in 0 until 64) {
+                for (y in 0 until 64) {
+                    if ((image.getRGB(x, y) ushr 24) != 0) {
+                        covered.set(y * 64 + x)
+                    }
+                }
+            }
+        }
+
+        var allCovered = true
+        SkinUv.forEachInnerBasePixel { x, y ->
+            if (!covered.get(y * 64 + x)) {
+                allCovered = false
+            }
+        }
+        return allCovered
     }
 
     fun listSessionUids(): List<String> {

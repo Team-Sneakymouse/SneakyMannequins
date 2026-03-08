@@ -60,7 +60,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
         handler = VolatileHandlerRegistry.resolve(this)
         layerManager = LayerManager(this).also { it.reload() }
         persistence = MannequinPersistence(this)
-        sessionManager = SessionManager(dataFolder)
+        sessionManager = SessionManager(dataFolder, layerManager)
         characterManagerBridge = CharacterManagerBridgeFactory.create(this)
         appliedSessionRegistry =
                 AppliedSessionRegistry(
