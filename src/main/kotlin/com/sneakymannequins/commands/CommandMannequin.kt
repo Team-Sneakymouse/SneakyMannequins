@@ -1,7 +1,6 @@
 package com.sneakymannequins.commands
 
 import com.sneakymannequins.SneakyMannequins
-import com.sneakymannequins.managers.ConfigManager
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymannequins.managers.MannequinManager
 import com.sneakymannequins.managers.SessionManager
@@ -609,11 +608,10 @@ class CommandMannequin(
                                         return
                                 }
 
-                val targetDir = ConfigManager.instance.getImageStoragePath().toFile()
                 player.sendMessage(TextUtility.convertToComponent("&eFinalizing session..."))
 
                 sessionManager
-                        .finalizeSession(player, man, targetDir, session)
+                        .finalizeSession(player, man, session)
                         .thenAccept { file ->
                                 player.sendMessage(
                                         TextUtility.convertToComponent(

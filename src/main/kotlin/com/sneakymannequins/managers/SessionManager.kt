@@ -231,9 +231,9 @@ class SessionManager(
     fun finalizeSession(
             player: Player,
             man: Mannequin,
-            targetDir: File,
             sessionOverride: SessionData? = null
     ): CompletableFuture<File> {
+        val targetDir = ConfigManager.instance.getImageStoragePath().toFile()
         val mannequinSession = sessionOverride ?: sessionFromMannequin(man)
         val charUuid = characterManagerBridge.currentCharacter(player)?.characterUuid
         val lastAppliedUid = appliedSessionRegistry.getLastApplied(player.uniqueId, charUuid)
