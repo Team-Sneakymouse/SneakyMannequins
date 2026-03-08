@@ -47,15 +47,18 @@ A rich set of built-in colour palettes: skin tones, hair, eyes, primary, pastel,
 
 | Command | Description |
 |---|---|
-| `/mannequin` | Spawn a mannequin at your feet |
+| `/mannequin` | Show command help |
+| `/mannequin add <world,x,y,z,yaw>` | Spawn a mannequin at a specific location, or at your own location if not specified |
 | `/mannequin remove` | Remove the nearest mannequin |
 | `/mannequin reload` | Reload config and re-render all mannequins |
-| `/mannequin template <uid> <name> [layer...]` | Create a named template from a player's current outfit |
+| `/mannequin history <player>` | Show the undo history of a player's modifications |
+| `/mannequin template <uid> <name> [layer...]` | Create a named template from a player's outfit |
 | `/mannequin upload <layer> <url> [name]` | Upload a custom skin part PNG for your exclusive use |
-| `/mannequin remask <HSB\|HUE\|RGB> <layer> <part>` | Re-run colour-channel masking for a global part |
-| `/mannequin remaskugc <layer> <uuid> <part> [strateg] [chan]` | Re-run colour-channel masking for an uploaded part |
+| `/mannequin remask <layer> <part> <strategy> [channel]` | Re-run colour-channel masking for a global part |
+| `/mannequin remaskugc <layer> <uuid> <part> [strategy] [channel]` | Re-run colour-channel masking for an uploaded part |
+| `/mannequin debug` | Various debug actions. Not intended for everyday use |
 
-Permission node: `sneakymannequins.command.mannequin`
+Permission nodes: `sneakymannequins.command.mannequin`, plus `sneakymannequins.command.debug.<subcmd>` for debug operations.
 
 ## Configuration
 
