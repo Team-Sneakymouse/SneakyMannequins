@@ -26,35 +26,70 @@ class CommandMannequin(
         }
 
         override fun handle(stack: CommandSourceStack, args: Array<out String>) {
-                when (args.firstOrNull()?.lowercase()) {
-                        "reload" -> {
-                                handleReload(stack.sender)
-                                return
-                        }
-                        "history" -> {
-                                handleHistory(stack, args)
-                                return
-                        }
+                val player = stack.sender as? Player
+                val cmd = args.firstOrNull()?.lowercase()
+
+                if (cmd == null) {
+                        sendHelp(stack.sender)
+                        return
                 }
 
-                val player =
-                        stack.sender as? Player
-                                ?: run {
-                                        stack.sender.sendMessage(
+                if (!hasPermission(stack.sender, cmd)) {
+                        stack.sender.sendMessage(
+                                TextUtility.convertToComponent(
+                                        "&cYou do not have permission to use this command."
+                                )
+                        )
+                        return
+                }
+
+                when (cmd) {
+                        "reload" -> handleReload(stack.sender)
+                        "history" -> handleHistory(stack, args)
+                        "remove" -> player?.let { removeNearest(it) }
+                                        ?: stack.sender.sendMessage(
                                                 "You must be a player to use this command"
                                         )
-                                        return
-                                }
-                when (args.firstOrNull()?.lowercase()) {
-                        "remove" -> removeNearest(player)
                         "template" -> handleTemplate(stack, args)
-                        "apply" -> handleApply(player, args)
-                        "info" -> handleInfo(player)
+                        "remask" -> player?.let { handleRemask(it, args) }
+                                        ?: stack.sender.sendMessage(
+                                                "You must be a player to use this command"
+                                        )
+                        "add" -> player?.let { create(it, args) }
+                                        ?: stack.sender.sendMessage(
+                                                "You must be a player to use this command"
+                                        )
                         "debug" -> handleDebug(stack, args)
-                        "remask" -> handleRemask(player, args)
-                        "save" -> handleSave(player)
-                        "delete" -> handleDelete(player, args)
-                        else -> create(player)
+                        else -> sendHelp(stack.sender)
+                }
+        }
+
+        private fun hasPermission(sender: CommandSender, subcommand: String): Boolean {
+                return sender.hasPermission("sneakymannequins.command.$subcommand")
+        }
+
+        private fun hasDebugPermission(sender: CommandSender, subsubcommand: String): Boolean {
+                return sender.hasPermission("sneakymannequins.command.debug.$subsubcommand")
+        }
+
+        private fun sendHelp(sender: CommandSender) {
+                sender.sendMessage(TextUtility.convertToComponent("&6&lSneakyMannequins Help"))
+                val commands =
+                        linkedMapOf(
+                                "add" to "Create a new mannequin",
+                                "remove" to "Remove nearest mannequin",
+                                "reload" to "Reload plugin configuration",
+                                "history" to "View your session history",
+                                "template" to "Manage session templates",
+                                "remask" to "Remask a specific layer part",
+                                "debug" to "Access developer/debug tools"
+                        )
+
+                commands.forEach { (cmd, desc) ->
+                        val color = if (hasPermission(sender, cmd)) "&a" else "&c"
+                        sender.sendMessage(
+                                TextUtility.convertToComponent("$color/mannequin $cmd &7- $desc")
+                        )
                 }
         }
 
@@ -65,17 +100,15 @@ class CommandMannequin(
                 return when (args.size) {
                         0, 1 ->
                                 listOf(
+                                                "add",
                                                 "remove",
                                                 "reload",
                                                 "remask",
                                                 "history",
                                                 "template",
-                                                "apply",
-                                                "info",
-                                                "debug",
-                                                "save",
-                                                "delete"
+                                                "debug"
                                         )
+                                        .filter { hasPermission(stack.sender, it) }
                                         .filter {
                                                 it.startsWith(
                                                         args.getOrNull(0) ?: "",
@@ -96,18 +129,19 @@ class CommandMannequin(
                                                                 )
                                                         }
                                                         .toMutableList()
-                                        "template", "apply", "save", "delete" ->
-                                                (sessionManager.listTemplateNames() +
-                                                                sessionManager.listSessionUids())
-                                                        .filter {
-                                                                it.startsWith(
-                                                                        args[1],
-                                                                        ignoreCase = true
-                                                                )
-                                                        }
-                                                        .toMutableList()
+                                        "add" -> mutableListOf("<world,x,y,z,yaw>")
                                         "debug" ->
-                                                listOf("merge", "finalize")
+                                                listOf(
+                                                                "merge",
+                                                                "finalize",
+                                                                "save",
+                                                                "apply",
+                                                                "info",
+                                                                "delete"
+                                                        )
+                                                        .filter {
+                                                                hasDebugPermission(stack.sender, it)
+                                                        }
                                                         .filter {
                                                                 it.startsWith(
                                                                         args[1],
@@ -157,6 +191,19 @@ class CommandMannequin(
                                                                                 sessionManager
                                                                                         .listSessionUids() +
                                                                                 listOf("nearest"))
+                                                                        .filter {
+                                                                                it.startsWith(
+                                                                                        args[2],
+                                                                                        ignoreCase =
+                                                                                                true
+                                                                                )
+                                                                        }
+                                                                        .toMutableList()
+                                                        "apply", "delete" ->
+                                                                (sessionManager
+                                                                                .listTemplateNames() +
+                                                                                sessionManager
+                                                                                        .listSessionUids())
                                                                         .filter {
                                                                                 it.startsWith(
                                                                                         args[2],
@@ -254,13 +301,54 @@ class CommandMannequin(
                 }
         }
 
-        private fun create(player: Player) {
+        private fun create(player: Player, args: Array<out String> = emptyArray()) {
                 try {
-                        val location = player.location.clone()
+                        var location = player.location.clone()
+
+                        if (args.size > 1) {
+                                val input = args[1]
+                                val parts = input.split(",")
+                                if (parts.size >= 4) {
+                                        val worldName = parts[0]
+                                        val world =
+                                                player.server.getWorld(worldName)
+                                                        ?: throw IllegalArgumentException(
+                                                                "World '$worldName' not found."
+                                                        )
+                                        val x =
+                                                parts[1].toDoubleOrNull()
+                                                        ?: throw IllegalArgumentException(
+                                                                "Invalid X coordinate."
+                                                        )
+                                        val y =
+                                                parts[2].toDoubleOrNull()
+                                                        ?: throw IllegalArgumentException(
+                                                                "Invalid Y coordinate."
+                                                        )
+                                        val z =
+                                                parts[3].toDoubleOrNull()
+                                                        ?: throw IllegalArgumentException(
+                                                                "Invalid Z coordinate."
+                                                        )
+                                        val yaw =
+                                                if (parts.size >= 5) parts[4].toFloatOrNull() ?: 0f
+                                                else 0f
+
+                                        location = org.bukkit.Location(world, x, y, z, yaw, 0f)
+                                } else {
+                                        player.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&cInvalid location format. Use: world,x,y,z,yaw"
+                                                )
+                                        )
+                                        return
+                                }
+                        }
+
                         val mannequin = mannequinManager.create(location)
                         player.sendMessage(
                                 TextUtility.convertToComponent(
-                                        "&aMannequin created at (${location.blockX}, ${location.blockY}, ${location.blockZ}) with id ${mannequin.id}"
+                                        "&aMannequin created at (${location.world.name}, ${location.x.toInt()}, ${location.y.toInt()}, ${location.z.toInt()}) with id ${mannequin.id}"
                                 )
                         )
                 } catch (e: Exception) {
@@ -269,7 +357,7 @@ class CommandMannequin(
                                         "&cFailed to create mannequin: ${e.message}"
                                 )
                         )
-                        e.printStackTrace()
+                        // e.printStackTrace() // Reducing log noise unless necessary
                 }
         }
 
@@ -304,9 +392,30 @@ class CommandMannequin(
         }
 
         private fun handleDebug(stack: CommandSourceStack, args: Array<out String>): Boolean {
-                if (args.size < 2) return false
-                val player = stack.sender as? Player ?: return false
-                return when (args[1].lowercase()) {
+                if (args.size < 2) {
+                        sendDebugHelp(stack.sender)
+                        return true
+                }
+                val player =
+                        stack.sender as? Player
+                                ?: run {
+                                        stack.sender.sendMessage(
+                                                "You must be a player to use debug commands"
+                                        )
+                                        return true
+                                }
+
+                val subCmd = args[1].lowercase()
+                if (!hasDebugPermission(stack.sender, subCmd)) {
+                        stack.sender.sendMessage(
+                                TextUtility.convertToComponent(
+                                        "&cYou do not have permission to use this debug command."
+                                )
+                        )
+                        return true
+                }
+
+                return when (subCmd) {
                         "merge" -> {
                                 handleMerge(stack, args)
                                 true
@@ -315,7 +424,50 @@ class CommandMannequin(
                                 handleFinalize(player, args)
                                 true
                         }
-                        else -> false
+                        "save" -> {
+                                handleSave(player)
+                                true
+                        }
+                        "apply" -> {
+                                handleApply(player, args.drop(1).toTypedArray())
+                                true
+                        }
+                        "info" -> {
+                                handleInfo(player)
+                                true
+                        }
+                        "delete" -> {
+                                handleDelete(player, args.drop(1).toTypedArray())
+                                true
+                        }
+                        else -> {
+                                sendDebugHelp(stack.sender)
+                                true
+                        }
+                }
+        }
+
+        private fun sendDebugHelp(sender: CommandSender) {
+                sender.sendMessage(
+                        TextUtility.convertToComponent("&6&lSneakyMannequins Debug Help")
+                )
+                val debugCommands =
+                        linkedMapOf(
+                                "merge" to "Merge two sessions",
+                                "finalize" to "Finalize and export a session",
+                                "save" to "Save nearest mannequin session",
+                                "apply" to "Apply a session/template",
+                                "info" to "Show nearest mannequin info",
+                                "delete" to "Delete a session UID"
+                        )
+
+                debugCommands.forEach { (cmd, desc) ->
+                        val color = if (hasDebugPermission(sender, cmd)) "&a" else "&c"
+                        sender.sendMessage(
+                                TextUtility.convertToComponent(
+                                        "$color/mannequin debug $cmd &7- $desc"
+                                )
+                        )
                 }
         }
 
