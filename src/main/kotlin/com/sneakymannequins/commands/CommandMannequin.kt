@@ -556,14 +556,7 @@ class CommandMannequin(
                                         return
                                 }
 
-                val charContext = plugin.characterManagerBridge.currentCharacter(player)
-                val uid =
-                        sessionManager.save(
-                                man,
-                                player,
-                                characterUuid = charContext?.characterUuid,
-                                characterName = charContext?.characterName
-                        )
+                val uid = mannequinManager.saveMannequinState(man, player)
                 player.sendMessage(
                         TextUtility.convertToComponent(
                                 "&aMannequin state saved with UID: ${TextUtility.clickableCopy(uid)}"

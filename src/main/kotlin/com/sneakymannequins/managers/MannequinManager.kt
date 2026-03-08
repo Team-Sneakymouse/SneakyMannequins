@@ -92,8 +92,12 @@ class MannequinManager(
 ) {
     private val mannequins = mutableMapOf<UUID, Mannequin>()
     private val sentTo = mutableMapOf<UUID, MutableSet<UUID>>() // viewerId → mannequins seen
-    private val statusText = mutableMapOf<UUID, String>() // mannequinId → last action
-    private val poseState = mutableMapOf<UUID, Boolean>() // mannequinId → true = T-pose
+    /** mannequinId -> last action */
+    private val statusText = mutableMapOf<UUID, String>()
+    /** mannequinId -> last saved fingerprint */
+    private val lastSavedFingerprint = mutableMapOf<UUID, String>()
+    /** mannequinId -> true = T-pose */
+    private val poseState = mutableMapOf<UUID, Boolean>()
     private val controlState = mutableMapOf<UUID, ControlState>()
     /** mannequin -> layerId -> partId(optionId) -> last selection used for that part */
     private val partSelectionMemory =
@@ -1699,11 +1703,7 @@ class MannequinManager(
         val mannequin = mannequins[manId] ?: return
         when (action) {
             "Save" -> {
-                val uid = sessionManager.save(mannequin, player)
-                plugin.server.pluginManager.callEvent(
-                        MannequinSessionSaveEvent(mannequin.id, mannequin.location, player, uid)
-                )
-                updateStatus(manId, "Saved to session '$uid'")
+                val uid = saveMannequinState(mannequin, player)
                 player.sendMessage(
                         Component.text("Session saved: ")
                                 .color(NamedTextColor.GREEN)
@@ -1729,11 +1729,11 @@ class MannequinManager(
             }
             "Apply" -> {
                 if (mannequin.selection.selections.isEmpty()) {
-                    player.sendMessage(TextUtility.convertToComponent("&cNo layers to finalize."))
+                    player.sendMessage(TextUtility.convertToComponent("&cNo layers to apply."))
                     return
                 }
 
-                player.sendMessage(TextUtility.convertToComponent("&eFinalizing skin..."))
+                player.sendMessage(TextUtility.convertToComponent("&eApplying skin..."))
                 finalizeAndApply(player, mannequin, player)
             }
             "Overlay" -> {
@@ -1753,6 +1753,16 @@ class MannequinManager(
      * @param contextPlayer The player whose skin/character context should be used
      */
     fun finalizeAndApply(requester: Player, mannequin: Mannequin, contextPlayer: Player) {
+        val currentFingerprint = sessionManager.fingerprint(mannequin)
+        if (lastSavedFingerprint[mannequin.id] != currentFingerprint) {
+            val uid = saveMannequinState(mannequin, requester)
+            requester.sendMessage(
+                    TextUtility.convertToComponent(
+                            "&7Unsaved changes detected. Auto-saved to session &e$uid&7."
+                    )
+            )
+        }
+
         sessionManager
                 .finalizeSession(requester, mannequin, contextPlayer = contextPlayer)
                 .thenAccept { result ->
@@ -1798,6 +1808,24 @@ class MannequinManager(
                     )
                     null
                 }
+    }
+
+    /** Saves the mannequin state and tracks the fingerprint. */
+    fun saveMannequinState(mannequin: Mannequin, player: Player): String {
+        val charContext = characterManagerBridge.currentCharacter(player)
+        val uid =
+                sessionManager.save(
+                        mannequin,
+                        player,
+                        characterUuid = charContext?.characterUuid,
+                        characterName = charContext?.characterName
+                )
+        lastSavedFingerprint[mannequin.id] = sessionManager.fingerprint(mannequin)
+        plugin.server.pluginManager.callEvent(
+                MannequinSessionSaveEvent(mannequin.id, mannequin.location, player, uid)
+        )
+        updateStatus(mannequin.id, "Saved to session '$uid'")
+        return uid
     }
 
     fun handleInteract(mannequinId: UUID, player: Player, backwards: Boolean) {
