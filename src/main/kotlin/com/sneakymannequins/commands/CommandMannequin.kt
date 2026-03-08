@@ -54,7 +54,7 @@ class CommandMannequin(
                         "info" -> handleInfo(player)
                         "debug" -> handleDebug(stack, args)
                         "remask" -> handleRemask(player, args)
-                        "save" -> handleSave(player, args)
+                        "save" -> handleSave(player)
                         "delete" -> handleDelete(player, args)
                         else -> create(player)
                 }
@@ -65,20 +65,7 @@ class CommandMannequin(
                 args: Array<out String>
         ): MutableList<String> {
                 return when (args.size) {
-                        0 ->
-                                mutableListOf(
-                                        "remove",
-                                        "reload",
-                                        "remask",
-                                        "history",
-                                        "template",
-                                        "apply",
-                                        "info",
-                                        "debug",
-                                        "save",
-                                        "delete"
-                                )
-                        1 ->
+                        0, 1 ->
                                 listOf(
                                                 "remove",
                                                 "reload",
@@ -91,7 +78,12 @@ class CommandMannequin(
                                                 "save",
                                                 "delete"
                                         )
-                                        .filter { it.startsWith(args[0], ignoreCase = true) }
+                                        .filter {
+                                                it.startsWith(
+                                                        args.getOrNull(0) ?: "",
+                                                        ignoreCase = true
+                                                )
+                                        }
                                         .toMutableList()
                         2 ->
                                 when (args[0].lowercase()) {
@@ -131,12 +123,6 @@ class CommandMannequin(
                                 when (args[0].lowercase()) {
                                         "remask" -> {
                                                 val layerId = args[1].lowercase()
-                                                // The following lines seem to be from a different
-                                                // context and introduce undefined variables.
-                                                // Applying them literally would cause a compilation
-                                                // error.
-                                                // Keeping the original logic for remask suggestions
-                                                // for args.size == 3.
                                                 layerManager
                                                         .optionsFor(layerId)
                                                         .map { it.id }
@@ -154,7 +140,25 @@ class CommandMannequin(
                                                                 (sessionManager
                                                                                 .listTemplateNames() +
                                                                                 sessionManager
-                                                                                        .listSessionUids())
+                                                                                        .listSessionUids() +
+                                                                                listOf(
+                                                                                        "nearest",
+                                                                                        "null"
+                                                                                ))
+                                                                        .filter {
+                                                                                it.startsWith(
+                                                                                        args[2],
+                                                                                        ignoreCase =
+                                                                                                true
+                                                                                )
+                                                                        }
+                                                                        .toMutableList()
+                                                        "finalize" ->
+                                                                (sessionManager
+                                                                                .listTemplateNames() +
+                                                                                sessionManager
+                                                                                        .listSessionUids() +
+                                                                                listOf("nearest"))
                                                                         .filter {
                                                                                 it.startsWith(
                                                                                         args[2],
@@ -188,6 +192,27 @@ class CommandMannequin(
                                                                 )
                                                         }
                                                         .toMutableList()
+                                        "debug" ->
+                                                when (args[1].lowercase()) {
+                                                        "merge" ->
+                                                                (sessionManager
+                                                                                .listTemplateNames() +
+                                                                                sessionManager
+                                                                                        .listSessionUids() +
+                                                                                listOf(
+                                                                                        "nearest",
+                                                                                        "null"
+                                                                                ))
+                                                                        .filter {
+                                                                                it.startsWith(
+                                                                                        args[3],
+                                                                                        ignoreCase =
+                                                                                                true
+                                                                                )
+                                                                        }
+                                                                        .toMutableList()
+                                                        else -> mutableListOf()
+                                                }
                                         else -> mutableListOf()
                                 }
                         5 ->
@@ -285,7 +310,7 @@ class CommandMannequin(
                 val player = stack.sender as? Player ?: return false
                 return when (args[1].lowercase()) {
                         "merge" -> {
-                                handleMerge(stack, args.drop(1).toTypedArray())
+                                handleMerge(stack, args)
                                 true
                         }
                         "finalize" -> {
@@ -358,7 +383,7 @@ class CommandMannequin(
                 )
         }
 
-        private fun handleSave(player: Player, args: Array<out String>) {
+        private fun handleSave(player: Player) {
                 val man =
                         mannequinManager.nearestMannequin(player.location, 5.0)
                                 ?: run {
