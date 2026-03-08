@@ -1739,9 +1739,8 @@ class MannequinManager(
                         return@handle
                     }
                     val url = ConfigManager.instance.getImageUrl(file.name)
-                    val strategy = ConfigManager.instance.getApplicationStrategy()
 
-                    if (strategy == "SNEAKY_CHARACTER_MANAGER" && characterManagerBridge.active) {
+                    if (characterManagerBridge.active) {
                         val charContext = characterManagerBridge.currentCharacter(player)
                         if (charContext != null) {
                             characterManagerBridge.updateSkin(

@@ -92,14 +92,6 @@ class ConfigManager {
         return config.getString("plugin.default-skin-model", "CLASSIC") ?: "CLASSIC"
     }
 
-    /**
-     * Gets the application strategy from config
-     * @return The application strategy string (CLASSIC or SNEAKY_CHARACTER_MANAGER)
-     */
-    fun getApplicationStrategy(): String {
-        return config.getString("plugin.application-strategy", "CLASSIC") ?: "CLASSIC"
-    }
-
     /** Reloads the configuration from disk */
     fun reloadConfig() {
         plugin.reloadConfig()
