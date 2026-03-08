@@ -96,6 +96,8 @@ class MannequinManager(
     private val statusText = mutableMapOf<UUID, String>()
     /** mannequinId -> last saved fingerprint */
     private val lastSavedFingerprint = mutableMapOf<UUID, String>()
+    /** mannequinId -> last saved session UID */
+    private val lastSavedUid = mutableMapOf<UUID, String>()
     /** mannequinId -> true = T-pose */
     private val poseState = mutableMapOf<UUID, Boolean>()
     private val controlState = mutableMapOf<UUID, ControlState>()
@@ -1752,19 +1754,36 @@ class MannequinManager(
      * @param mannequin The mannequin source
      * @param contextPlayer The player whose skin/character context should be used
      */
-    fun finalizeAndApply(requester: Player, mannequin: Mannequin, contextPlayer: Player) {
-        val currentFingerprint = sessionManager.fingerprint(mannequin)
-        if (lastSavedFingerprint[mannequin.id] != currentFingerprint) {
-            val uid = saveMannequinState(mannequin, requester)
-            requester.sendMessage(
-                    TextUtility.convertToComponent(
-                            "&7Unsaved changes detected. Auto-saved to session &e$uid&7."
-                    )
-            )
+    fun finalizeAndApply(
+            requester: Player,
+            mannequin: Mannequin,
+            contextPlayer: Player,
+            sessionOverride: SessionData? = null
+    ) {
+        var appliedUid = sessionOverride?.uid
+
+        if (sessionOverride == null) {
+            val currentFingerprint = sessionManager.fingerprint(mannequin)
+            if (lastSavedFingerprint[mannequin.id] != currentFingerprint) {
+                val uid = saveMannequinState(mannequin, requester)
+                requester.sendMessage(
+                        TextUtility.convertToComponent(
+                                "&7Unsaved changes detected. Auto-saved to session &e$uid&7."
+                        )
+                )
+                appliedUid = uid
+            } else {
+                appliedUid = lastSavedUid[mannequin.id]
+            }
         }
 
         sessionManager
-                .finalizeSession(requester, mannequin, contextPlayer = contextPlayer)
+                .finalizeSession(
+                        requester,
+                        mannequin,
+                        sessionOverride = sessionOverride,
+                        contextPlayer = contextPlayer
+                )
                 .thenAccept { result ->
                     val url = ConfigManager.instance.getImageUrl(result.file.name)
 
@@ -1777,6 +1796,16 @@ class MannequinManager(
                                     url,
                                     result.slim
                             )
+
+                            // Record in registry for future merges
+                            if (appliedUid != null) {
+                                appliedSessionRegistry.setLastApplied(
+                                        contextPlayer.uniqueId,
+                                        appliedUid,
+                                        charContext.characterUuid
+                                )
+                            }
+
                             requester.sendMessage(
                                     TextUtility.convertToComponent(
                                             "&aSkin applied to character &d${charContext.characterName}&a!"
@@ -1820,7 +1849,9 @@ class MannequinManager(
                         characterUuid = charContext?.characterUuid,
                         characterName = charContext?.characterName
                 )
-        lastSavedFingerprint[mannequin.id] = sessionManager.fingerprint(mannequin)
+        val fingerprint = sessionManager.fingerprint(mannequin)
+        lastSavedFingerprint[mannequin.id] = fingerprint
+        lastSavedUid[mannequin.id] = uid
         plugin.server.pluginManager.callEvent(
                 MannequinSessionSaveEvent(mannequin.id, mannequin.location, player, uid)
         )

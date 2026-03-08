@@ -515,7 +515,12 @@ class CommandMannequin(
                                 "&eApplying finalized skin to ${targetPlayer.name}..."
                         )
                 )
-                mannequinManager.finalizeAndApply(requester, man, targetPlayer)
+                mannequinManager.finalizeAndApply(
+                        requester,
+                        man,
+                        targetPlayer,
+                        sessionOverride = session
+                )
         }
 
         private fun handleInfo(player: Player) {
