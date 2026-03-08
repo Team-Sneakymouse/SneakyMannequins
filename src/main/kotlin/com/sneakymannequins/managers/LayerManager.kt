@@ -15,6 +15,7 @@ import java.awt.Color
 import java.awt.image.BufferedImage
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.UUID
 import javax.imageio.ImageIO
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
@@ -88,7 +89,24 @@ class LayerManager(private val plugin: SneakyMannequins) {
     fun definitionsInOrder(): List<LayerDefinition> =
             layerOrder.mapNotNull { loadedLayers[it]?.first }
 
-    fun optionsFor(layerId: String): List<LayerOption> = loadedLayers[layerId]?.second.orEmpty()
+    fun optionsFor(layerId: String, viewer: Player? = null): List<LayerOption> {
+        val allOptions = loadedLayers[layerId]?.second.orEmpty()
+        return if (viewer == null) {
+            allOptions.filter { it.owner == null }
+        } else {
+            allOptions.filter { it.owner == null || it.owner == viewer.uniqueId }
+        }
+    }
+
+    fun findOptionById(layerId: String, optionId: String): LayerOption? {
+        return loadedLayers[layerId]?.second?.find { it.id == optionId }
+    }
+
+    fun addOption(layerId: String, option: LayerOption) {
+        val entry = loadedLayers[layerId] ?: return
+        val newOptions = entry.second.toMutableList().also { it.add(option) }
+        loadedLayers[layerId] = entry.first to newOptions
+    }
 
     fun palette(id: String): ColorPalette? = palettes[id]
 
@@ -308,45 +326,118 @@ class LayerManager(private val plugin: SneakyMannequins) {
                     }
                 }
 
-        return grouped.values.mapNotNull { agg ->
-            val optSection = optionConfig?.getConfigurationSection(agg.id)
-            val optPaletteSpec = optSection?.let { parsePaletteSpec(it) } ?: PaletteSpec.INHERIT
-            val optTextureSpec = optSection?.let { parseTextureSpec(it) } ?: TextureSpec.INHERIT
-            val optBriInf =
-                    optSection?.let {
-                        if (it.contains("brightness-influence"))
-                                it.getDouble("brightness-influence").toFloat()
-                        else null
+        val result =
+                grouped.values
+                        .mapNotNull { agg ->
+                            createOptionFromAggregate(agg, definition, optionConfig, directory)
+                        }
+                        .toMutableList()
+
+        // 3. Scan uploads directory for user-specific parts
+        val uploadsDir = directory.resolve("uploads")
+        if (Files.exists(uploadsDir) && Files.isDirectory(uploadsDir)) {
+            try {
+                Files.list(uploadsDir).use { userStream ->
+                    userStream.forEach { userDir ->
+                        if (!Files.isDirectory(userDir)) return@forEach
+                        val uuidString = userDir.name
+                        val ownerUuid =
+                                try {
+                                    UUID.fromString(uuidString)
+                                } catch (e: Exception) {
+                                    null
+                                }
+                        if (ownerUuid != null) {
+                            val userPartDirs = Files.list(userDir).use { it.toList() }
+                            userPartDirs.forEach { partDir ->
+                                if (!Files.isDirectory(partDir)) return@forEach
+                                val id = slugify(partDir.name)
+                                val metadata = loadMetadata(partDir)
+                                val displayName =
+                                        metadata["displayName"] as? String
+                                                ?: toDisplayName(partDir.name)
+                                val agg = OptionAggregate(id, displayName, directory = partDir)
+
+                                Files.list(partDir).use { partStream ->
+                                    partStream.forEach { path ->
+                                        val name = path.nameWithoutExtension.lowercase()
+                                        if (name.endsWith("_slim")) agg.slimPath = path
+                                        else if (name.endsWith("_default")) agg.defaultPath = path
+                                        else if (path.name.lowercase().endsWith(".png") &&
+                                                        !name.contains("_mask_")
+                                        )
+                                                agg.sharedPath = path
+                                    }
+                                }
+
+                                val userOpt =
+                                        createOptionFromAggregate(agg, definition, null, partDir)
+                                if (userOpt != null) {
+                                    result.add(
+                                            userOpt.copy(
+                                                    id = "$uuidString:${userOpt.id}",
+                                                    owner = ownerUuid,
+                                                    internalKey = userOpt.id
+                                            )
+                                    )
+                                }
+                            }
+                        }
                     }
-
-            val defaultPath = agg.defaultPath ?: agg.sharedPath
-            val slimPath = agg.slimPath ?: agg.sharedPath
-            val defaultImage = defaultPath?.let { loadImage(it, definition.id) }
-            val slimImage = slimPath?.let { loadImage(it, definition.id) }
-
-            if (defaultImage == null && slimImage == null) {
-                plugin.logger.warning(
-                        "Layer ${definition.id} option ${agg.id} has no readable images; skipping."
+                }
+            } catch (e: Exception) {
+                plugin.logger.severe(
+                        "Failed to scan uploads for layer ${definition.id}: ${e.message}"
                 )
-                return@mapNotNull null
             }
-
-            val masks = buildMaskMap(agg.directory ?: directory, agg)
-
-            LayerOption(
-                    id = agg.id,
-                    displayName = agg.displayName,
-                    fileDefault = defaultPath,
-                    fileSlim = slimPath,
-                    imageDefault = defaultImage,
-                    imageSlim = slimImage,
-                    paletteSpec = optPaletteSpec,
-                    textureSpec = optTextureSpec,
-                    brightnessInfluence = optBriInf,
-                    masks = masks,
-                    directory = agg.directory
-            )
         }
+
+        return result
+    }
+
+    private fun createOptionFromAggregate(
+            agg: OptionAggregate,
+            definition: LayerDefinition,
+            optionConfig: ConfigurationSection?,
+            directory: Path
+    ): LayerOption? {
+        val optSection = optionConfig?.getConfigurationSection(agg.id)
+        val optPaletteSpec = optSection?.let { parsePaletteSpec(it) } ?: PaletteSpec.INHERIT
+        val optTextureSpec = optSection?.let { parseTextureSpec(it) } ?: TextureSpec.INHERIT
+        val optBriInf =
+                optSection?.let {
+                    if (it.contains("brightness-influence"))
+                            it.getDouble("brightness-influence").toFloat()
+                    else null
+                }
+
+        val defaultPath = agg.defaultPath ?: agg.sharedPath
+        val slimPath = agg.slimPath ?: agg.sharedPath
+        val defaultImage = defaultPath?.let { loadImage(it, definition.id) }
+        val slimImage = slimPath?.let { loadImage(it, definition.id) }
+
+        if (defaultImage == null && slimImage == null) {
+            plugin.logger.warning(
+                    "Layer ${definition.id} option ${agg.id} has no readable images; skipping."
+            )
+            return null
+        }
+
+        val masks = buildMaskMap(agg.directory ?: directory, agg)
+
+        return LayerOption(
+                id = agg.id,
+                displayName = agg.displayName,
+                fileDefault = defaultPath,
+                fileSlim = slimPath,
+                imageDefault = defaultImage,
+                imageSlim = slimImage,
+                paletteSpec = optPaletteSpec,
+                textureSpec = optTextureSpec,
+                brightnessInfluence = optBriInf,
+                masks = masks,
+                directory = agg.directory
+        )
     }
 
     /** Scan the directory for mask PNGs belonging to the given option aggregate. */
@@ -463,6 +554,62 @@ class LayerManager(private val plugin: SneakyMannequins) {
                     }
                     .ifEmpty { "Option" }
 
+    fun uploadPart(
+            player: Player,
+            layerId: String,
+            url: URL,
+            name: String? = null
+    ): CompletableFuture<String> {
+        val entry =
+                loadedLayers[layerId]
+                        ?: return CompletableFuture.failedFuture(
+                                Exception("Unknown layer: $layerId")
+                        )
+        val def = entry.first
+        val partId = name?.let { slugify(it) } ?: "upload_${System.currentTimeMillis()}"
+        val targetDir =
+                def.directory.resolve("uploads").resolve(player.uniqueId.toString()).resolve(partId)
+
+        return sessionManager.downloadSkin(url).thenApply { image ->
+            if (image.width != 64 || image.height != 64) {
+                throw Exception("Image must be 64x64")
+            }
+            Files.createDirectories(targetDir)
+            val sourcePath = targetDir.resolve("$partId.png")
+            ImageIO.write(image, "PNG", sourcePath.toFile())
+
+            preprocessPart(sourcePath)
+
+            // Reload just this part
+            val metadata = loadMetadata(targetDir)
+            val displayName = metadata["displayName"] as? String ?: toDisplayName(partId)
+            val agg = OptionAggregate(partId, displayName, directory = targetDir)
+
+            Files.list(targetDir).use { stream ->
+                stream.forEach { path ->
+                    val n = path.nameWithoutExtension.lowercase()
+                    if (n.endsWith("_slim")) agg.slimPath = path
+                    else if (n.endsWith("_default")) agg.defaultPath = path
+                    else if (path.name.lowercase().endsWith(".png") && !n.contains("_mask_"))
+                            agg.sharedPath = path
+                }
+            }
+
+            val opt = createOptionFromAggregate(agg, def, null, targetDir)
+            if (opt != null) {
+                val userOpt =
+                        opt.copy(
+                                id = "${player.uniqueId}:${opt.id}",
+                                owner = player.uniqueId,
+                                internalKey = opt.id
+                        )
+                addOption(layerId, userOpt)
+            }
+
+            "Successfully uploaded part '$displayName' to layer '${def.displayName}'."
+        }
+    }
+
     private fun loadMetadata(directory: Path): Map<String, Any> {
         val file = directory.resolve("metadata.json")
         if (!file.exists()) return emptyMap()
@@ -480,7 +627,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
         }
     }
 
-    private fun preprocessPart(sourcePath: Path) {
+    fun preprocessPart(sourcePath: Path) {
         val partName = sourcePath.nameWithoutExtension
         val targetDir = sourcePath.parent.resolve(partName)
         if (!targetDir.exists()) Files.createDirectories(targetDir)

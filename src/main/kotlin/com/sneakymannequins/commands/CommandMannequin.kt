@@ -59,6 +59,10 @@ class CommandMannequin(
                                                 "You must be a player to use this command"
                                         )
                         "debug" -> handleDebug(stack, args)
+                        "upload" -> player?.let { handleUpload(it, args) }
+                                        ?: stack.sender.sendMessage(
+                                                "You must be a player to use this command"
+                                        )
                         else -> sendHelp(stack.sender)
                 }
         }
@@ -81,6 +85,7 @@ class CommandMannequin(
                                 "history" to "View your session history",
                                 "template" to "Manage session templates",
                                 "remask" to "Remask a specific layer part",
+                                "upload" to "Upload a custom skin part from a URL",
                                 "debug" to "Access developer/debug tools"
                         )
 
@@ -105,7 +110,8 @@ class CommandMannequin(
                                                 "remask",
                                                 "history",
                                                 "template",
-                                                "debug"
+                                                "debug",
+                                                "upload"
                                         )
                                         .filter { hasPermission(stack.sender, it) }
                                         .filter {
@@ -917,5 +923,44 @@ class CommandMannequin(
                                 "&aMerged &7'${TextUtility.clickableCopy(args[2], "&7")}'&a onto &7'${TextUtility.clickableCopy(args[3], "&7")}'&a. Result saved as: ${TextUtility.clickableCopy(uid)}"
                         )
                 )
+        private fun handleUpload(player: Player, args: Array<out String>) {
+                if (args.size < 3) {
+                        player.sendMessage(
+                                TextUtility.convertToComponent(
+                                        "&cUsage: /mannequin upload <layer> <url> [name]"
+                                )
+                        )
+                        return
+                }
+                val layerId = args[1].lowercase()
+                val urlStr = args[2]
+                val name = if (args.size > 3) args[3] else null
+
+                val url =
+                        try {
+                                URL(urlStr)
+                        } catch (e: Exception) {
+                                player.sendMessage(
+                                        TextUtility.convertToComponent("&cInvalid URL: ${e.message}")
+                                )
+                                return
+                        }
+
+                player.sendMessage(
+                        TextUtility.convertToComponent("&eUploading part to layer '$layerId'...")
+                )
+                layerManager
+                        .uploadPart(player, layerId, url, name)
+                        .thenAccept { msg ->
+                                player.sendMessage(TextUtility.convertToComponent("&a$msg"))
+                        }
+                        .exceptionally { e ->
+                                player.sendMessage(
+                                        TextUtility.convertToComponent(
+                                                "&cUpload failed: ${e.cause?.message ?: e.message}"
+                                        )
+                                )
+                                null
+                        }
         }
 }

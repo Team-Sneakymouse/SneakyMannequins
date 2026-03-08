@@ -252,9 +252,10 @@ class MannequinManager(
      */
     private fun freshOption(layerId: String, mannequin: Mannequin): LayerOption? {
         val selOption = mannequin.selection.selections[layerId]?.option
-        val opts = layerManager.optionsFor(layerId)
-        return if (selOption != null) opts.find { it.id == selOption.id } ?: selOption
-        else opts.firstOrNull()
+        if (selOption != null) {
+            return layerManager.findOptionById(layerId, selOption.id) ?: selOption
+        }
+        return layerManager.optionsFor(layerId).firstOrNull()
     }
 
     /** Read the hud-buttons config section and build the button list. */
@@ -646,7 +647,7 @@ class MannequinManager(
      * reads up-to-date mask paths after a remask.
      */
     private val optionResolver: (String, String) -> LayerOption? = { layerId, optionId ->
-        layerManager.optionsFor(layerId).find { it.id == optionId }
+        layerManager.findOptionById(layerId, optionId)
     }
 
     /**
@@ -1326,7 +1327,7 @@ class MannequinManager(
     ): String? {
         rememberCurrentPartSelection(mannequin, layer)
 
-        val opts = layerManager.optionsFor(layer.id)
+        val opts = layerManager.optionsFor(layer.id, player)
         if (opts.isEmpty()) return null
         val delta = if (backwards) -1 else 1
         val startIdx = state.partIndex.getOrDefault(layer.id, 0)

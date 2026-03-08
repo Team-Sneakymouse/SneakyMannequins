@@ -136,7 +136,9 @@ data class LayerOption(
         val textureSpec: TextureSpec = TextureSpec.INHERIT,
         val brightnessInfluence: Float? = null,
         val masks: Map<Int, Path> = emptyMap(), // channel idx -> mask PNG
-        val directory: Path? = null // part's subdirectory
+        val directory: Path? = null, // part's subdirectory
+        val owner: java.util.UUID? = null,
+        val internalKey: String? = null
 )
 
 /**

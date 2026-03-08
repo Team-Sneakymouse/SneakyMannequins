@@ -10,6 +10,7 @@ import com.sneakymannequins.model.SessionData
 import com.sneakymannequins.model.SkinSelection
 import com.sneakymannequins.util.SkinComposer
 import com.sneakymannequins.util.SkinUv
+import com.sneakymouse.sneakyholos.util.TextUtility
 import java.awt.Color
 import java.awt.image.BufferedImage
 import java.io.File
@@ -329,17 +330,17 @@ class SessionManager(
                                             .toMap(),
                             texturedColors =
                                     data.texturedColors
-                                            .mapNotNull { (k, v) ->
-                                                val idx = k.toIntOrNull() ?: return@mapNotNull null
+                                            .mapNotNull outer@{ (k, v) ->
+                                                val idx = k.toIntOrNull() ?: return@outer null
                                                 val subMap =
                                                         v
-                                                                .mapNotNull { (sk, sv) ->
+                                                                .mapNotNull inner@{ (sk, sv) ->
                                                                     val sIdx =
                                                                             sk.toIntOrNull()
-                                                                                    ?: return@mapNotNull null
+                                                                                    ?: return@inner null
                                                                     val color =
                                                                             hexToColor(sv)
-                                                                                    ?: return@mapNotNull null
+                                                                                    ?: return@inner null
                                                                     sIdx to color
                                                                 }
                                                                 .toMap()
@@ -352,7 +353,7 @@ class SessionManager(
         return SkinSelection(selections)
     }
 
-    private fun downloadSkin(url: URL): CompletableFuture<BufferedImage> {
+    fun downloadSkin(url: URL): CompletableFuture<BufferedImage> {
         return CompletableFuture.supplyAsync {
             try {
                 ImageIO.read(url)
@@ -498,6 +499,26 @@ class SessionManager(
                     layers = emptyMap()
             )
         }
-        return load(input)
+
+        val normalized = input.uppercase().trim()
+        val isSession = File(sessionsDir, "$normalized.json").exists()
+        val res = load(input) ?: return null
+
+        if (isSession) {
+            for ((layerId, data) in res.layers) {
+                val optionId = data.option ?: continue
+                val opt = layerManager.findOptionById(layerId, optionId)
+                if (opt != null && opt.owner != null && opt.owner != player.uniqueId) {
+                    player.sendMessage(
+                            TextUtility.convertToComponent(
+                                    "<red>You do not own part '${opt.displayName}' in layer '$layerId'."
+                            )
+                    )
+                    return null
+                }
+            }
+        }
+
+        return res
     }
 }
