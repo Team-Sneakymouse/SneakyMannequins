@@ -12,6 +12,7 @@ import net.kyori.adventure.text.event.HoverEvent
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
+import org.bukkit.profile.PlayerTextures.SkinModel
 
 class CommandMannequin(
         private val plugin: SneakyMannequins,
@@ -42,6 +43,10 @@ class CommandMannequin(
                                 handleTemplate(stack, args)
                                 return
                         }
+                        "merge" -> {
+                                handleMerge(stack, args)
+                                return
+                        }
                 }
 
                 val player =
@@ -65,7 +70,7 @@ class CommandMannequin(
                 return when (args.size) {
                         0 -> mutableListOf("remove", "reload", "remask", "history", "template")
                         1 ->
-                                listOf("remove", "reload", "remask", "history", "template")
+                                listOf("remove", "reload", "remask", "history", "template", "merge")
                                         .filter { it.startsWith(args[0], ignoreCase = true) }
                                         .toMutableList()
                         2 ->
@@ -81,7 +86,7 @@ class CommandMannequin(
                                                                 )
                                                         }
                                                         .toMutableList()
-                                        "template" ->
+                                        "template", "merge" ->
                                                 sessionManager
                                                         .listSessionUids()
                                                         .filter {
@@ -441,5 +446,58 @@ class CommandMannequin(
                                 )
                         )
                 }
+        }
+
+        private fun handleMerge(stack: CommandSourceStack, args: Array<out String>) {
+                val player =
+                        stack.sender as? Player
+                                ?: run {
+                                        stack.sender.sendMessage(
+                                                "You must be a player to use this command"
+                                        )
+                                        return
+                                }
+                if (args.size < 2) {
+                        player.sendMessage(
+                                TextUtility.convertToComponent(
+                                        "&cUsage: /mannequin merge <uid/template>"
+                                )
+                        )
+                        return
+                }
+
+                val man =
+                        mannequinManager.nearestMannequin(player.location)
+                                ?: run {
+                                        player.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&cNo mannequin nearby."
+                                                )
+                                        )
+                                        return
+                                }
+
+                val session1 =
+                        sessionManager.load(args[1])
+                                ?: run {
+                                        player.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&cSession or template '${args[1]}' not found."
+                                                )
+                                        )
+                                        return
+                                }
+
+                val session2 = sessionManager.sessionFromMannequin(man)
+                val defaultSlim = player.playerProfile.textures.skinModel == SkinModel.SLIM
+
+                val merged = sessionManager.merge(session1, session2, defaultSlim)
+                mannequinManager.applySession(man.id, merged, player)
+
+                player.sendMessage(
+                        TextUtility.convertToComponent(
+                                "&aMerged &7'${args[1]}'&a onto mannequin &7${man.id}&a."
+                        )
+                )
         }
 }

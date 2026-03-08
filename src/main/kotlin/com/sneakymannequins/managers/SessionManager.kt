@@ -138,6 +138,23 @@ class SessionManager(private val dataFolder: File) {
         return null
     }
 
+    fun merge(s1: SessionData, s2: SessionData, defaultSlim: Boolean): SessionData {
+        val mergedLayers = s2.layers.toMutableMap()
+        mergedLayers.putAll(s1.layers)
+
+        val mergedSlim = s1.slimModel ?: s2.slimModel ?: defaultSlim
+
+        return SessionData(
+                uid = "merged",
+                creator = s2.creator,
+                createdAt = Instant.now().toString(),
+                slimModel = mergedSlim,
+                layers = mergedLayers,
+                characterUuid = s1.characterUuid ?: s2.characterUuid,
+                characterName = s1.characterName ?: s2.characterName
+        )
+    }
+
     fun listSessionUids(): List<String> {
         if (!sessionsDir.exists()) return emptyList()
         return sessionsDir.listFiles { f -> f.extension == "json" }?.map { it.nameWithoutExtension }
@@ -161,10 +178,20 @@ class SessionManager(private val dataFolder: File) {
         return uid
     }
 
-    private fun snapshotLayers(mannequin: Mannequin): Map<String, LayerSessionData> {
+    fun snapshotLayers(mannequin: Mannequin): Map<String, LayerSessionData> {
         return mannequin.selection.selections.mapValues { (_, sel) ->
             LayerSessionData.fromSelection(sel)
         }
+    }
+
+    fun sessionFromMannequin(mannequin: Mannequin): SessionData {
+        return SessionData(
+                uid = "mannequin_${mannequin.id}",
+                creator = "system",
+                createdAt = Instant.now().toString(),
+                slimModel = mannequin.slimModel,
+                layers = snapshotLayers(mannequin)
+        )
     }
 
     private fun fingerprint(slimModel: Boolean, layers: Map<String, LayerSessionData>): String {
