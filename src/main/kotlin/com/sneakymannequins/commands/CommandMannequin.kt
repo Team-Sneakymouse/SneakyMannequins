@@ -7,6 +7,7 @@ import com.sneakymannequins.managers.SessionManager
 import com.sneakymouse.sneakyholos.util.TextUtility
 import io.papermc.paper.command.brigadier.CommandSourceStack
 import java.io.File
+import java.net.URL
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.command.CommandSender
@@ -154,6 +155,27 @@ class CommandMannequin(
                                                                 )
                                                         }
                                                         .toMutableList()
+                                        "upload" ->
+                                                layerManager
+                                                        .definitionsInOrder()
+                                                        .map { it.id }
+                                                        .filter {
+                                                                it.startsWith(
+                                                                        args[1],
+                                                                        ignoreCase = true
+                                                                )
+                                                        }
+                                                        .toMutableList()
+                                        "template" ->
+                                                sessionManager
+                                                        .listSessionUids()
+                                                        .filter {
+                                                                it.startsWith(
+                                                                        args[1],
+                                                                        ignoreCase = true
+                                                                )
+                                                        }
+                                                        .toMutableList()
                                         else -> mutableListOf()
                                 }
                         3 ->
@@ -219,6 +241,8 @@ class CommandMannequin(
                                                                         .toMutableList()
                                                         else -> mutableListOf()
                                                 }
+                                        "upload" -> mutableListOf("<url>")
+                                        "template" -> mutableListOf("<template_name>")
                                         else -> mutableListOf()
                                 }
                         4 ->
@@ -258,6 +282,7 @@ class CommandMannequin(
                                                                         .toMutableList()
                                                         else -> mutableListOf()
                                                 }
+                                        "upload" -> mutableListOf("[name]")
                                         else -> mutableListOf()
                                 }
                         5 ->
@@ -923,6 +948,8 @@ class CommandMannequin(
                                 "&aMerged &7'${TextUtility.clickableCopy(args[2], "&7")}'&a onto &7'${TextUtility.clickableCopy(args[3], "&7")}'&a. Result saved as: ${TextUtility.clickableCopy(uid)}"
                         )
                 )
+        }
+
         private fun handleUpload(player: Player, args: Array<out String>) {
                 if (args.size < 3) {
                         player.sendMessage(
@@ -941,7 +968,9 @@ class CommandMannequin(
                                 URL(urlStr)
                         } catch (e: Exception) {
                                 player.sendMessage(
-                                        TextUtility.convertToComponent("&cInvalid URL: ${e.message}")
+                                        TextUtility.convertToComponent(
+                                                "&cInvalid URL: ${e.message}"
+                                        )
                                 )
                                 return
                         }
@@ -950,11 +979,11 @@ class CommandMannequin(
                         TextUtility.convertToComponent("&eUploading part to layer '$layerId'...")
                 )
                 layerManager
-                        .uploadPart(player, layerId, url, name)
-                        .thenAccept { msg ->
+                        .uploadPart(player, layerId, url, name, sessionManager)
+                        .thenAccept { msg: String ->
                                 player.sendMessage(TextUtility.convertToComponent("&a$msg"))
                         }
-                        .exceptionally { e ->
+                        .exceptionally { e: Throwable ->
                                 player.sendMessage(
                                         TextUtility.convertToComponent(
                                                 "&cUpload failed: ${e.cause?.message ?: e.message}"

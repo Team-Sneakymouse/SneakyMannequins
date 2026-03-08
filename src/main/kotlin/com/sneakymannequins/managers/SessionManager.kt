@@ -77,9 +77,12 @@ class SessionManager(
                         characterUuid = characterUuid,
                         characterName = characterName
                 )
-        File(sessionsDir, "$uid.json").writeText(gson.toJson(session))
-        if (renderedImage != null) {
-            runCatching { ImageIO.write(renderedImage, "PNG", File(sessionsDir, "$uid.png")) }
+        val jsonString = gson.toJson(session)
+        CompletableFuture.runAsync {
+            File(sessionsDir, "$uid.json").writeText(jsonString)
+            if (renderedImage != null) {
+                runCatching { ImageIO.write(renderedImage, "PNG", File(sessionsDir, "$uid.png")) }
+            }
         }
         return uid
     }
@@ -162,7 +165,8 @@ class SessionManager(
                         characterUuid = source.characterUuid,
                         characterName = source.characterName
                 )
-        templateFile.writeText(gson.toJson(template))
+        val jsonString = gson.toJson(template)
+        CompletableFuture.runAsync { templateFile.writeText(jsonString) }
         return null
     }
 
@@ -237,61 +241,58 @@ class SessionManager(
             sessionOverride: SessionData? = null,
             contextPlayer: Player = requester
     ): CompletableFuture<FinalizedResult> {
-        val targetDir = ConfigManager.instance.getImageStoragePath().toFile()
-        val mannequinSession = sessionOverride ?: sessionFromMannequin(man)
+        val playerSkinModel = contextPlayer.playerProfile.textures.skinModel
+        val playerSkinUrl = contextPlayer.playerProfile.textures.skin
         val charUuid = characterManagerBridge.currentCharacter(contextPlayer)?.characterUuid
-        val lastAppliedUid =
-                if (characterManagerBridge.active) {
-                    appliedSessionRegistry.getLastApplied(contextPlayer.uniqueId, charUuid)
-                } else null
+        val contextPlayerUniqueId = contextPlayer.uniqueId
 
-        val baseSession = lastAppliedUid?.let { load(it) }
-        val merged =
-                if (baseSession != null) {
-                    merge(
-                            mannequinSession,
-                            baseSession,
-                            contextPlayer.playerProfile.textures.skinModel == SkinModel.SLIM
-                    )
-                } else {
-                    val defaultSlim =
-                            contextPlayer.playerProfile.textures.skinModel == SkinModel.SLIM
-                    mannequinSession.copy(slimModel = mannequinSession.slimModel ?: defaultSlim)
-                }
+        return CompletableFuture.supplyAsync {
+            val targetDir = ConfigManager.instance.getImageStoragePath().toFile()
+            val mannequinSession = sessionOverride ?: sessionFromMannequin(man)
+            val lastAppliedUid =
+                    if (characterManagerBridge.active) {
+                        appliedSessionRegistry.getLastApplied(contextPlayerUniqueId, charUuid)
+                    } else null
 
-        val slim = merged.slimModel ?: false
-        if (!isValid(merged, slim)) {
-            return CompletableFuture.failedFuture(
-                    IllegalStateException("Merged session is invalid for finalization")
-            )
-        }
+            val baseSession = lastAppliedUid?.let { load(it) }
+            val merged =
+                    if (baseSession != null) {
+                        merge(mannequinSession, baseSession, playerSkinModel == SkinModel.SLIM)
+                    } else {
+                        val defaultSlim = playerSkinModel == SkinModel.SLIM
+                        mannequinSession.copy(slimModel = mannequinSession.slimModel ?: defaultSlim)
+                    }
 
-        val selection = sessionToSelection(merged)
-        val layersDef = layerManager.definitionsInOrder()
-        val sessionImage =
-                SkinComposer.compose(
-                        layersDef,
-                        selection,
-                        slim,
-                        { l, o -> layerManager.optionsFor(l).find { it.id == o } },
-                        { layerManager.texture(it) }
-                )
-
-        val isComplete = isComplete(merged, slim)
-        if (isComplete) {
-            return saveImage(sessionImage, targetDir, "finalized_${merged.uid}").thenApply {
-                FinalizedResult(it, slim)
+            val slim = merged.slimModel ?: false
+            if (!isValid(merged, slim)) {
+                throw IllegalStateException("Merged session is invalid for finalization")
             }
-        }
 
-        val skinUrl =
-                contextPlayer.playerProfile.textures.skin
-                        ?: return CompletableFuture.failedFuture(
-                                IllegalStateException("Context player has no skin URL")
-                        )
+            val selection = sessionToSelection(merged)
+            val layersDef = layerManager.definitionsInOrder()
+            val sessionImage =
+                    SkinComposer.compose(
+                            layersDef,
+                            selection,
+                            slim,
+                            { l, o -> layerManager.optionsFor(l).find { it.id == o } },
+                            { layerManager.texture(it) }
+                    )
 
-        return downloadSkin(skinUrl).thenCompose { downloadedSkin ->
-            // Ensure downloaded skin is ARGB to support transparency
+            val isComplete = isComplete(merged, slim)
+            if (isComplete) {
+                val f = File(targetDir, "finalized_${merged.uid}.png")
+                ImageIO.write(sessionImage, "PNG", f)
+                return@supplyAsync FinalizedResult(f, slim)
+            }
+
+            val skinUrl =
+                    playerSkinUrl ?: throw IllegalStateException("Context player has no skin URL")
+
+            val downloadedSkin =
+                    downloadSkin(skinUrl).join()
+                            ?: throw IllegalStateException("Failed to download skin")
+
             val baseSkin =
                     if (downloadedSkin.type != BufferedImage.TYPE_INT_ARGB) {
                         val converted =
@@ -307,9 +308,9 @@ class SessionManager(
                     } else downloadedSkin
 
             overlayWithPunchThrough(sessionImage, baseSkin)
-            saveImage(baseSkin, targetDir, "finalized_${merged.uid}").thenApply {
-                FinalizedResult(it, slim)
-            }
+            val f = File(targetDir, "finalized_${merged.uid}.png")
+            ImageIO.write(baseSkin, "PNG", f)
+            FinalizedResult(f, slim)
         }
     }
 

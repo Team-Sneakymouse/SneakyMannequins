@@ -13,9 +13,11 @@ import com.sneakymannequins.model.TextureSpec
 import com.sneakymannequins.util.SkinUv
 import java.awt.Color
 import java.awt.image.BufferedImage
+import java.net.URL
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import javax.imageio.ImageIO
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
@@ -558,7 +560,8 @@ class LayerManager(private val plugin: SneakyMannequins) {
             player: Player,
             layerId: String,
             url: URL,
-            name: String? = null
+            name: String? = null,
+            sessionManager: SessionManager
     ): CompletableFuture<String> {
         val entry =
                 loadedLayers[layerId]
@@ -570,7 +573,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
         val targetDir =
                 def.directory.resolve("uploads").resolve(player.uniqueId.toString()).resolve(partId)
 
-        return sessionManager.downloadSkin(url).thenApply { image ->
+        return sessionManager.downloadSkin(url).thenApplyAsync { image ->
             if (image.width != 64 || image.height != 64) {
                 throw Exception("Image must be 64x64")
             }
