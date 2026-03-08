@@ -100,6 +100,10 @@ class LayerManager(private val plugin: SneakyMannequins) {
         }
     }
 
+    fun allOptions(layerId: String): List<LayerOption> {
+        return loadedLayers[layerId]?.second.orEmpty()
+    }
+
     fun findOptionById(layerId: String, optionId: String): LayerOption? {
         return loadedLayers[layerId]?.second?.find { it.id == optionId }
     }
@@ -570,8 +574,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
                         )
         val def = entry.first
         val partId = name?.let { slugify(it) } ?: "upload_${System.currentTimeMillis()}"
-        val targetDir =
-                def.directory.resolve("uploads").resolve(player.uniqueId.toString()).resolve(partId)
+        val targetDir = def.directory.resolve("uploads").resolve(player.uniqueId.toString())
 
         return sessionManager.downloadSkin(url).thenApplyAsync { image ->
             if (image.width != 64 || image.height != 64) {
@@ -583,12 +586,14 @@ class LayerManager(private val plugin: SneakyMannequins) {
 
             preprocessPart(sourcePath)
 
-            // Reload just this part
-            val metadata = loadMetadata(targetDir)
-            val displayName = metadata["displayName"] as? String ?: toDisplayName(partId)
-            val agg = OptionAggregate(partId, displayName, directory = targetDir)
+            val partDir = targetDir.resolve(partId)
 
-            Files.list(targetDir).use { stream ->
+            // Reload just this part
+            val metadata = loadMetadata(partDir)
+            val displayName = metadata["displayName"] as? String ?: toDisplayName(partId)
+            val agg = OptionAggregate(partId, displayName, directory = partDir)
+
+            Files.list(partDir).use { stream ->
                 stream.forEach { path ->
                     val n = path.nameWithoutExtension.lowercase()
                     if (n.endsWith("_slim")) agg.slimPath = path
@@ -598,7 +603,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 }
             }
 
-            val opt = createOptionFromAggregate(agg, def, null, targetDir)
+            val opt = createOptionFromAggregate(agg, def, null, partDir)
             if (opt != null) {
                 val userOpt =
                         opt.copy(

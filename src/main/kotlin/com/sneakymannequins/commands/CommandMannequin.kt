@@ -55,6 +55,10 @@ class CommandMannequin(
                                         ?: stack.sender.sendMessage(
                                                 "You must be a player to use this command"
                                         )
+                        "remaskugc" -> player?.let { handleRemaskUgc(it, args) }
+                                        ?: stack.sender.sendMessage(
+                                                "You must be a player to use this command"
+                                        )
                         "add" -> player?.let { create(it, args) }
                                         ?: stack.sender.sendMessage(
                                                 "You must be a player to use this command"
@@ -86,6 +90,7 @@ class CommandMannequin(
                                 "history" to "View your session history",
                                 "template" to "Manage session templates",
                                 "remask" to "Remask a specific layer part",
+                                "remaskugc" to "Remask a user-uploaded layer part",
                                 "upload" to "Upload a custom skin part from a URL",
                                 "debug" to "Access developer/debug tools"
                         )
@@ -109,6 +114,7 @@ class CommandMannequin(
                                                 "remove",
                                                 "reload",
                                                 "remask",
+                                                "remaskugc",
                                                 "history",
                                                 "template",
                                                 "debug",
@@ -124,7 +130,7 @@ class CommandMannequin(
                                         .toMutableList()
                         2 ->
                                 when (args[0].lowercase()) {
-                                        "remask" ->
+                                        "remask", "remaskugc" ->
                                                 layerManager
                                                         .definitionsInOrder()
                                                         .map { it.id }
@@ -241,6 +247,20 @@ class CommandMannequin(
                                                                         .toMutableList()
                                                         else -> mutableListOf()
                                                 }
+                                        "remaskugc" -> {
+                                                val layerId = args[1].lowercase()
+                                                layerManager
+                                                        .allOptions(layerId)
+                                                        .mapNotNull { it.owner?.toString() }
+                                                        .distinct()
+                                                        .filter {
+                                                                it.startsWith(
+                                                                        args[2],
+                                                                        ignoreCase = true
+                                                                )
+                                                        }
+                                                        .toMutableList()
+                                        }
                                         "upload" -> mutableListOf("<url>")
                                         "template" -> mutableListOf("<template_name>")
                                         else -> mutableListOf()
@@ -256,6 +276,21 @@ class CommandMannequin(
                                                                 )
                                                         }
                                                         .toMutableList()
+                                        "remaskugc" -> {
+                                                val layerId = args[1].lowercase()
+                                                val uuidStr = args[2]
+                                                layerManager
+                                                        .allOptions(layerId)
+                                                        .filter { it.owner?.toString() == uuidStr }
+                                                        .mapNotNull { it.internalKey }
+                                                        .filter {
+                                                                it.startsWith(
+                                                                        args[3],
+                                                                        ignoreCase = true
+                                                                )
+                                                        }
+                                                        .toMutableList()
+                                        }
                                         "template" ->
                                                 (layerManager.definitionsInOrder().map { it.id } +
                                                                 listOf("body_type"))
@@ -297,12 +332,35 @@ class CommandMannequin(
                                                                 )
                                                         }
                                                         .toMutableList()
+                                        "remaskugc" ->
+                                                LayerManager.STRATEGY_NAMES
+                                                        .filter {
+                                                                it.startsWith(
+                                                                        args[4],
+                                                                        ignoreCase = true
+                                                                )
+                                                        }
+                                                        .toMutableList()
                                         "template" ->
                                                 (layerManager.definitionsInOrder().map { it.id } +
                                                                 listOf("body_type"))
                                                         .filter {
                                                                 it.startsWith(
                                                                         args[4],
+                                                                        ignoreCase = true
+                                                                )
+                                                        }
+                                                        .toMutableList()
+                                        else -> mutableListOf()
+                                }
+                        6 ->
+                                when (args[0].lowercase()) {
+                                        "remaskugc" ->
+                                                (1..8)
+                                                        .map { it.toString() }
+                                                        .filter {
+                                                                it.startsWith(
+                                                                        args[5],
                                                                         ignoreCase = true
                                                                 )
                                                         }
@@ -742,6 +800,75 @@ class CommandMannequin(
                                 TextUtility.convertToComponent("&cRemask failed: ${e.message}")
                         )
                         plugin.logger.severe("Remask failed: ${e.message}")
+                        e.printStackTrace()
+                }
+        }
+
+        private fun handleRemaskUgc(sender: Player, args: Array<out String>) {
+                // /mannequin remaskugc <layer> <uuid> <part> [strategy] [channels]
+                if (args.size < 4) {
+                        sender.sendMessage(
+                                TextUtility.convertToComponent(
+                                        "&cUsage: /mannequin remaskugc <layer> <uuid> <part> [${LayerManager.STRATEGY_NAMES.joinToString("|")}] [channels]"
+                                )
+                        )
+                        return
+                }
+                val layerId = args[1].lowercase()
+                val uuidStr = args[2]
+                val internalKey = args[3].lowercase()
+
+                val partId = "$uuidStr:$internalKey"
+                val strategyName = (if (args.size >= 5) args[4] else null)?.uppercase()
+                val strategy =
+                        if (strategyName != null) {
+                                try {
+                                        LayerManager.MaskStrategy.valueOf(strategyName)
+                                } catch (_: Exception) {
+                                        sender.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&cUnknown strategy '$strategyName'. Available: ${LayerManager.STRATEGY_NAMES.joinToString(", ")}"
+                                                )
+                                        )
+                                        return
+                                }
+                        } else null
+
+                val channelsArg: Int? =
+                        if (args.size >= 6) {
+                                val n = args[5].toIntOrNull()
+                                if (n == null || n < 1 || n > 8) {
+                                        sender.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&cChannels must be a number between 1 and 8."
+                                                )
+                                        )
+                                        return
+                                }
+                                n
+                        } else null
+
+                val label = strategy?.name ?: "default"
+                val channelsLabel = channelsArg?.toString() ?: "default"
+                sender.sendMessage(
+                        TextUtility.convertToComponent(
+                                "&7Remasking UGC '$internalKey' (owner $uuidStr) in '$layerId' with $label strategy, $channelsLabel channels..."
+                        )
+                )
+                try {
+                        val result =
+                                layerManager.remask(
+                                        strategy = strategy,
+                                        layerId = layerId,
+                                        partId = partId,
+                                        channels = channelsArg
+                                )
+                        sender.sendMessage(TextUtility.convertToComponent("&a$result"))
+                } catch (e: Exception) {
+                        sender.sendMessage(
+                                TextUtility.convertToComponent("&cRemask UGC failed: ${e.message}")
+                        )
+                        plugin.logger.severe("Remask UGC failed: ${e.message}")
                         e.printStackTrace()
                 }
         }
