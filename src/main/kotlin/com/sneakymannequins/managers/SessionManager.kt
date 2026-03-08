@@ -239,7 +239,10 @@ class SessionManager(
         val targetDir = ConfigManager.instance.getImageStoragePath().toFile()
         val mannequinSession = sessionOverride ?: sessionFromMannequin(man)
         val charUuid = characterManagerBridge.currentCharacter(contextPlayer)?.characterUuid
-        val lastAppliedUid = appliedSessionRegistry.getLastApplied(contextPlayer.uniqueId, charUuid)
+        val lastAppliedUid =
+                if (characterManagerBridge.active) {
+                    appliedSessionRegistry.getLastApplied(contextPlayer.uniqueId, charUuid)
+                } else null
 
         val baseSession = lastAppliedUid?.let { load(it) }
         val merged =
