@@ -5,7 +5,6 @@ import com.google.gson.GsonBuilder
 import com.sneakymannequins.model.LayerSessionData
 import com.sneakymannequins.model.Mannequin
 import com.sneakymannequins.model.SessionData
-import org.bukkit.entity.Player
 import java.awt.image.BufferedImage
 import java.io.File
 import java.security.MessageDigest
@@ -13,6 +12,7 @@ import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ThreadLocalRandom
 import javax.imageio.ImageIO
+import org.bukkit.entity.Player
 
 class SessionManager(private val dataFolder: File) {
 
@@ -31,23 +31,24 @@ class SessionManager(private val dataFolder: File) {
     }
 
     fun save(
-        mannequin: Mannequin,
-        player: Player,
-        renderedImage: BufferedImage? = null,
-        characterUuid: String? = null,
-        characterName: String? = null
+            mannequin: Mannequin,
+            player: Player,
+            renderedImage: BufferedImage? = null,
+            characterUuid: String? = null,
+            characterName: String? = null
     ): String {
         val uid = generateUid()
         val layers = snapshotLayers(mannequin)
-        val session = SessionData(
-            uid = uid,
-            creator = player.uniqueId.toString(),
-            createdAt = Instant.now().toString(),
-            slimModel = mannequin.slimModel,
-            layers = layers,
-            characterUuid = characterUuid,
-            characterName = characterName
-        )
+        val session =
+                SessionData(
+                        uid = uid,
+                        creator = player.uniqueId.toString(),
+                        createdAt = Instant.now().toString(),
+                        slimModel = mannequin.slimModel,
+                        layers = layers,
+                        characterUuid = characterUuid,
+                        characterName = characterName
+                )
         File(sessionsDir, "$uid.json").writeText(gson.toJson(session))
         if (renderedImage != null) {
             runCatching { ImageIO.write(renderedImage, "PNG", File(sessionsDir, "$uid.png")) }
@@ -59,25 +60,28 @@ class SessionManager(private val dataFolder: File) {
         val normalized = id.uppercase().trim()
         val sessionFile = File(sessionsDir, "$normalized.json")
         if (sessionFile.exists()) {
-            return runCatching { gson.fromJson(sessionFile.readText(), SessionData::class.java) }.getOrNull()
+            return runCatching { gson.fromJson(sessionFile.readText(), SessionData::class.java) }
+                    .getOrNull()
         }
         val templateName = id.lowercase().trim()
         val templateFile = File(templatesDir, "$templateName.json")
         if (templateFile.exists()) {
-            return runCatching { gson.fromJson(templateFile.readText(), SessionData::class.java) }.getOrNull()
+            return runCatching { gson.fromJson(templateFile.readText(), SessionData::class.java) }
+                    .getOrNull()
         }
         return null
     }
 
     fun history(playerUuid: UUID): List<SessionData> {
         if (!sessionsDir.exists()) return emptyList()
-        return sessionsDir.listFiles { f -> f.extension == "json" }
-            ?.mapNotNull { f ->
-                runCatching { gson.fromJson(f.readText(), SessionData::class.java) }.getOrNull()
-            }
-            ?.filter { it.creator == playerUuid.toString() }
-            ?.sortedByDescending { it.createdAt }
-            ?: emptyList()
+        return sessionsDir
+                .listFiles { f -> f.extension == "json" }
+                ?.mapNotNull { f ->
+                    runCatching { gson.fromJson(f.readText(), SessionData::class.java) }.getOrNull()
+                }
+                ?.filter { it.creator == playerUuid.toString() }
+                ?.sortedByDescending { it.createdAt }
+                ?: emptyList()
     }
 
     fun latest(playerUuid: UUID): SessionData? = history(playerUuid).firstOrNull()
@@ -88,58 +92,64 @@ class SessionManager(private val dataFolder: File) {
     }
 
     fun fingerprint(session: SessionData): String =
-        fingerprint(session.slimModel, session.layers)
+            fingerprint(session.slimModel ?: false, session.layers)
 
     /**
-     * Create a named template from an existing UID session.
-     * If [layerIds] is non-empty only those layers are included.
-     * Returns a descriptive result string or null on failure.
+     * Create a named template from an existing UID session. If [layerIds] is non-empty only those
+     * layers are included. Returns a descriptive result string or null on failure.
      */
     fun createTemplate(uid: String, name: String, layerIds: List<String>, player: Player): String? {
         val source = load(uid) ?: return "Session '$uid' not found."
-        val filteredLayers = if (layerIds.isNotEmpty()) {
-            source.layers.filterKeys { it in layerIds }
-        } else {
-            source.layers
-        }
-        if (filteredLayers.isEmpty()) return "No matching layers found in session."
+
+        val inheritBodyType = layerIds.any { it.equals("body_type", ignoreCase = true) }
+        val filteredLayerIds = layerIds.filterNot { it.equals("body_type", ignoreCase = true) }
+
+        val filteredLayers =
+                if (filteredLayerIds.isNotEmpty()) {
+                    source.layers.filterKeys { it in filteredLayerIds }
+                } else {
+                    source.layers
+                }
+        if (filteredLayers.isEmpty() && filteredLayerIds.isNotEmpty())
+                return "No matching layers found in session."
 
         val safeName = name.lowercase().trim().replace(Regex("[^a-z0-9_-]"), "_")
         val templateFile = File(templatesDir, "$safeName.json")
         if (templateFile.exists()) {
-            val existing = runCatching {
-                gson.fromJson(templateFile.readText(), SessionData::class.java)
-            }.getOrNull()
+            val existing =
+                    runCatching { gson.fromJson(templateFile.readText(), SessionData::class.java) }
+                            .getOrNull()
             if (existing != null && existing.creator != player.uniqueId.toString()) {
                 return "Template '$safeName' already exists and belongs to another player."
             }
         }
 
-        val template = SessionData(
-            uid = safeName,
-            creator = player.uniqueId.toString(),
-            createdAt = Instant.now().toString(),
-            slimModel = source.slimModel,
-            layers = filteredLayers,
-            characterUuid = source.characterUuid,
-            characterName = source.characterName
-        )
+        val template =
+                SessionData(
+                        uid = safeName,
+                        creator = player.uniqueId.toString(),
+                        createdAt = Instant.now().toString(),
+                        slimModel = if (inheritBodyType) source.slimModel else null,
+                        layers = filteredLayers,
+                        characterUuid = source.characterUuid,
+                        characterName = source.characterName
+                )
         templateFile.writeText(gson.toJson(template))
         return null
     }
 
     fun listSessionUids(): List<String> {
         if (!sessionsDir.exists()) return emptyList()
-        return sessionsDir.listFiles { f -> f.extension == "json" }
-            ?.map { it.nameWithoutExtension }
-            ?: emptyList()
+        return sessionsDir.listFiles { f -> f.extension == "json" }?.map { it.nameWithoutExtension }
+                ?: emptyList()
     }
 
     fun listTemplateNames(): List<String> {
         if (!templatesDir.exists()) return emptyList()
-        return templatesDir.listFiles { f -> f.extension == "json" }
-            ?.map { it.nameWithoutExtension }
-            ?: emptyList()
+        return templatesDir.listFiles { f -> f.extension == "json" }?.map {
+            it.nameWithoutExtension
+        }
+                ?: emptyList()
     }
 
     private fun generateUid(): String {
@@ -187,7 +197,7 @@ class SessionManager(private val dataFolder: File) {
     }
 
     private fun channelKeyComparator(): Comparator<String> =
-        compareBy<String> { it.toIntOrNull() ?: Int.MAX_VALUE }.thenBy { it }
+            compareBy<String> { it.toIntOrNull() ?: Int.MAX_VALUE }.thenBy { it }
 
     private fun sha256(value: String): String {
         val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))

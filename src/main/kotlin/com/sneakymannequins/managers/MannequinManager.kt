@@ -445,14 +445,14 @@ class MannequinManager(
         val mannequin = mannequins[mannequinId] ?: return
         val state = controlState.getOrPut(mannequinId) { ControlState() }
 
-        mannequin.slimModel = session.slimModel
+        session.slimModel?.let { mannequin.slimModel = it }
 
         val definitions = layerManager.definitionsInOrder()
         val defMap = definitions.associateBy { it.id }
         val newSelections = mannequin.selection.selections.toMutableMap()
 
         for ((layerId, layerData) in session.layers) {
-            val def = defMap[layerId] ?: continue
+            if (!defMap.containsKey(layerId)) continue
             val opts = layerManager.optionsFor(layerId)
             val option =
                     if (layerData.option != null) opts.find { it.id == layerData.option } else null
