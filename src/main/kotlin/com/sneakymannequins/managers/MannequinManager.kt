@@ -906,8 +906,16 @@ class MannequinManager(
 
     private fun spawnPlayerHud(player: Player, mannequin: Mannequin, yaw: Float) {
         val buttons = buildHoloButtons(mannequin, player)
-        val frameItem = plugin.config.getString("hud-buttons.frame.item")
-        val frameCmd = plugin.config.getInt("hud-buttons.frame.custom-model-data", 0)
+        val frameEnabled = plugin.config.getBoolean("hud-frame.enabled", false)
+        val frameItem = if (frameEnabled) plugin.config.getString("hud-frame.item") else null
+        val frameCmd = plugin.config.getInt("hud-frame.custom-model-data", 0)
+        val frameCtx = plugin.config.getString("hud-frame.display-context", "GUI") ?: "GUI"
+        val frameTx = plugin.config.getDouble("hud-frame.translation.x", 0.0).toFloat()
+        val frameTy = plugin.config.getDouble("hud-frame.translation.y", 2.1).toFloat()
+        val frameTz = plugin.config.getDouble("hud-frame.translation.z", -1.0).toFloat()
+        val frameSx = plugin.config.getDouble("hud-frame.scale.x", 3.0).toFloat()
+        val frameSy = plugin.config.getDouble("hud-frame.scale.y", 3.0).toFloat()
+        val frameSz = plugin.config.getDouble("hud-frame.scale.z", 3.0).toFloat()
 
         val hud =
                 HoloHUD(
@@ -918,6 +926,13 @@ class MannequinManager(
                         buttons = buttons,
                         frameItem = frameItem,
                         frameCustomModelData = frameCmd,
+                        frameDisplayContext = frameCtx,
+                        frameTx = frameTx,
+                        frameTy = frameTy,
+                        frameTz = frameTz,
+                        frameSx = frameSx,
+                        frameSy = frameSy,
+                        frameSz = frameSz,
                         onClose = { p ->
                             plugin.server.pluginManager.callEvent(
                                     MannequinControlClosedEvent(mannequin.id, mannequin.location, p)
