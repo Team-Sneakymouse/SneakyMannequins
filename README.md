@@ -50,7 +50,10 @@ A rich set of built-in colour palettes: skin tones, hair, eyes, primary, pastel,
 | `/mannequin` | Spawn a mannequin at your feet |
 | `/mannequin remove` | Remove the nearest mannequin |
 | `/mannequin reload` | Reload config and re-render all mannequins |
-| `/mannequin remask <HSB\|HUE\|RGB> <layer> <part>` | Re-run colour-channel masking for a specific part |
+| `/mannequin template <uid> <name> [layer...]` | Create a named template from a player's current outfit |
+| `/mannequin upload <layer> <url> [name]` | Upload a custom skin part PNG for your exclusive use |
+| `/mannequin remask <HSB\|HUE\|RGB> <layer> <part>` | Re-run colour-channel masking for a global part |
+| `/mannequin remaskugc <layer> <uuid> <part> [strateg] [chan]` | Re-run colour-channel masking for an uploaded part |
 
 Permission node: `sneakymannequins.command.mannequin`
 
