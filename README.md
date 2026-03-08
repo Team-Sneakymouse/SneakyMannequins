@@ -74,6 +74,7 @@ Place 64×64 RGBA PNGs in `plugins/SneakyMannequins/layers/<Layer>/`. On load, t
 
 This module is part of the [HoloUX Workspace](../) and depends on the `:SneakyHolos` library.
 
+- **Online Features:** See [README-Docker.md](./README-Docker.md) for webserver setup (required for MineSkin/Online skin previews).
 - **Build Library + Plugin:** `./gradlew build` (from workspace root)
 - **Run Test Server:** `./gradlew runServer` (from workspace root)
 - **Standalone Build:** `./gradlew build` (from this directory)
@@ -94,10 +95,3 @@ SneakyMannequins (plugin submodule)
 ```
 
 Highly visual and interactive logic is delegated to the **SneakyHolos** library.
-
-## Known Limitations
-
-- Per-pixel text displays are network-heavy; batching and LOD optimisation may be added later.
-- Only Paper 1.21.4 has a concrete NMS handler; other versions are non-functional.
-- The **Random** button is a placeholder with no behaviour yet.
-- Pose toggling is tracked but not yet visually applied to the mannequin model.
