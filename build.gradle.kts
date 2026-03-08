@@ -3,7 +3,7 @@ plugins {
 }
 
 dependencies {
-    implementation(project(":HoloUI"))
+    implementation(project(":SneakyHolos"))
     compileOnly("io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT")
     compileOnly(files("../run/versions/1.21.4/paper-1.21.4.jar"))
     compileOnly("io.netty:netty-all:4.1.112.Final")

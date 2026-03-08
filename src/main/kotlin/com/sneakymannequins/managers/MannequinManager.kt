@@ -21,9 +21,9 @@ import com.sneakymannequins.render.PixelProjector
 import com.sneakymannequins.render.RenderMode
 import com.sneakymannequins.render.RenderSettings
 import com.sneakymannequins.util.SkinComposer
-import com.sneakymouse.holoui.*
-import com.sneakymouse.holoui.util.HoloGridBuilder
-import com.sneakymouse.holoui.util.TextUtility
+import com.sneakymouse.sneakyholos.*
+import com.sneakymouse.sneakyholos.util.HoloGridBuilder
+import com.sneakymouse.sneakyholos.util.TextUtility
 import java.util.UUID
 import kotlin.math.sqrt
 import net.kyori.adventure.text.Component
@@ -800,7 +800,7 @@ class MannequinManager(
 
     private fun registerTrigger(mannequin: Mannequin) {
         val trigger =
-                com.sneakymouse.holoui.HoloTrigger(
+                com.sneakymouse.sneakyholos.HoloTrigger(
                         id = "mannequin:${mannequin.id}",
                         location = mannequin.location,
                         radius = interactRadius.toFloat(),
@@ -1383,7 +1383,7 @@ class MannequinManager(
         return "Part: $prettyPart"
     }
 
-    // ── Grid & Submenu Management (HoloUI compatible) ──────────────────────────
+    // ── Grid & Submenu Management (SneakyHolos compatible) ──────────────────────────
 
     /** Spawns the color picker grid for a player. */
     private fun spawnColorGrid(

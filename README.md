@@ -1,6 +1,6 @@
 # SneakyMannequins
 
-A Paper 1.21.4 plugin that renders fully interactive mannequin previews built from per-pixel text displays. Players can walk up to a mannequin, browse a holographic HUD, and customise a live 3D skin preview assembled on the server from configurable layers. This plugin utilizes the [HoloUI](../HoloUI) library for high-performance interaction and UI management.
+A Paper 1.21.4 plugin that renders fully interactive mannequin previews built from per-pixel text displays. Players can walk up to a mannequin, browse a holographic HUD, and customise a live 3D skin preview assembled on the server from configurable layers. This plugin utilizes the [SneakyHolos](../SneakyHolos) library for high-performance interaction and UI management.
 
 ## Features
 
@@ -18,8 +18,8 @@ When a layer PNG is loaded, the plugin analyses its pixels and splits them into 
 
 Each channel can be tinted independently from a named colour palette. Tinting preserves the original luminance and colour variance of the artwork, so shading detail is maintained.
 
-### Holographic HUD (via HoloUI)
-When a player approaches a mannequin, a virtual control panel spawns as packet-only `TextDisplay` entities. This HUD is managed by the **HoloUI** library, which provides zero-raycast click detection via virtual per-player `Interaction` entities.
+### Holographic HUD (via SneakyHolos)
+When a player approaches a mannequin, a virtual control panel spawns as packet-only `TextDisplay` entities. This HUD is managed by the **SneakyHolos** library, which provides zero-raycast click detection via virtual per-player `Interaction` entities.
 
 **Buttons:**
 
@@ -72,7 +72,7 @@ Place 64×64 RGBA PNGs in `plugins/SneakyMannequins/layers/<Layer>/`. On load, t
 
 ## Development
 
-This module is part of the [HoloUX Workspace](../) and depends on the `:HoloUI` library.
+This module is part of the [HoloUX Workspace](../) and depends on the `:SneakyHolos` library.
 
 - **Build Library + Plugin:** `./gradlew build` (from workspace root)
 - **Run Test Server:** `./gradlew runServer` (from workspace root)
@@ -93,7 +93,7 @@ SneakyMannequins (plugin submodule)
 └── util/             SkinComposer, TextUtility, …
 ```
 
-Highly visual and interactive logic is delegated to the **HoloUI** library.
+Highly visual and interactive logic is delegated to the **SneakyHolos** library.
 
 ## Known Limitations
 
