@@ -308,6 +308,7 @@ class SessionManager(
                     } else downloadedSkin
 
             overlayWithPunchThrough(sessionImage, baseSkin)
+            targetDir.mkdirs()
             val f = File(targetDir, "finalized_${merged.uid}.png")
             ImageIO.write(baseSkin, "PNG", f)
             FinalizedResult(f, slim)
