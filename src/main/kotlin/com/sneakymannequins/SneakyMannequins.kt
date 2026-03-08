@@ -45,7 +45,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
     private lateinit var mannequinManager: MannequinManager
     private lateinit var persistence: MannequinPersistence
     private lateinit var sessionManager: SessionManager
-    private lateinit var characterManagerBridge: CharacterManagerBridge
+    lateinit var characterManagerBridge: CharacterManagerBridge
     private lateinit var appliedSessionRegistry: AppliedSessionRegistry
     lateinit var holoController: HoloController
         private set
@@ -60,13 +60,19 @@ class SneakyMannequins : JavaPlugin(), Listener {
         handler = VolatileHandlerRegistry.resolve(this)
         layerManager = LayerManager(this).also { it.reload() }
         persistence = MannequinPersistence(this)
-        sessionManager = SessionManager(dataFolder, layerManager)
         characterManagerBridge = CharacterManagerBridgeFactory.create(this)
         appliedSessionRegistry =
                 AppliedSessionRegistry(
                         dataFolder = dataFolder,
                         logger = logger,
                         characterScopedMode = { characterManagerBridge.active }
+                )
+        sessionManager =
+                SessionManager(
+                        dataFolder,
+                        layerManager,
+                        characterManagerBridge,
+                        appliedSessionRegistry
                 )
         holoController = HoloController(this, HoloHandler1214()).also { it.start() }
         mannequinManager =

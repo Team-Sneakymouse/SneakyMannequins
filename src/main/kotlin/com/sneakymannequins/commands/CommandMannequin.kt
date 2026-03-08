@@ -1,11 +1,13 @@
 package com.sneakymannequins.commands
 
 import com.sneakymannequins.SneakyMannequins
+import com.sneakymannequins.managers.ConfigManager
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymannequins.managers.MannequinManager
 import com.sneakymannequins.managers.SessionManager
 import com.sneakymouse.sneakyholos.util.TextUtility
 import io.papermc.paper.command.brigadier.CommandSourceStack
+import java.io.File
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.event.ClickEvent
 import net.kyori.adventure.text.event.HoverEvent
@@ -31,20 +33,8 @@ class CommandMannequin(
                                 handleReload(stack.sender)
                                 return
                         }
-                        "remask" -> {
-                                handleRemask(stack.sender, args)
-                                return
-                        }
                         "history" -> {
                                 handleHistory(stack, args)
-                                return
-                        }
-                        "template" -> {
-                                handleTemplate(stack, args)
-                                return
-                        }
-                        "merge" -> {
-                                handleMerge(stack, args)
                                 return
                         }
                 }
@@ -59,6 +49,13 @@ class CommandMannequin(
                                 }
                 when (args.firstOrNull()?.lowercase()) {
                         "remove" -> removeNearest(player)
+                        "template" -> handleTemplate(stack, args)
+                        "apply" -> handleApply(player, args)
+                        "info" -> handleInfo(player)
+                        "debug" -> handleDebug(stack, args)
+                        "remask" -> handleRemask(player, args)
+                        "save" -> handleSave(player, args)
+                        "delete" -> handleDelete(player, args)
                         else -> create(player)
                 }
         }
@@ -68,9 +65,32 @@ class CommandMannequin(
                 args: Array<out String>
         ): MutableList<String> {
                 return when (args.size) {
-                        0 -> mutableListOf("remove", "reload", "remask", "history", "template")
+                        0 ->
+                                mutableListOf(
+                                        "remove",
+                                        "reload",
+                                        "remask",
+                                        "history",
+                                        "template",
+                                        "apply",
+                                        "info",
+                                        "debug",
+                                        "save",
+                                        "delete"
+                                )
                         1 ->
-                                listOf("remove", "reload", "remask", "history", "template", "merge")
+                                listOf(
+                                                "remove",
+                                                "reload",
+                                                "remask",
+                                                "history",
+                                                "template",
+                                                "apply",
+                                                "info",
+                                                "debug",
+                                                "save",
+                                                "delete"
+                                        )
                                         .filter { it.startsWith(args[0], ignoreCase = true) }
                                         .toMutableList()
                         2 ->
@@ -86,9 +106,18 @@ class CommandMannequin(
                                                                 )
                                                         }
                                                         .toMutableList()
-                                        "template", "merge" ->
-                                                sessionManager
-                                                        .listSessionUids()
+                                        "template", "apply", "save", "delete" ->
+                                                (sessionManager.listTemplateNames() +
+                                                                sessionManager.listSessionUids())
+                                                        .filter {
+                                                                it.startsWith(
+                                                                        args[1],
+                                                                        ignoreCase = true
+                                                                )
+                                                        }
+                                                        .toMutableList()
+                                        "debug" ->
+                                                listOf("merge", "finalize")
                                                         .filter {
                                                                 it.startsWith(
                                                                         args[1],
@@ -119,16 +148,23 @@ class CommandMannequin(
                                                         }
                                                         .toMutableList()
                                         }
-                                        "template" ->
-                                                sessionManager
-                                                        .listTemplateNames()
-                                                        .filter {
-                                                                it.startsWith(
-                                                                        args[2],
-                                                                        ignoreCase = true
-                                                                )
-                                                        }
-                                                        .toMutableList()
+                                        "debug" ->
+                                                when (args[1].lowercase()) {
+                                                        "merge" ->
+                                                                (sessionManager
+                                                                                .listTemplateNames() +
+                                                                                sessionManager
+                                                                                        .listSessionUids())
+                                                                        .filter {
+                                                                                it.startsWith(
+                                                                                        args[2],
+                                                                                        ignoreCase =
+                                                                                                true
+                                                                                )
+                                                                        }
+                                                                        .toMutableList()
+                                                        else -> mutableListOf()
+                                                }
                                         else -> mutableListOf()
                                 }
                         4 ->
@@ -244,7 +280,177 @@ class CommandMannequin(
                 }
         }
 
-        private fun handleRemask(sender: CommandSender, args: Array<out String>) {
+        private fun handleDebug(stack: CommandSourceStack, args: Array<out String>): Boolean {
+                if (args.size < 2) return false
+                val player = stack.sender as? Player ?: return false
+                return when (args[1].lowercase()) {
+                        "merge" -> {
+                                handleMerge(stack, args.drop(1).toTypedArray())
+                                true
+                        }
+                        "finalize" -> {
+                                handleFinalize(player, args)
+                                true
+                        }
+                        else -> false
+                }
+        }
+
+        private fun handleApply(player: Player, args: Array<out String>) {
+                if (args.size < 2) {
+                        player.sendMessage(
+                                TextUtility.convertToComponent(
+                                        "&cUsage: /mannequin apply <uid/template>"
+                                )
+                        )
+                        return
+                }
+                val target = args[1]
+                val session =
+                        sessionManager.load(target)
+                                ?: run {
+                                        player.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&cSession or template '$target' not found."
+                                                )
+                                        )
+                                        return
+                                }
+                val man =
+                        mannequinManager.nearestMannequin(player.location)
+                                ?: run {
+                                        player.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&cNo mannequin nearby."
+                                                )
+                                        )
+                                        return
+                                }
+                mannequinManager.applySession(man.id, session, player)
+                player.sendMessage(
+                        TextUtility.convertToComponent("&aApplied '$target' to mannequin ${man.id}")
+                )
+        }
+
+        private fun handleInfo(player: Player) {
+                val man =
+                        mannequinManager.nearestMannequin(player.location)
+                                ?: run {
+                                        player.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&cNo mannequin nearby."
+                                                )
+                                        )
+                                        return
+                                }
+                player.sendMessage(
+                        TextUtility.convertToComponent("&6&lMannequin Info &7(${man.id})")
+                )
+                player.sendMessage(
+                        TextUtility.convertToComponent(
+                                "&eBody Type: &f${if (man.slimModel) "Slim" else "Classic"}"
+                        )
+                )
+                player.sendMessage(
+                        TextUtility.convertToComponent(
+                                "&eLayers: &f${man.selection.selections.size}"
+                        )
+                )
+        }
+
+        private fun handleSave(player: Player, args: Array<out String>) {
+                val man =
+                        mannequinManager.nearestMannequin(player.location, 5.0)
+                                ?: run {
+                                        player.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&cNo mannequin nearby."
+                                                )
+                                        )
+                                        return
+                                }
+
+                val charContext = plugin.characterManagerBridge.currentCharacter(player)
+                val uid =
+                        sessionManager.save(
+                                man,
+                                player,
+                                characterUuid = charContext?.characterUuid,
+                                characterName = charContext?.characterName
+                        )
+                player.sendMessage(
+                        TextUtility.convertToComponent("&aMannequin state saved with UID: &e$uid")
+                )
+        }
+
+        private fun handleDelete(player: Player, args: Array<out String>) {
+                if (args.size < 2) {
+                        player.sendMessage(
+                                TextUtility.convertToComponent("&cUsage: /mannequin delete <uid>")
+                        )
+                        return
+                }
+                val uid = args[1]
+                val file = File(File(plugin.dataFolder, "sessions"), "$uid.json")
+                if (file.exists()) {
+                        file.delete()
+                        player.sendMessage(
+                                TextUtility.convertToComponent("&aSession '$uid' deleted.")
+                        )
+                } else {
+                        player.sendMessage(
+                                TextUtility.convertToComponent("&cSession '$uid' not found.")
+                        )
+                }
+        }
+
+        private fun handleFinalize(player: Player, args: Array<out String>) {
+                val sessionInput = if (args.size >= 3) args[2] else "nearest"
+                val session =
+                        sessionManager.resolveSession(sessionInput, player, mannequinManager)
+                                ?: run {
+                                        player.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&cCould not resolve session from '$sessionInput'."
+                                                )
+                                        )
+                                        return
+                                }
+
+                val man =
+                        mannequinManager.nearestMannequin(player.location, 5.0)
+                                ?: run {
+                                        player.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&cNo mannequin nearby for location context."
+                                                )
+                                        )
+                                        return
+                                }
+
+                val targetDir = ConfigManager.instance.getImageStoragePath().toFile()
+                player.sendMessage(TextUtility.convertToComponent("&eFinalizing session..."))
+
+                sessionManager
+                        .finalizeSession(player, man, targetDir, session)
+                        .thenAccept { file ->
+                                player.sendMessage(
+                                        TextUtility.convertToComponent(
+                                                "&aSession finalized and exported to &7${file.name}&a."
+                                        )
+                                )
+                        }
+                        .exceptionally { ex ->
+                                player.sendMessage(
+                                        TextUtility.convertToComponent(
+                                                "&cFinalization failed: ${ex.message}"
+                                        )
+                                )
+                                null
+                        }
+        }
+
+        private fun handleRemask(sender: Player, args: Array<out String>) {
                 // /mannequin remask <layer> <part> [strategy] [channels]
                 if (args.size < 3) {
                         sender.sendMessage(
@@ -449,54 +655,62 @@ class CommandMannequin(
         }
 
         private fun handleMerge(stack: CommandSourceStack, args: Array<out String>) {
-                val player =
-                        stack.sender as? Player
-                                ?: run {
-                                        stack.sender.sendMessage(
-                                                "You must be a player to use this command"
-                                        )
-                                        return
-                                }
-                if (args.size < 2) {
+                val player = stack.sender as? Player ?: return
+                // args: [debug, merge, source, target]
+                if (args.size < 4) {
                         player.sendMessage(
                                 TextUtility.convertToComponent(
-                                        "&cUsage: /mannequin merge <uid/template>"
+                                        "&cUsage: /mannequin debug merge <source> <target/null>"
                                 )
                         )
                         return
                 }
 
-                val man =
-                        mannequinManager.nearestMannequin(player.location)
+                val sourceSession =
+                        sessionManager.resolveSession(args[2], player, mannequinManager)
                                 ?: run {
                                         player.sendMessage(
                                                 TextUtility.convertToComponent(
-                                                        "&cNo mannequin nearby."
+                                                        "&cSource session '${args[2]}' not found."
                                                 )
                                         )
                                         return
                                 }
 
-                val session1 =
-                        sessionManager.load(args[1])
+                val targetSession =
+                        sessionManager.resolveSession(args[3], player, mannequinManager)
                                 ?: run {
                                         player.sendMessage(
                                                 TextUtility.convertToComponent(
-                                                        "&cSession or template '${args[1]}' not found."
+                                                        "&cTarget session '${args[3]}' not found."
                                                 )
                                         )
                                         return
                                 }
 
-                val session2 = sessionManager.sessionFromMannequin(man)
                 val defaultSlim = player.playerProfile.textures.skinModel == SkinModel.SLIM
+                val merged = sessionManager.merge(sourceSession, targetSession, defaultSlim)
 
-                val merged = sessionManager.merge(session1, session2, defaultSlim)
-                mannequinManager.applySession(man.id, merged, player)
+                // Save for debug purposes
+                val uid =
+                        sessionManager.save(
+                                mannequin = mannequinManager.nearestMannequin(player.location)
+                                                ?: return,
+                                player = player
+                        )
+                // Overwrite the saved JSON with our merged session but keep the UID
+                val savedFile = File(File(plugin.dataFolder, "sessions"), "$uid.json")
+                val finalMerged = merged.copy(uid = uid)
+                savedFile.writeText(
+                        com.google.gson.GsonBuilder()
+                                .setPrettyPrinting()
+                                .create()
+                                .toJson(finalMerged)
+                )
 
                 player.sendMessage(
                         TextUtility.convertToComponent(
-                                "&aMerged &7'${args[1]}'&a onto mannequin &7${man.id}&a."
+                                "&aMerged &7'${args[2]}'&a onto &7'${args[3]}'&a. Result saved as: &e$uid"
                         )
                 )
         }

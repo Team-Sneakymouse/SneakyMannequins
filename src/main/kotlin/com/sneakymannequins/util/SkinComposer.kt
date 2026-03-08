@@ -1,35 +1,38 @@
 package com.sneakymannequins.util
 
+import com.sneakymannequins.model.LayerDefinition
 import com.sneakymannequins.model.LayerOption
 import com.sneakymannequins.model.SkinSelection
-import com.sneakymannequins.model.LayerDefinition
 import com.sneakymannequins.model.TextureDefinition
 import java.awt.Color
 import java.awt.image.BufferedImage
 
 private const val SKIN_SIZE = 64
 
-/**
- * Combines selected layers into a final 64x64 ARGB skin image.
- */
+/** Combines selected layers into a final 64x64 ARGB skin image. */
 object SkinComposer {
 
     /**
-     * @param optionResolver  optional function that resolves the current (fresh)
+     * @param optionResolver optional function that resolves the current (fresh)
+     * ```
      *        [LayerOption] for a given layer ID and selection option ID. If
      *        provided, mask paths are read from the resolved option instead of
      *        the potentially stale one stored in the selection.
-     * @param textureResolver  optional function that resolves the selected
+     * @param textureResolver
+     * ```
+     * optional function that resolves the selected
+     * ```
      *        [TextureDefinition] for a given layer ID.  Returns null when the
      *        layer uses "Default" (flat colour, no texture).
+     * ```
      */
     fun compose(
-        layers: List<LayerDefinition>,
-        selection: SkinSelection,
-        useSlimModel: Boolean,
-        optionResolver: ((layerId: String, optionId: String) -> LayerOption?)? = null,
-        textureResolver: ((layerId: String) -> TextureDefinition?)? = null,
-        brightnessInfluenceResolver: ((layerId: String, option: LayerOption) -> Float)? = null
+            layers: List<LayerDefinition>,
+            selection: SkinSelection,
+            useSlimModel: Boolean,
+            optionResolver: ((layerId: String, optionId: String) -> LayerOption?)? = null,
+            textureResolver: ((layerId: String) -> TextureDefinition?)? = null,
+            brightnessInfluenceResolver: ((layerId: String, option: LayerOption) -> Float)? = null
     ): BufferedImage {
         val output = BufferedImage(SKIN_SIZE, SKIN_SIZE, BufferedImage.TYPE_INT_ARGB)
         val graphics = output.createGraphics()
@@ -39,17 +42,20 @@ object SkinComposer {
             val selOption = sel.option ?: return@forEach
             // Resolve fresh option (with up-to-date masks) if a resolver is provided
             val chosen = optionResolver?.invoke(layer.id, selOption.id) ?: selOption
-            val sourceImage = when {
-                useSlimModel && chosen.imageSlim != null -> chosen.imageSlim
-                else -> chosen.imageDefault ?: chosen.imageSlim
-            } ?: return@forEach
+            val sourceImage =
+                    when {
+                        useSlimModel && chosen.imageSlim != null -> chosen.imageSlim
+                        else -> chosen.imageDefault ?: chosen.imageSlim
+                    }
+                            ?: return@forEach
 
             // Apply each channel's color independently, then composite.
             // Skip channels whose mask file is missing — tinting without a
             // mask would recolour every pixel instead of just the channel.
             var source = sourceImage
             if (layer.allowColorMask) {
-                val brightnessInfluence = brightnessInfluenceResolver?.invoke(layer.id, chosen) ?: 0f
+                val brightnessInfluence =
+                        brightnessInfluenceResolver?.invoke(layer.id, chosen) ?: 0f
                 // Resolve the active texture for this layer (null = "Default" / flat)
                 val texDef = textureResolver?.invoke(layer.id)
 
@@ -58,10 +64,18 @@ object SkinComposer {
                 val texturedChannels = sel.texturedColors
 
                 // Load all mask images upfront so we can identify unmasked pixels later
-                val maskImages = chosen.masks.mapNotNull { (idx, path) ->
-                    val img = try { javax.imageio.ImageIO.read(path.toFile()) } catch (_: Exception) { null }
-                    if (img != null) idx to img else null
-                }.toMap()
+                val maskImages =
+                        chosen.masks
+                                .mapNotNull { (idx, path) ->
+                                    val img =
+                                            try {
+                                                javax.imageio.ImageIO.read(path.toFile())
+                                            } catch (_: Exception) {
+                                                null
+                                            }
+                                    if (img != null) idx to img else null
+                                }
+                                .toMap()
 
                 val allChannels = (flatChannels.keys + texturedChannels.keys).sorted()
                 for (channelIdx in allChannels) {
@@ -71,7 +85,14 @@ object SkinComposer {
                     val subColors = texturedChannels[channelIdx]
 
                     if (blendImage != null && subColors != null && subColors.isNotEmpty()) {
-                        source = applyTexturedColorMask(source, subColors, maskImage, blendImage, brightnessInfluence)
+                        source =
+                                applyTexturedColorMask(
+                                        source,
+                                        subColors,
+                                        maskImage,
+                                        blendImage,
+                                        brightnessInfluence
+                                )
                         continue
                     }
 
@@ -100,7 +121,10 @@ object SkinComposer {
     private fun forceInnerLayerOpaque(image: BufferedImage) {
         SkinUv.forEachInnerBasePixel { x, y ->
             val argb = image.getRGB(x, y)
-            image.setRGB(x, y, (0xFF shl 24) or (argb and 0x00FFFFFF))
+            val alpha = (argb ushr 24) and 0xFF
+            if (alpha > 0) {
+                image.setRGB(x, y, (0xFF shl 24) or (argb and 0x00FFFFFF))
+            }
         }
     }
 
@@ -115,10 +139,13 @@ object SkinComposer {
 
     // ── Flat colour masking (no texture) ────────────────────────────────────────
 
-    /**
-     * Tint the image using relative HSB remapping (flat colour, no texture).
-     */
-    private fun applyColorMask(image: BufferedImage, mask: Color, channelMask: BufferedImage?, brightnessInfluence: Float = 0f): BufferedImage {
+    /** Tint the image using relative HSB remapping (flat colour, no texture). */
+    private fun applyColorMask(
+            image: BufferedImage,
+            mask: Color,
+            channelMask: BufferedImage?,
+            brightnessInfluence: Float = 0f
+    ): BufferedImage {
         val tinted = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
         val maskHsb = Color.RGBtoHSB(mask.red, mask.green, mask.blue, null)
         val targetHue = maskHsb[0]
@@ -136,9 +163,10 @@ object SkinComposer {
             for (y in 0 until image.height) {
                 val argb = image.getRGB(x, y)
                 if ((argb ushr 24 and 0xFF) == 0) continue
-                val inMask = if (channelMask != null) {
-                    (channelMask.getRGB(x, y) ushr 24 and 0xFF) > 0
-                } else true
+                val inMask =
+                        if (channelMask != null) {
+                            (channelMask.getRGB(x, y) ushr 24 and 0xFF) > 0
+                        } else true
                 if (!inMask) continue
 
                 val r = argb shr 16 and 0xFF
@@ -173,9 +201,10 @@ object SkinComposer {
                     continue
                 }
 
-                val inMask = if (channelMask != null) {
-                    (channelMask.getRGB(x, y) ushr 24 and 0xFF) > 0
-                } else true
+                val inMask =
+                        if (channelMask != null) {
+                            (channelMask.getRGB(x, y) ushr 24 and 0xFF) > 0
+                        } else true
 
                 if (!inMask) {
                     tinted.setRGB(x, y, argb)
@@ -189,7 +218,8 @@ object SkinComposer {
 
                 val newHue = (hsb[0] + hueDelta + 1f) % 1f
                 val newSat = (hsb[1] * satScale).coerceIn(0f, 1f)
-                val newBri = (hsb[2] * (1f + brightnessInfluence * (briScale - 1f))).coerceIn(0f, 1f)
+                val newBri =
+                        (hsb[2] * (1f + brightnessInfluence * (briScale - 1f))).coerceIn(0f, 1f)
                 val newRgb = Color.HSBtoRGB(newHue, newSat, newBri)
                 tinted.setRGB(x, y, (alpha shl 24) or (newRgb and 0x00FFFFFF))
             }
@@ -201,22 +231,25 @@ object SkinComposer {
     // ── AO/roughness pass (all pixels) ─────────────────────────────────────────
 
     /**
-     * Apply AO, roughness, and alpha maps to every non-transparent pixel in the image.
-     * This is called as a final pass AFTER per-channel colour tinting, so it
-     * modulates both tinted and untinted pixels uniformly.
+     * Apply AO, roughness, and alpha maps to every non-transparent pixel in the image. This is
+     * called as a final pass AFTER per-channel colour tinting, so it modulates both tinted and
+     * untinted pixels uniformly.
      */
     private fun applyMaps(
-        image: BufferedImage,
-        aoMap: BufferedImage?,
-        roughnessMap: BufferedImage?,
-        alphaMap: BufferedImage? = null
+            image: BufferedImage,
+            aoMap: BufferedImage?,
+            roughnessMap: BufferedImage?,
+            alphaMap: BufferedImage? = null
     ): BufferedImage {
         val out = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
         for (x in 0 until image.width) {
             for (y in 0 until image.height) {
                 val argb = image.getRGB(x, y)
                 val alpha = argb ushr 24 and 0xFF
-                if (alpha == 0) { out.setRGB(x, y, 0); continue }
+                if (alpha == 0) {
+                    out.setRGB(x, y, 0)
+                    continue
+                }
 
                 val r = argb shr 16 and 0xFF
                 val g = argb shr 8 and 0xFF
@@ -233,9 +266,10 @@ object SkinComposer {
                     newSat = (newSat * sampleMultiplier(roughnessMap, x, y)).coerceIn(0f, 1f)
                 }
 
-                val newAlpha = if (alphaMap != null) {
-                    (alpha * sampleMultiplier(alphaMap, x, y)).toInt().coerceIn(0, 255)
-                } else alpha
+                val newAlpha =
+                        if (alphaMap != null) {
+                            (alpha * sampleMultiplier(alphaMap, x, y)).toInt().coerceIn(0, 255)
+                        } else alpha
 
                 val newRgb = Color.HSBtoRGB(hsb[0], newSat, newBri)
                 out.setRGB(x, y, (newAlpha shl 24) or (newRgb and 0x00FFFFFF))
@@ -247,23 +281,24 @@ object SkinComposer {
     // ── Textured colour masking ──────────────────────────────────────────────────
 
     /**
-     * Tint the image using a **blend map** for per-pixel sub-channel mixing
-     * and optional **AO / roughness maps** for brightness/saturation modulation.
+     * Tint the image using a **blend map** for per-pixel sub-channel mixing and optional **AO /
+     * roughness maps** for brightness/saturation modulation.
      */
     private fun applyTexturedColorMask(
-        image: BufferedImage,
-        subColors: Map<Int, Color>,
-        channelMask: BufferedImage,
-        blendMap: BufferedImage,
-        brightnessInfluence: Float = 0f
+            image: BufferedImage,
+            subColors: Map<Int, Color>,
+            channelMask: BufferedImage,
+            blendMap: BufferedImage,
+            brightnessInfluence: Float = 0f
     ): BufferedImage {
         val tinted = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
 
         data class SubHSB(val hue: Float, val sat: Float, val bri: Float)
-        val subHsb = subColors.mapValues { (_, c) ->
-            val hsb = Color.RGBtoHSB(c.red, c.green, c.blue, null)
-            SubHSB(hsb[0], hsb[1], hsb[2])
-        }
+        val subHsb =
+                subColors.mapValues { (_, c) ->
+                    val hsb = Color.RGBtoHSB(c.red, c.green, c.blue, null)
+                    SubHSB(hsb[0], hsb[1], hsb[2])
+                }
 
         // ── First pass: compute average H, S and B of masked pixels in original art ──
         var sinSum = 0.0
@@ -313,10 +348,11 @@ object SkinComposer {
                 }
 
                 // Read blend weights from blend map
-                val blendArgb = blendMap.getRGB(
-                    x.coerceIn(0, blendMap.width - 1),
-                    y.coerceIn(0, blendMap.height - 1)
-                )
+                val blendArgb =
+                        blendMap.getRGB(
+                                x.coerceIn(0, blendMap.width - 1),
+                                y.coerceIn(0, blendMap.height - 1)
+                        )
                 val wR = (blendArgb shr 16 and 0xFF).toFloat()
                 val wG = (blendArgb shr 8 and 0xFF).toFloat()
                 val wB = (blendArgb and 0xFF).toFloat()
@@ -330,7 +366,10 @@ object SkinComposer {
                 val perPixelBri: Float
                 if (totalW < 1f) {
                     val fallback = subHsb.values.firstOrNull()
-                    if (fallback == null) { tinted.setRGB(x, y, argb); continue }
+                    if (fallback == null) {
+                        tinted.setRGB(x, y, argb)
+                        continue
+                    }
                     perPixelHue = fallback.hue
                     perPixelSat = fallback.sat
                     perPixelBri = fallback.bri
@@ -371,7 +410,8 @@ object SkinComposer {
 
                 val newHue = (hsb[0] + hueDelta + 1f) % 1f
                 val newSat = (hsb[1] * satScale).coerceIn(0f, 1f)
-                val newBri = (hsb[2] * (1f + brightnessInfluence * (briScale - 1f))).coerceIn(0f, 1f)
+                val newBri =
+                        (hsb[2] * (1f + brightnessInfluence * (briScale - 1f))).coerceIn(0f, 1f)
 
                 val newRgb = Color.HSBtoRGB(newHue, newSat, newBri)
                 tinted.setRGB(x, y, (alpha shl 24) or (newRgb and 0x00FFFFFF))

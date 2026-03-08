@@ -2,21 +2,44 @@ package com.sneakymannequins.managers
 
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
+import com.sneakymannequins.integrations.CharacterManagerBridge
+import com.sneakymannequins.model.LayerSelection
 import com.sneakymannequins.model.LayerSessionData
 import com.sneakymannequins.model.Mannequin
 import com.sneakymannequins.model.SessionData
+import com.sneakymannequins.model.SkinSelection
+import com.sneakymannequins.util.SkinComposer
 import com.sneakymannequins.util.SkinUv
+import java.awt.Color
 import java.awt.image.BufferedImage
 import java.io.File
+import java.net.URL
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.BitSet
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ThreadLocalRandom
 import javax.imageio.ImageIO
 import org.bukkit.entity.Player
+import org.bukkit.profile.PlayerTextures.SkinModel
 
-class SessionManager(private val dataFolder: File, private val layerManager: LayerManager) {
+class SessionManager(
+        private val dataFolder: File,
+        private val layerManager: LayerManager,
+        private val characterManagerBridge: CharacterManagerBridge,
+        private val appliedSessionRegistry: AppliedSessionRegistry
+) {
+    private fun hexToColor(hex: String?): Color? {
+        if (hex == null) return null
+        return try {
+            val normalized = if (hex.startsWith("#")) hex.substring(1) else hex
+            val argb = normalized.toLong(16).toInt()
+            Color(argb, normalized.length > 6)
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     private val sessionsDir = File(dataFolder, "sessions")
     private val templatesDir = File(dataFolder, "templates")
@@ -205,6 +228,170 @@ class SessionManager(private val dataFolder: File, private val layerManager: Lay
         return allCovered
     }
 
+    fun finalizeSession(
+            player: Player,
+            man: Mannequin,
+            targetDir: File,
+            sessionOverride: SessionData? = null
+    ): CompletableFuture<File> {
+        val mannequinSession = sessionOverride ?: sessionFromMannequin(man)
+        val charUuid = characterManagerBridge.currentCharacter(player)?.characterUuid
+        val lastAppliedUid = appliedSessionRegistry.getLastApplied(player.uniqueId, charUuid)
+
+        val baseSession = lastAppliedUid?.let { load(it) }
+        val merged =
+                if (baseSession != null) {
+                    merge(
+                            mannequinSession,
+                            baseSession,
+                            player.playerProfile.textures.skinModel == SkinModel.SLIM
+                    )
+                } else {
+                    val defaultSlim = player.playerProfile.textures.skinModel == SkinModel.SLIM
+                    mannequinSession.copy(slimModel = mannequinSession.slimModel ?: defaultSlim)
+                }
+
+        val slim = merged.slimModel ?: false
+        if (!isValid(merged, slim)) {
+            return CompletableFuture.failedFuture(
+                    IllegalStateException("Merged session is invalid for finalization")
+            )
+        }
+
+        val selection = sessionToSelection(merged)
+        val layersDef = layerManager.definitionsInOrder()
+        val sessionImage =
+                SkinComposer.compose(
+                        layersDef,
+                        selection,
+                        slim,
+                        { l, o -> layerManager.optionsFor(l).find { it.id == o } },
+                        { layerManager.texture(it) }
+                )
+
+        val isComplete = isComplete(merged, slim)
+        if (isComplete) {
+            return saveImage(sessionImage, targetDir, "finalized_${merged.uid}")
+        }
+
+        val skinUrl =
+                player.playerProfile.textures.skin
+                        ?: return CompletableFuture.failedFuture(
+                                IllegalStateException("Player has no skin URL")
+                        )
+
+        return downloadSkin(skinUrl).thenCompose { downloadedSkin ->
+            // Ensure downloaded skin is ARGB to support transparency
+            val baseSkin =
+                    if (downloadedSkin.type != BufferedImage.TYPE_INT_ARGB) {
+                        val converted =
+                                BufferedImage(
+                                        downloadedSkin.width,
+                                        downloadedSkin.height,
+                                        BufferedImage.TYPE_INT_ARGB
+                                )
+                        val g = converted.createGraphics()
+                        g.drawImage(downloadedSkin, 0, 0, null)
+                        g.dispose()
+                        converted
+                    } else downloadedSkin
+
+            overlayWithPunchThrough(sessionImage, baseSkin)
+            saveImage(baseSkin, targetDir, "finalized_${merged.uid}")
+        }
+    }
+
+    private fun sessionToSelection(session: SessionData): SkinSelection {
+        val selections =
+                session.layers.mapValues { (layerId, data) ->
+                    val option = layerManager.optionsFor(layerId).find { it.id == data.option }
+                    LayerSelection(
+                            layerId = layerId,
+                            option = option,
+                            channelColors =
+                                    data.channelColors
+                                            .mapNotNull { (k, v) ->
+                                                val idx = k.toIntOrNull() ?: return@mapNotNull null
+                                                val color = hexToColor(v) ?: return@mapNotNull null
+                                                idx to color
+                                            }
+                                            .toMap(),
+                            texturedColors =
+                                    data.texturedColors
+                                            .mapNotNull { (k, v) ->
+                                                val idx = k.toIntOrNull() ?: return@mapNotNull null
+                                                val subMap =
+                                                        v
+                                                                .mapNotNull { (sk, sv) ->
+                                                                    val sIdx =
+                                                                            sk.toIntOrNull()
+                                                                                    ?: return@mapNotNull null
+                                                                    val color =
+                                                                            hexToColor(sv)
+                                                                                    ?: return@mapNotNull null
+                                                                    sIdx to color
+                                                                }
+                                                                .toMap()
+                                                idx to subMap
+                                            }
+                                            .toMap(),
+                            selectedTexture = data.selectedTexture
+                    )
+                }
+        return SkinSelection(selections)
+    }
+
+    private fun downloadSkin(url: URL): CompletableFuture<BufferedImage> {
+        return CompletableFuture.supplyAsync {
+            try {
+                ImageIO.read(url)
+            } catch (e: Exception) {
+                throw RuntimeException("Failed to download skin: ${e.message}", e)
+            }
+        }
+    }
+
+    private fun overlayWithPunchThrough(sessionImage: BufferedImage, baseSkin: BufferedImage) {
+        val g2d = baseSkin.createGraphics()
+        // Standard overlay first
+        g2d.drawImage(sessionImage, 0, 0, null)
+        g2d.dispose()
+
+        // Transparency punch-through logic:
+        // "if the session image has an empty pixel in the outer layer and a filled pixel in the
+        // corresponding inner position, then the post-overlay pixel should also be empty."
+        for (x in 0 until 64) {
+            for (y in 0 until 64) {
+                if (SkinUv.isOuterLayer(x, y)) {
+                    val sessionOuterAlpha = (sessionImage.getRGB(x, y) ushr 24) and 0xFF
+                    if (sessionOuterAlpha == 0) {
+                        val innerCoord = SkinUv.getInnerCorresponding(x, y) ?: continue
+                        val sessionInnerAlpha =
+                                (sessionImage.getRGB(innerCoord.first, innerCoord.second) ushr
+                                        24) and 0xFF
+                        if (sessionInnerAlpha != 0) {
+                            // Punch through: make result empty at this outer spot
+                            baseSkin.setRGB(x, y, 0)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun saveImage(image: BufferedImage, dir: File, name: String): CompletableFuture<File> {
+        return CompletableFuture.supplyAsync {
+            if (!dir.exists()) dir.mkdirs()
+            val file = File(dir, "$name.png")
+            try {
+                ImageIO.write(image, "png", file)
+                file
+            } catch (e: Exception) {
+                throw RuntimeException("Failed to save image: ${e.message}", e)
+            }
+        }
+    }
+
     fun listSessionUids(): List<String> {
         if (!sessionsDir.exists()) return emptyList()
         return sessionsDir.listFiles { f -> f.extension == "json" }?.map { it.nameWithoutExtension }
@@ -279,5 +466,27 @@ class SessionManager(private val dataFolder: File, private val layerManager: Lay
     private fun sha256(value: String): String {
         val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
         return bytes.joinToString("") { "%02x".format(it) }
+    }
+
+    fun resolveSession(
+            input: String,
+            player: Player,
+            mannequinManager: MannequinManager
+    ): SessionData? {
+        val lower = input.lowercase()
+        if (lower == "nearest") {
+            val man = mannequinManager.nearestMannequin(player.location, 5.0) ?: return null
+            return sessionFromMannequin(man)
+        }
+        if (lower == "null") {
+            return SessionData(
+                    uid = "null",
+                    creator = player.uniqueId.toString(),
+                    createdAt = Instant.now().toString(),
+                    slimModel = null,
+                    layers = emptyMap()
+            )
+        }
+        return load(input)
     }
 }

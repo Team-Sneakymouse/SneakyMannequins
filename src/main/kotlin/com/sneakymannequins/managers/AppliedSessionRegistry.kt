@@ -8,9 +8,9 @@ import java.util.UUID
 import java.util.logging.Logger
 
 class AppliedSessionRegistry(
-    dataFolder: File,
-    private val logger: Logger,
-    private val characterScopedMode: () -> Boolean
+        dataFolder: File,
+        private val logger: Logger,
+        private val characterScopedMode: () -> Boolean
 ) {
     private val file = File(dataFolder, "applied-sessions.json")
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
@@ -23,11 +23,15 @@ class AppliedSessionRegistry(
         if (characterScopedMode()) {
             val charKey = characterUuid?.trim().orEmpty()
             if (charKey.isEmpty()) {
-                logger.warning("Character-scoped apply registry is active but no character UUID was available for $playerKey.")
+                logger.warning(
+                        "Character-scoped apply registry is active but no character UUID was available for $playerKey."
+                )
                 return
             }
             val existing = root.get(playerKey)
-            val charMap = if (existing != null && existing.isJsonObject) existing.asJsonObject else JsonObject()
+            val charMap =
+                    if (existing != null && existing.isJsonObject) existing.asJsonObject
+                    else JsonObject()
             charMap.addProperty(charKey, sessionUid)
             root.add(playerKey, charMap)
         } else {
@@ -35,6 +39,22 @@ class AppliedSessionRegistry(
         }
 
         saveRoot(root)
+    }
+
+    @Synchronized
+    fun getLastApplied(playerUuid: UUID, characterUuid: String?): String? {
+        val root = loadRoot()
+        val playerKey = playerUuid.toString()
+        val entry = root.get(playerKey) ?: return null
+
+        return if (characterScopedMode()) {
+            if (!entry.isJsonObject) return null
+            val charKey = characterUuid?.trim().orEmpty()
+            if (charKey.isEmpty()) null else entry.asJsonObject.get(charKey)?.asString
+        } else {
+            if (!entry.isJsonPrimitive) return null
+            entry.asString
+        }
     }
 
     @Synchronized
@@ -59,18 +79,20 @@ class AppliedSessionRegistry(
         if (!file.exists()) return JsonObject()
         return runCatching {
             gson.fromJson(file.readText(), JsonObject::class.java) ?: JsonObject()
-        }.getOrElse {
-            logger.warning("Failed to read applied session registry: ${it.message}")
-            JsonObject()
         }
+                .getOrElse {
+                    logger.warning("Failed to read applied session registry: ${it.message}")
+                    JsonObject()
+                }
     }
 
     private fun saveRoot(root: JsonObject) {
         runCatching {
             file.parentFile?.mkdirs()
             file.writeText(gson.toJson(root))
-        }.onFailure {
-            logger.warning("Failed to save applied session registry: ${it.message}")
         }
+                .onFailure {
+                    logger.warning("Failed to save applied session registry: ${it.message}")
+                }
     }
 }
