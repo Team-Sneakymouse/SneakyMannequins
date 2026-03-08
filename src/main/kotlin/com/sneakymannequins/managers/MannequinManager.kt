@@ -30,6 +30,7 @@ import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.event.ClickEvent
 import net.kyori.adventure.text.event.HoverEvent
 import net.kyori.adventure.text.format.NamedTextColor
+import net.kyori.adventure.text.format.TextDecoration
 import org.bukkit.Color
 import org.bukkit.Location
 import org.bukkit.entity.Player
@@ -1652,7 +1653,7 @@ class MannequinManager(
                         true
                 )
 
-        val options = listOf("Save", "Load", "Clear", "Overlay")
+        val options = listOf("Save", "Load", "Finish", "Overlay")
         for ((i, opt) in options.withIndex()) {
             grid.addButton(
                     id = "config_${opt.lowercase()}",
@@ -1726,11 +1727,63 @@ class MannequinManager(
                                 .color(net.kyori.adventure.text.format.NamedTextColor.YELLOW)
                 )
             }
-            "Clear" -> {
-                mannequin.selection = bootstrapSelection()
-                updateStatus(manId, "Cleared")
-                renderFull(mannequin, nearbyViewers(mannequin))
-                refreshDynamicLabels(manId)
+            "Finish" -> {
+                updateStatus(manId, "Finalizing skin...")
+                sessionManager.finalizeSession(player, mannequin).handle { file, err ->
+                    if (err != null) {
+                        updateStatus(manId, "Finalization failed")
+                        player.sendMessage(
+                                Component.text("Failed to finalize skin: ${err.message}")
+                                        .color(NamedTextColor.RED)
+                        )
+                        return@handle
+                    }
+                    val url = ConfigManager.instance.getImageUrl(file.name)
+                    val strategy = ConfigManager.instance.getApplicationStrategy()
+
+                    if (strategy == "SNEAKY_CHARACTER_MANAGER" && characterManagerBridge.active) {
+                        val charContext = characterManagerBridge.currentCharacter(player)
+                        if (charContext != null) {
+                            characterManagerBridge.updateSkin(
+                                    player,
+                                    charContext.characterUuid,
+                                    url,
+                                    mannequin.slimModel
+                            )
+                            updateStatus(manId, "Skin applied!")
+                            player.sendMessage(
+                                    Component.text("Skin applied to your active character!")
+                                            .color(NamedTextColor.GREEN)
+                            )
+                        } else {
+                            updateStatus(manId, "Apply failed: No active character")
+                            player.sendMessage(
+                                    Component.text(
+                                                    "Failed to apply skin: You have no active character selected."
+                                            )
+                                            .color(NamedTextColor.RED)
+                            )
+                        }
+                    } else {
+                        // Classic strategy
+                        updateStatus(manId, "Skin finalized!")
+                        player.sendMessage(
+                                Component.text("Skin finalized! ")
+                                        .color(NamedTextColor.GREEN)
+                                        .append(
+                                                Component.text("[Click to view]")
+                                                        .color(NamedTextColor.YELLOW)
+                                                        .decorate(TextDecoration.UNDERLINED)
+                                                        .hoverEvent(
+                                                                HoverEvent.showText(
+                                                                        Component.text(url)
+                                                                )
+                                                        )
+                                                        .clickEvent(ClickEvent.openUrl(url))
+                                        )
+                        )
+                    }
+                }
             }
             "Overlay" -> {
                 mannequin.showOverlay = !mannequin.showOverlay
