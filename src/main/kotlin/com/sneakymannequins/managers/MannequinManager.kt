@@ -596,6 +596,8 @@ class MannequinManager(
             } else {
                 if (!isSameWorld || distSq > updateRadiusSq) {
                     seen -= man.id
+                    animationManager.cancelMannequinForPlayer(viewer.uniqueId, man.id)
+                    handler.destroyMannequin(viewer, man.id)
                 } else {
                     render(man, listOf(viewer))
                 }
@@ -621,6 +623,8 @@ class MannequinManager(
             if (man.id in seen) {
                 if (!isSameWorld || distSq > updateRadiusSq) {
                     seen -= man.id
+                    animationManager.cancelMannequinForPlayer(viewer.uniqueId, man.id)
+                    handler.destroyMannequin(viewer, man.id)
                 }
                 continue
             }
