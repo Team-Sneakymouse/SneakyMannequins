@@ -178,21 +178,10 @@ class MannequinManager(
 
         /** Canonical ordered list of button names. */
         private val BUTTON_ORDER =
-                listOf(
-                        "status",
-                        "model",
-                        "pose",
-                        "layer",
-                        "random",
-                        "texture",
-                        "channel",
-                        "color",
-                        "config"
-                )
+                listOf("status", "model", "random", "config", "layer", "color", "pose")
 
         /** Button names that respond to clicks. "status" is display-only. */
-        private val CLICKABLE_BUTTONS =
-                setOf("model", "pose", "random", "layer", "channel", "texture", "color", "config")
+        private val CLICKABLE_BUTTONS = setOf("model", "pose", "random", "layer", "color", "config")
 
         /** Hardcoded defaults used when a key is absent from config. */
         private data class BtnDefault(
@@ -206,23 +195,21 @@ class MannequinManager(
         private val BUTTON_DEFAULTS =
                 mapOf(
                         "status" to BtnDefault("<white>{message}", null, 0.0f, 2.8f, -2.0f, 256),
-                        "model" to BtnDefault("<white>Model", null, -1.1f, 2.2f, -2.0f, 200),
-                        "pose" to BtnDefault("<white>Pose", null, -1.1f, 1.7f, -2.0f, 200),
-                        "random" to BtnDefault("<white>Random", null, -1.1f, 0.7f, -2.0f, 200),
-                        "layer" to BtnDefault("<white>Layer", null, 1.1f, 2.2f, -2.0f, 200),
-                        "texture" to BtnDefault("<white>Texture", null, 1.1f, 1.7f, -2.0f, 200),
-                        "channel" to BtnDefault("<white>Channel", null, 1.1f, 1.2f, -2.0f, 200),
-                        "color" to
-                                BtnDefault("<white>Color", "<yellow>Color", 1.1f, 0.7f, -2.0f, 200),
+                        "model" to BtnDefault("<white>Model", null, -1.1f, 1.7f, -2.0f, 200),
+                        "random" to BtnDefault("<white>Random", null, -1.1f, 1.2f, -2.0f, 200),
                         "config" to
                                 BtnDefault(
                                         "<white>Config",
                                         "<yellow>Config",
                                         -1.1f,
-                                        0.2f,
+                                        0.7f,
                                         -2.0f,
                                         200
                                 ),
+                        "layer" to BtnDefault("<white>Layer", null, 1.1f, 1.7f, -2.0f, 200),
+                        "color" to
+                                BtnDefault("<white>Color", "<yellow>Color", 1.1f, 1.2f, -2.0f, 200),
+                        "pose" to BtnDefault("<white>Pose", null, 1.1f, 0.7f, -2.0f, 200),
                 )
 
         /** Parse an ARGB hex string (e.g. "B8336699") to an Int. */
@@ -447,7 +434,7 @@ class MannequinManager(
      * that don't match a current definition are silently skipped. Layers not present in the session
      * keep their current selection (partial load).
      */
-    fun applySession(mannequinId: UUID, session: SessionData, player: Player) {
+    fun applySession(mannequinId: UUID, session: SessionData) {
         val mannequin = mannequins[mannequinId] ?: return
         val state = controlState.getOrPut(mannequinId) { ControlState() }
 
@@ -535,7 +522,7 @@ class MannequinManager(
                 player.sendMessage(Component.text("Load blocked.").color(NamedTextColor.RED))
                 return true
             }
-            applySession(manId, session, player)
+            applySession(manId, session)
             player.sendMessage(
                     Component.text("Loaded: ")
                             .color(NamedTextColor.GREEN)
@@ -880,8 +867,7 @@ class MannequinManager(
      * local-Z offset; the tick loop drives them toward their final position one step per tick
      * (server-side animation).
      */
-    private fun buildHoloButtons(mannequin: Mannequin, player: Player): MutableList<HoloButton> {
-        val state = controlState[mannequin.id] ?: ControlState()
+    private fun buildHoloButtons(mannequin: Mannequin): MutableList<HoloButton> {
         return hudButtons
                 .map { btn ->
                     val initialJson =
@@ -916,8 +902,8 @@ class MannequinManager(
                 .toMutableList()
     }
 
-    private fun spawnPlayerHud(player: Player, mannequin: Mannequin, yaw: Float) {
-        val buttons = buildHoloButtons(mannequin, player)
+    private fun spawnPlayerHud(player: Player, mannequin: Mannequin) {
+        val buttons = buildHoloButtons(mannequin)
         val frameEnabled = plugin.config.getBoolean("hud-frame.enabled", false)
         val frameItem = if (frameEnabled) plugin.config.getString("hud-frame.item") else null
         val frameCmd = plugin.config.getInt("hud-frame.custom-model-data", 0)
@@ -1037,171 +1023,6 @@ class MannequinManager(
                 refreshDynamicLabels(mannequinId, nextOption, nextLayer)
                 refreshColorGrid(player, mannequin, state, hud)
             }
-            "texture" -> {
-                if (layer == null) return
-                val option = freshOption(layer.id, mannequin) ?: return
-                val texs = layerManager.resolveTextures(layer, option, player)
-                if (texs.size <= 1) return
-                val currentIdx = state.textureIndex.getOrDefault(layer.id, 0)
-                val nextIdx =
-                        if (backwards) (currentIdx - 1 + texs.size) % texs.size
-                        else (currentIdx + 1) % texs.size
-                state.textureIndex[layer.id] = nextIdx
-                val nextTex = texs[nextIdx]
-                val currentSel = mannequin.selection.selections[layer.id]
-                val nextSel =
-                        currentSel?.copy(
-                                selectedTexture = if (nextTex == "default") null else nextTex
-                        )
-                                ?: LayerSelection(
-                                        layer.id,
-                                        option,
-                                        selectedTexture =
-                                                if (nextTex == "default") null else nextTex
-                                )
-
-                updateStatus(mannequinId, "Texture: ${prettyName(nextTex)}")
-                refreshDynamicLabels(mannequinId, option, layer)
-                refreshColorGrid(player, mannequin, state, hud)
-
-                // Flash texture channels for 10 ticks
-                val slots = resolveChannelSlots(layer, option, state, player)
-                val texDef = layerManager.texture(nextTex)
-                val hasBlendMap = texDef?.blendMapImage != null
-
-                val flashColors = nextSel.channelColors.toMutableMap()
-                val flashTextured = nextSel.texturedColors.toMutableMap()
-
-                if (hasBlendMap) {
-                    val distinctColors =
-                            listOf(
-                                    java.awt.Color.RED,
-                                    java.awt.Color.GREEN,
-                                    java.awt.Color.BLUE,
-                                    java.awt.Color.YELLOW,
-                                    java.awt.Color.CYAN,
-                                    java.awt.Color.MAGENTA
-                            )
-                    var colorIdx = 0
-                    for (slot in slots) {
-                        val c = distinctColors[colorIdx % distinctColors.size]
-                        if (slot.subChannel != null) {
-                            val sub =
-                                    flashTextured
-                                            .getOrPut(slot.maskIdx) { emptyMap() }
-                                            .toMutableMap()
-                            sub[slot.subChannel] = c
-                            flashTextured[slot.maskIdx] = sub
-                        } else {
-                            flashColors[slot.maskIdx] = c
-                        }
-                        colorIdx++
-                    }
-                } else {
-                    for (slot in slots) {
-                        if (slot.subChannel != null) {
-                            val sub =
-                                    flashTextured
-                                            .getOrPut(slot.maskIdx) { emptyMap() }
-                                            .toMutableMap()
-                            sub[slot.subChannel] = java.awt.Color.WHITE
-                            flashTextured[slot.maskIdx] = sub
-                        } else {
-                            flashColors[slot.maskIdx] = java.awt.Color.WHITE
-                        }
-                    }
-                }
-
-                val flashSel =
-                        nextSel.copy(channelColors = flashColors, texturedColors = flashTextured)
-                mannequin.selection =
-                        mannequin.selection.copy(
-                                selections = mannequin.selection.selections + (layer.id to flashSel)
-                        )
-
-                val viewers = nearbyViewers(mannequin)
-                render(mannequin, viewers, forceInstant = true)
-
-                plugin.server.scheduler.runTaskLater(
-                        plugin,
-                        Runnable {
-                            if (mannequins[mannequinId] != mannequin) return@Runnable
-                            mannequin.selection =
-                                    mannequin.selection.copy(
-                                            selections =
-                                                    mannequin.selection.selections +
-                                                            (layer.id to nextSel)
-                                    )
-                            render(mannequin, viewers, forceInstant = true)
-                        },
-                        10L
-                )
-            }
-            "channel" -> {
-                if (layer == null) return
-                val option = freshOption(layer.id, mannequin) ?: return
-                val slots = resolveChannelSlots(layer, option, state, player)
-                if (slots.size <= 1) return
-                val currentIdx = state.channelIndex.getOrDefault(layer.id, 0)
-                val nextIdx =
-                        if (backwards) (currentIdx - 1 + slots.size) % slots.size
-                        else (currentIdx + 1) % slots.size
-                state.channelIndex[layer.id] = nextIdx
-                updateStatus(mannequinId, "Channel: ${slots[nextIdx].label}")
-                refreshColorGrid(player, mannequin, state, hud)
-
-                // Flash the selected channel white for 10 ticks
-                val slot = slots[nextIdx]
-                val currentSel = mannequin.selection.selections[layer.id]
-                val flashColors: MutableMap<Int, java.awt.Color>
-                val flashTextured: MutableMap<Int, Map<Int, java.awt.Color>>
-                if (slot.subChannel != null) {
-                    flashColors = (currentSel?.channelColors ?: emptyMap()).toMutableMap()
-                    flashTextured = (currentSel?.texturedColors ?: emptyMap()).toMutableMap()
-                    val sub = flashTextured.getOrPut(slot.maskIdx) { emptyMap() }.toMutableMap()
-                    sub[slot.subChannel] = java.awt.Color.WHITE
-                    flashTextured[slot.maskIdx] = sub
-                } else {
-                    flashColors = (currentSel?.channelColors ?: emptyMap()).toMutableMap()
-                    flashColors[slot.maskIdx] = java.awt.Color.WHITE
-                    flashTextured = (currentSel?.texturedColors ?: emptyMap()).toMutableMap()
-                }
-
-                val flashSel =
-                        currentSel?.copy(
-                                channelColors = flashColors,
-                                texturedColors = flashTextured
-                        )
-                                ?: LayerSelection(
-                                        layer.id,
-                                        option,
-                                        channelColors = flashColors,
-                                        texturedColors = flashTextured
-                                )
-                mannequin.selection =
-                        mannequin.selection.copy(
-                                selections = mannequin.selection.selections + (layer.id to flashSel)
-                        )
-
-                val viewers = nearbyViewers(mannequin)
-                render(mannequin, viewers, forceInstant = true)
-
-                // Restore original colors after 10 ticks (500ms)
-                val restoreSel = currentSel ?: LayerSelection(layer.id, option)
-                plugin.server.scheduler.runTaskLater(
-                        plugin,
-                        Runnable {
-                            mannequin.selection =
-                                    mannequin.selection.copy(
-                                            selections =
-                                                    mannequin.selection.selections +
-                                                            (layer.id to restoreSel)
-                                    )
-                            render(mannequin, viewers, forceInstant = true)
-                        },
-                        10L
-                )
-            }
             "color" -> {
                 val gridVisible = hud.buttons.any { it.id.startsWith("color_") }
                 if (gridVisible) {
@@ -1300,26 +1121,22 @@ class MannequinManager(
                 } else 0
         val channelDisabled = channelSlotCount <= 1
 
-        val chBtn = buttonByName("channel")
         val channelJson =
-                if (channelDisabled && chBtn?.disabledTextJson != null) {
-                    chBtn.disabledTextJson
+                if (channelDisabled) {
+                    TextUtility.mmToJson("<gray>Channel")
                 } else {
-                    chBtn?.textMM?.let { TextUtility.mmToJson(it) }
-                            ?: TextUtility.mmToJson("Channel")
+                    TextUtility.mmToJson("<white>Channel")
                 }
 
-        val texBtn = buttonByName("texture")
         val texCount =
                 if (finalOption != null && finalLayer != null)
                         layerManager.resolveTextures(finalLayer, finalOption, null).size
                 else 0
         val textureJson =
-                if (texCount <= 1 && texBtn?.disabledTextJson != null) {
-                    texBtn.disabledTextJson
+                if (texCount <= 1) {
+                    TextUtility.mmToJson("<gray>Texture")
                 } else {
-                    texBtn?.textMM?.let { TextUtility.mmToJson(it) }
-                            ?: TextUtility.mmToJson("Texture")
+                    TextUtility.mmToJson("<white>Texture")
                 }
 
         val colorBtn = buttonByName("color")
@@ -1332,8 +1149,10 @@ class MannequinManager(
             )
                     continue
 
-            hud.updateButtonText("channel", channelJson)
-            hud.updateButtonText("texture", textureJson)
+            if (hud.isButtonActive("color_texture")) {
+                hud.updateButtonText("color_channel", channelJson)
+                hud.updateButtonText("color_texture", textureJson)
+            }
 
             val gridVisible = hud.isButtonActive("color_")
             val colorJson =
@@ -1539,10 +1358,218 @@ class MannequinManager(
                     interactionWidth = 0.6f,
                     interactionHeight = 0.3f,
                     onClick = { p, _ ->
-                        applyGridCellColor(null, "Default", null, mannequin.id, mannequin, state, p)
+                        applyGridCellColor("Default", null, mannequin.id, mannequin, state, p)
                     }
             )
         }
+
+        // Texture button
+        grid.addButton(
+                id = "color_texture",
+                textMM = config.headerTextMM.replace("{message}", "Texture"),
+                column = 5,
+                row = -1,
+                bgDefault = config.bgHeader,
+                bgHighlight = HUD_BG_HIGHLIGHT,
+                lineWidth = config.headerLineWidth,
+                scaleX = config.headerScale,
+                scaleY = config.headerScale,
+                interactionWidth = 0.6f,
+                interactionHeight = 0.3f,
+                onClick = { p, isLeftClick ->
+                    val backwards = isLeftClick
+                    val texs = layerManager.resolveTextures(layer, option, p)
+                    if (texs.size > 1) {
+                        val currentIdx = state.textureIndex.getOrDefault(layer.id, 0)
+                        val nextIdx =
+                                if (backwards) (currentIdx - 1 + texs.size) % texs.size
+                                else (currentIdx + 1) % texs.size
+                        state.textureIndex[layer.id] = nextIdx
+                        val nextTex = texs[nextIdx]
+                        val currentSel = mannequin.selection.selections[layer.id]
+                        val nextSel =
+                                currentSel?.copy(
+                                        selectedTexture =
+                                                if (nextTex == "default") null else nextTex
+                                )
+                                        ?: LayerSelection(
+                                                layer.id,
+                                                option,
+                                                selectedTexture =
+                                                        if (nextTex == "default") null else nextTex
+                                        )
+
+                        updateStatus(mannequin.id, "Texture: ${prettyName(nextTex)}")
+                        refreshDynamicLabels(mannequin.id, option, layer)
+
+                        // Flash texture channels for 10 ticks
+                        val slots = resolveChannelSlots(layer, option, state, p)
+                        val texDef = layerManager.texture(nextTex)
+                        val hasBlendMap = texDef?.blendMapImage != null
+
+                        val flashColors = nextSel.channelColors.toMutableMap()
+                        val flashTextured = nextSel.texturedColors.toMutableMap()
+
+                        if (hasBlendMap) {
+                            val distinctColors =
+                                    listOf(
+                                            java.awt.Color.RED,
+                                            java.awt.Color.GREEN,
+                                            java.awt.Color.BLUE,
+                                            java.awt.Color.YELLOW,
+                                            java.awt.Color.CYAN,
+                                            java.awt.Color.MAGENTA
+                                    )
+                            var colorIdx = 0
+                            for (slot in slots) {
+                                val c = distinctColors[colorIdx % distinctColors.size]
+                                if (slot.subChannel != null) {
+                                    val sub =
+                                            flashTextured
+                                                    .getOrPut(slot.maskIdx) { emptyMap() }
+                                                    .toMutableMap()
+                                    sub[slot.subChannel] = c
+                                    flashTextured[slot.maskIdx] = sub
+                                } else {
+                                    flashColors[slot.maskIdx] = c
+                                }
+                                colorIdx++
+                            }
+                        } else {
+                            for (slot in slots) {
+                                if (slot.subChannel != null) {
+                                    val sub =
+                                            flashTextured
+                                                    .getOrPut(slot.maskIdx) { emptyMap() }
+                                                    .toMutableMap()
+                                    sub[slot.subChannel] = java.awt.Color.WHITE
+                                    flashTextured[slot.maskIdx] = sub
+                                } else {
+                                    flashColors[slot.maskIdx] = java.awt.Color.WHITE
+                                }
+                            }
+                        }
+
+                        val flashSel =
+                                nextSel.copy(
+                                        channelColors = flashColors,
+                                        texturedColors = flashTextured
+                                )
+                        mannequin.selection =
+                                mannequin.selection.copy(
+                                        selections =
+                                                mannequin.selection.selections +
+                                                        (layer.id to flashSel)
+                                )
+
+                        val viewers = nearbyViewers(mannequin)
+                        render(mannequin, viewers, forceInstant = true)
+
+                        plugin.server.scheduler.runTaskLater(
+                                plugin,
+                                Runnable {
+                                    if (mannequins[mannequin.id] != mannequin) return@Runnable
+                                    mannequin.selection =
+                                            mannequin.selection.copy(
+                                                    selections =
+                                                            mannequin.selection.selections +
+                                                                    (layer.id to nextSel)
+                                            )
+                                    render(mannequin, viewers, forceInstant = true)
+                                },
+                                10L
+                        )
+                    }
+                }
+        )
+
+        // Channel button
+        grid.addButton(
+                id = "color_channel",
+                textMM = config.headerTextMM.replace("{message}", "Channel"),
+                column = 10,
+                row = -1,
+                bgDefault = config.bgHeader,
+                bgHighlight = HUD_BG_HIGHLIGHT,
+                lineWidth = config.headerLineWidth,
+                scaleX = config.headerScale,
+                scaleY = config.headerScale,
+                interactionWidth = 0.6f,
+                interactionHeight = 0.3f,
+                onClick = { p, isLeftClick ->
+                    val backwards = isLeftClick
+                    val slots = resolveChannelSlots(layer, option, state, p)
+                    if (slots.size > 1) {
+                        val currentIdx = state.channelIndex.getOrDefault(layer.id, 0)
+                        val nextIdx =
+                                if (backwards) (currentIdx - 1 + slots.size) % slots.size
+                                else (currentIdx + 1) % slots.size
+                        state.channelIndex[layer.id] = nextIdx
+                        updateStatus(mannequin.id, "Channel: ${slots[nextIdx].label}")
+                        refreshDynamicLabels(mannequin.id, option, layer)
+
+                        // Flash the selected channel white for 10 ticks
+                        val slot = slots[nextIdx]
+                        val currentSel = mannequin.selection.selections[layer.id]
+                        val flashColors: MutableMap<Int, java.awt.Color>
+                        val flashTextured: MutableMap<Int, Map<Int, java.awt.Color>>
+                        if (slot.subChannel != null) {
+                            flashColors = (currentSel?.channelColors ?: emptyMap()).toMutableMap()
+                            flashTextured =
+                                    (currentSel?.texturedColors ?: emptyMap()).toMutableMap()
+                            val sub =
+                                    flashTextured
+                                            .getOrPut(slot.maskIdx) { emptyMap() }
+                                            .toMutableMap()
+                            sub[slot.subChannel] = java.awt.Color.WHITE
+                            flashTextured[slot.maskIdx] = sub
+                        } else {
+                            flashColors = (currentSel?.channelColors ?: emptyMap()).toMutableMap()
+                            flashColors[slot.maskIdx] = java.awt.Color.WHITE
+                            flashTextured =
+                                    (currentSel?.texturedColors ?: emptyMap()).toMutableMap()
+                        }
+
+                        val flashSel =
+                                currentSel?.copy(
+                                        channelColors = flashColors,
+                                        texturedColors = flashTextured
+                                )
+                                        ?: LayerSelection(
+                                                layer.id,
+                                                option,
+                                                channelColors = flashColors,
+                                                texturedColors = flashTextured
+                                        )
+                        mannequin.selection =
+                                mannequin.selection.copy(
+                                        selections =
+                                                mannequin.selection.selections +
+                                                        (layer.id to flashSel)
+                                )
+
+                        val viewers = nearbyViewers(mannequin)
+                        render(mannequin, viewers, forceInstant = true)
+
+                        // Restore original colors after 10 ticks (500ms)
+                        val restoreSel = currentSel ?: LayerSelection(layer.id, option)
+                        plugin.server.scheduler.runTaskLater(
+                                plugin,
+                                Runnable {
+                                    if (mannequins[mannequin.id] != mannequin) return@Runnable
+                                    mannequin.selection =
+                                            mannequin.selection.copy(
+                                                    selections =
+                                                            mannequin.selection.selections +
+                                                                    (layer.id to restoreSel)
+                                            )
+                                    render(mannequin, viewers, forceInstant = true)
+                                },
+                                10L
+                        )
+                    }
+                }
+        )
 
         // Palette rows
         for ((row, palId) in allPaletteIds.withIndex()) {
@@ -1585,7 +1612,6 @@ class MannequinManager(
                         interactionHeight = 0.15f,
                         onClick = { p, _ ->
                             applyGridCellColor(
-                                    palId,
                                     prettyName(namedColor.name),
                                     rgb,
                                     mannequin.id,
@@ -1607,7 +1633,6 @@ class MannequinManager(
     }
 
     private fun applyGridCellColor(
-            palId: String?,
             colorName: String,
             color: java.awt.Color?,
             manId: UUID,
@@ -1768,7 +1793,7 @@ class MannequinManager(
                     lineWidth = config.headerLineWidth,
                     scaleX = config.headerScale,
                     scaleY = config.headerScale,
-                    onClick = { p, _ -> executeConfigAction(opt, mannequin.id, p, state, hud) }
+                    onClick = { p, _ -> executeConfigAction(opt, mannequin.id, p, state) }
             )
         }
         hud.addButtons(grid.build(), instant = quiet)
@@ -1796,8 +1821,7 @@ class MannequinManager(
             action: String,
             manId: UUID,
             player: Player,
-            state: ControlState,
-            hud: HoloHUD
+            state: ControlState
     ) {
         val mannequin = mannequins[manId] ?: return
         when (action) {
@@ -1985,7 +2009,7 @@ class MannequinManager(
             return
         }
 
-        spawnPlayerHud(player, mannequin, player.location.yaw)
+        spawnPlayerHud(player, mannequin)
     }
 
     fun isPlayerInLoadMode(viewerId: UUID): Boolean {

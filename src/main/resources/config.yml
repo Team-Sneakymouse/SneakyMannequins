@@ -189,13 +189,6 @@ hud-buttons:
     text: "<white>Model"
     translation:
       x: -1.1
-      y: 2.2
-      z: -2.0
-
-  pose:
-    text: "<white>Pose"
-    translation:
-      x: -1.1
       y: 1.7
       z: -2.0
 
@@ -220,28 +213,19 @@ hud-buttons:
     text: "<white>Layer"
     translation:
       x: 1.1
-      y: 2.2
-      z: -2.0
-
-  texture:
-    text: "<white>Texture"
-    disabled-text: "<gray>Texture"
-    translation:
-      x: 1.1
       y: 1.7
-      z: -2.0
-
-  channel:
-    text: "<white>Channel"
-    disabled-text: "<gray>Channel"
-    translation:
-      x: 1.1
-      y: 1.2
       z: -2.0
 
   color:
     text: "<white>Color"
     active-text: "<yellow>Color"
+    translation:
+      x: 1.1
+      y: 1.2
+      z: -2.0
+
+  pose:
+    text: "<white>Pose"
     translation:
       x: 1.1
       y: 0.7
