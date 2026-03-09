@@ -594,18 +594,22 @@ class MannequinManager(
         val viewRadiusSq = viewRadius * viewRadius
         val updateRadiusSq = updateRadius * updateRadius
 
+        val seen = sentTo.getOrPut(viewer.uniqueId) { mutableSetOf() }
         for (man in mannequins.values) {
-            if (man.location.world != viewer.world) continue
-            val distSq = man.location.distanceSquared(viewer.location)
+            val isSameWorld = man.location.world == viewer.world
+            val distSq =
+                    if (isSameWorld) man.location.distanceSquared(viewer.location)
+                    else Double.MAX_VALUE
 
-            val seen = sentTo.getOrPut(viewer.uniqueId) { mutableSetOf() }
             if (man.id !in seen) {
-                if (distSq <= viewRadiusSq) {
+                if (isSameWorld && distSq <= viewRadiusSq) {
                     renderFull(man, listOf(viewer), isFirstSeen = true)
                     seen += man.id
                 }
             } else {
-                if (distSq <= updateRadiusSq) {
+                if (!isSameWorld || distSq > updateRadiusSq) {
+                    seen -= man.id
+                } else {
                     render(man, listOf(viewer))
                 }
             }
@@ -619,12 +623,22 @@ class MannequinManager(
      */
     private fun checkFirstSeen(viewer: Player) {
         val viewRadiusSq = viewRadius * viewRadius
+        val updateRadiusSq = updateRadius * updateRadius
         val seen = sentTo.getOrPut(viewer.uniqueId) { mutableSetOf() }
         for (man in mannequins.values) {
-            if (man.id in seen) continue
-            if (man.location.world != viewer.world) continue
-            val distSq = man.location.distanceSquared(viewer.location)
-            if (distSq > viewRadiusSq) continue
+            val isSameWorld = man.location.world == viewer.world
+            val distSq =
+                    if (isSameWorld) man.location.distanceSquared(viewer.location)
+                    else Double.MAX_VALUE
+
+            if (man.id in seen) {
+                if (!isSameWorld || distSq > updateRadiusSq) {
+                    seen -= man.id
+                }
+                continue
+            }
+
+            if (!isSameWorld || distSq > viewRadiusSq) continue
 
             if (plugin.config.getBoolean("plugin.debug", false)) {
                 plugin.logger.info(
