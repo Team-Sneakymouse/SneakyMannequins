@@ -55,7 +55,7 @@ class CommandMannequin(
                                         ?: stack.sender.sendMessage(
                                                 "You must be a player to use this command"
                                         )
-                        "remaskugc" -> player?.let { handleRemaskUgc(it, args) }
+                        "me" -> player?.let { handleMe(it, args) }
                                         ?: stack.sender.sendMessage(
                                                 "You must be a player to use this command"
                                         )
@@ -64,10 +64,6 @@ class CommandMannequin(
                                                 "You must be a player to use this command"
                                         )
                         "debug" -> handleDebug(stack, args)
-                        "upload" -> player?.let { handleUpload(it, args) }
-                                        ?: stack.sender.sendMessage(
-                                                "You must be a player to use this command"
-                                        )
                         else -> sendHelp(stack.sender)
                 }
         }
@@ -90,8 +86,7 @@ class CommandMannequin(
                                 "history" to "View your session history",
                                 "template" to "Manage session templates",
                                 "remask" to "Remask a specific layer part",
-                                "remaskugc" to "Remask a user-uploaded layer part",
-                                "upload" to "Upload a custom skin part from a URL",
+                                "me" to "Manage user-uploaded custom skin parts",
                                 "debug" to "Access developer/debug tools"
                         )
 
@@ -114,11 +109,10 @@ class CommandMannequin(
                                                 "remove",
                                                 "reload",
                                                 "remask",
-                                                "remaskugc",
+                                                "me",
                                                 "history",
                                                 "template",
-                                                "debug",
-                                                "upload"
+                                                "debug"
                                         )
                                         .filter { hasPermission(stack.sender, it) }
                                         .filter {
@@ -130,7 +124,7 @@ class CommandMannequin(
                                         .toMutableList()
                         2 ->
                                 when (args[0].lowercase()) {
-                                        "remask", "remaskugc" ->
+                                        "remask" ->
                                                 layerManager
                                                         .definitionsInOrder()
                                                         .map { it.id }
@@ -163,10 +157,8 @@ class CommandMannequin(
                                                                 )
                                                         }
                                                         .toMutableList()
-                                        "upload" ->
-                                                layerManager
-                                                        .definitionsInOrder()
-                                                        .map { it.id }
+                                        "me" ->
+                                                listOf("upload", "remask", "delete")
                                                         .filter {
                                                                 it.startsWith(
                                                                         args[1],
@@ -261,21 +253,22 @@ class CommandMannequin(
                                                                         .toMutableList()
                                                         else -> mutableListOf()
                                                 }
-                                        "remaskugc" -> {
-                                                val layerId = args[1].lowercase()
-                                                layerManager
-                                                        .allOptions(layerId)
-                                                        .mapNotNull { it.owner?.toString() }
-                                                        .distinct()
-                                                        .filter {
-                                                                it.startsWith(
-                                                                        args[2],
-                                                                        ignoreCase = true
-                                                                )
-                                                        }
-                                                        .toMutableList()
-                                        }
-                                        "upload" -> mutableListOf("<url>")
+                                        "me" ->
+                                                when (args[1].lowercase()) {
+                                                        "upload", "remask", "delete" ->
+                                                                layerManager
+                                                                        .definitionsInOrder()
+                                                                        .map { it.id }
+                                                                        .filter {
+                                                                                it.startsWith(
+                                                                                        args[2],
+                                                                                        ignoreCase =
+                                                                                                true
+                                                                                )
+                                                                        }
+                                                                        .toMutableList()
+                                                        else -> mutableListOf()
+                                                }
                                         "template" -> mutableListOf("<template_name>")
                                         else -> mutableListOf()
                                 }
@@ -290,21 +283,6 @@ class CommandMannequin(
                                                                 )
                                                         }
                                                         .toMutableList()
-                                        "remaskugc" -> {
-                                                val layerId = args[1].lowercase()
-                                                val uuidStr = args[2]
-                                                layerManager
-                                                        .allOptions(layerId)
-                                                        .filter { it.owner?.toString() == uuidStr }
-                                                        .mapNotNull { it.internalKey }
-                                                        .filter {
-                                                                it.startsWith(
-                                                                        args[3],
-                                                                        ignoreCase = true
-                                                                )
-                                                        }
-                                                        .toMutableList()
-                                        }
                                         "template" ->
                                                 (layerManager.definitionsInOrder().map { it.id } +
                                                                 listOf("body_type"))
@@ -331,7 +309,41 @@ class CommandMannequin(
                                                                         .toMutableList()
                                                         else -> mutableListOf()
                                                 }
-                                        "upload" -> mutableListOf("[name]")
+                                        "me" ->
+                                                when (args[1].lowercase()) {
+                                                        "upload" -> mutableListOf("<url>")
+                                                        "remask", "delete" -> {
+                                                                val layerId = args[2].lowercase()
+                                                                val isAdmin =
+                                                                        stack.sender.hasPermission(
+                                                                                "${SneakyMannequins.IDENTIFIER}.admin"
+                                                                        )
+                                                                val playerUuid =
+                                                                        (stack.sender as? Player)
+                                                                                ?.uniqueId
+                                                                                ?.toString()
+                                                                layerManager
+                                                                        .allOptions(layerId)
+                                                                        .mapNotNull {
+                                                                                it.owner?.toString()
+                                                                        }
+                                                                        .distinct()
+                                                                        .filter {
+                                                                                isAdmin ||
+                                                                                        it ==
+                                                                                                playerUuid
+                                                                        }
+                                                                        .filter {
+                                                                                it.startsWith(
+                                                                                        args[3],
+                                                                                        ignoreCase =
+                                                                                                true
+                                                                                )
+                                                                        }
+                                                                        .toMutableList()
+                                                        }
+                                                        else -> mutableListOf()
+                                                }
                                         else -> mutableListOf()
                                 }
                         5 ->
@@ -346,15 +358,49 @@ class CommandMannequin(
                                                                 )
                                                         }
                                                         .toMutableList()
-                                        "remaskugc" ->
-                                                LayerManager.STRATEGY_NAMES
-                                                        .filter {
-                                                                it.startsWith(
-                                                                        args[4],
-                                                                        ignoreCase = true
-                                                                )
+                                        "me" ->
+                                                when (args[1].lowercase()) {
+                                                        "upload" -> mutableListOf("<name>")
+                                                        "remask", "delete" -> {
+                                                                val layerId = args[2].lowercase()
+                                                                val uuidStr = args[3]
+                                                                val isAdmin =
+                                                                        stack.sender.hasPermission(
+                                                                                "${SneakyMannequins.IDENTIFIER}.admin"
+                                                                        )
+                                                                val playerUuid =
+                                                                        (stack.sender as? Player)
+                                                                                ?.uniqueId
+                                                                                ?.toString()
+
+                                                                if (!isAdmin &&
+                                                                                uuidStr !=
+                                                                                        playerUuid
+                                                                ) {
+                                                                        return mutableListOf()
+                                                                }
+
+                                                                layerManager
+                                                                        .allOptions(layerId)
+                                                                        .filter {
+                                                                                it.owner
+                                                                                        ?.toString() ==
+                                                                                        uuidStr
+                                                                        }
+                                                                        .mapNotNull {
+                                                                                it.internalKey
+                                                                        }
+                                                                        .filter {
+                                                                                it.startsWith(
+                                                                                        args[4],
+                                                                                        ignoreCase =
+                                                                                                true
+                                                                                )
+                                                                        }
+                                                                        .toMutableList()
                                                         }
-                                                        .toMutableList()
+                                                        else -> mutableListOf()
+                                                }
                                         "template" ->
                                                 (layerManager.definitionsInOrder().map { it.id } +
                                                                 listOf("body_type"))
@@ -369,16 +415,39 @@ class CommandMannequin(
                                 }
                         6 ->
                                 when (args[0].lowercase()) {
-                                        "remaskugc" ->
-                                                (1..8)
-                                                        .map { it.toString() }
-                                                        .filter {
-                                                                it.startsWith(
-                                                                        args[5],
-                                                                        ignoreCase = true
-                                                                )
-                                                        }
-                                                        .toMutableList()
+                                        "me" ->
+                                                when (args[1].lowercase()) {
+                                                        "remask" ->
+                                                                LayerManager.STRATEGY_NAMES
+                                                                        .filter {
+                                                                                it.startsWith(
+                                                                                        args[5],
+                                                                                        ignoreCase =
+                                                                                                true
+                                                                                )
+                                                                        }
+                                                                        .toMutableList()
+                                                        else -> mutableListOf()
+                                                }
+                                        else -> mutableListOf()
+                                }
+                        7 ->
+                                when (args[0].lowercase()) {
+                                        "me" ->
+                                                when (args[1].lowercase()) {
+                                                        "remask" ->
+                                                                (1..8)
+                                                                        .map { it.toString() }
+                                                                        .filter {
+                                                                                it.startsWith(
+                                                                                        args[6],
+                                                                                        ignoreCase =
+                                                                                                true
+                                                                                )
+                                                                        }
+                                                                        .toMutableList()
+                                                        else -> mutableListOf()
+                                                }
                                         else -> mutableListOf()
                                 }
                         else ->
@@ -903,22 +972,86 @@ class CommandMannequin(
                         }
         }
 
-        private fun handleRemaskUgc(sender: Player, args: Array<out String>) {
-                // /mannequin remaskugc <layer> <uuid> <part> [strategy] [channels]
-                if (args.size < 4) {
-                        sender.sendMessage(
+        private fun handleMe(player: Player, args: Array<out String>) {
+                if (args.size < 2) {
+                        player.sendMessage(
                                 TextUtility.convertToComponent(
-                                        "&cUsage: /mannequin remaskugc <layer> <uuid> <part> [${LayerManager.STRATEGY_NAMES.joinToString("|")}] [channels]"
+                                        "&cUsage: /mannequin me <upload|remask|delete> ..."
                                 )
                         )
                         return
                 }
-                val layerId = args[1].lowercase()
-                val uuidStr = args[2]
-                val internalKey = args[3].lowercase()
+                when (args[1].lowercase()) {
+                        "upload" -> handleMeUpload(player, args)
+                        "remask" -> handleMeRemask(player, args)
+                        "delete" -> handleMeDelete(player, args)
+                        else ->
+                                player.sendMessage(
+                                        TextUtility.convertToComponent(
+                                                "&cUnknown me subcommand. Use upload, remask, or delete."
+                                        )
+                                )
+                }
+        }
+
+        private fun handleMeDelete(player: Player, args: Array<out String>) {
+                // /mannequin me delete <layer> <uuid> <part>
+                if (args.size < 5) {
+                        player.sendMessage(
+                                TextUtility.convertToComponent(
+                                        "&cUsage: /mannequin me delete <layer> <uuid> <part>"
+                                )
+                        )
+                        return
+                }
+                val layerId = args[2].lowercase()
+                val uuidStr = args[3]
+                val internalKey = args[4].lowercase()
+                val partId = "$uuidStr:$internalKey"
+
+                val msg = layerManager.deletePart(player, layerId, partId)
+                player.sendMessage(TextUtility.convertToComponent("&e$msg"))
+        }
+
+        private fun handleMeRemask(sender: Player, args: Array<out String>) {
+                // /mannequin me remask <layer> <uuid> <part> [strategy] [channels]
+                if (args.size < 5) {
+                        sender.sendMessage(
+                                TextUtility.convertToComponent(
+                                        "&cUsage: /mannequin me remask <layer> <uuid> <part> [${LayerManager.STRATEGY_NAMES.joinToString("|")}] [channels]"
+                                )
+                        )
+                        return
+                }
+                val layerId = args[2].lowercase()
+                val uuidStr = args[3]
+                val internalKey = args[4].lowercase()
 
                 val partId = "$uuidStr:$internalKey"
-                val strategyName = (if (args.size >= 5) args[4] else null)?.uppercase()
+
+                val optOpt = layerManager.allOptions(layerId).find { it.id == partId }
+                if (optOpt == null) {
+                        sender.sendMessage(TextUtility.convertToComponent("&cPart not found."))
+                        return
+                }
+
+                if (optOpt.owner == null) {
+                        sender.sendMessage(
+                                TextUtility.convertToComponent("&cCannot remask builtin parts.")
+                        )
+                        return
+                }
+
+                if (optOpt.owner != sender.uniqueId &&
+                                !sender.hasPermission("${SneakyMannequins.IDENTIFIER}.admin")
+                ) {
+                        sender.sendMessage(
+                                TextUtility.convertToComponent("&cYou do not own this part.")
+                        )
+                        return
+                }
+
+                val strategyName = (if (args.size >= 6) args[5] else null)?.uppercase()
                 val strategy =
                         if (strategyName != null) {
                                 try {
@@ -934,8 +1067,8 @@ class CommandMannequin(
                         } else null
 
                 val channelsArg: Int? =
-                        if (args.size >= 6) {
-                                val n = args[5].toIntOrNull()
+                        if (args.size >= 7) {
+                                val n = args[6].toIntOrNull()
                                 if (n == null || n < 1 || n > 8) {
                                         sender.sendMessage(
                                                 TextUtility.convertToComponent(
@@ -951,7 +1084,7 @@ class CommandMannequin(
                 val channelsLabel = channelsArg?.toString() ?: "default"
                 sender.sendMessage(
                         TextUtility.convertToComponent(
-                                "&7Remasking UGC '$internalKey' (owner $uuidStr) in '$layerId' with $label strategy, $channelsLabel channels..."
+                                "&7Remasking ME '$internalKey' (owner $uuidStr) in '$layerId' with $label strategy, $channelsLabel channels..."
                         )
                 )
                 try {
@@ -965,9 +1098,9 @@ class CommandMannequin(
                         sender.sendMessage(TextUtility.convertToComponent("&a$result"))
                 } catch (e: Exception) {
                         sender.sendMessage(
-                                TextUtility.convertToComponent("&cRemask UGC failed: ${e.message}")
+                                TextUtility.convertToComponent("&cRemask ME failed: ${e.message}")
                         )
-                        plugin.logger.severe("Remask UGC failed: ${e.message}")
+                        plugin.logger.severe("Remask ME failed: ${e.message}")
                         e.printStackTrace()
                 }
         }
@@ -1177,18 +1310,18 @@ class CommandMannequin(
                 )
         }
 
-        private fun handleUpload(player: Player, args: Array<out String>) {
-                if (args.size < 3) {
+        private fun handleMeUpload(player: Player, args: Array<out String>) {
+                if (args.size < 4) {
                         player.sendMessage(
                                 TextUtility.convertToComponent(
-                                        "&cUsage: /mannequin upload <layer> <url> [name]"
+                                        "&cUsage: /mannequin me upload <layer> <url> [name]"
                                 )
                         )
                         return
                 }
-                val layerId = args[1].lowercase()
-                val urlStr = args[2]
-                val name = if (args.size > 3) args[3] else null
+                val layerId = args[2].lowercase()
+                val urlStr = args[3]
+                val name = if (args.size > 4) args[4] else null
 
                 val url =
                         try {

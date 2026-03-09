@@ -618,6 +618,40 @@ class LayerManager(private val plugin: SneakyMannequins) {
         }
     }
 
+    fun deletePart(player: Player, layerId: String, partId: String): String {
+        val entry = loadedLayers[layerId] ?: return "Unknown layer: $layerId"
+        val def = entry.first
+        val options = entry.second
+
+        val optOpt = options.find { it.id == partId }
+        if (optOpt == null) return "Part not found"
+
+        if (optOpt.owner == null) return "Cannot delete builtin parts"
+        if (optOpt.owner != player.uniqueId &&
+                        !player.hasPermission("${SneakyMannequins.IDENTIFIER}.admin")
+        ) {
+            return "You do not own this part"
+        }
+
+        val internalKey = optOpt.internalKey ?: return "Missing internal key"
+        val targetDir =
+                def.directory
+                        .resolve("uploads")
+                        .resolve(optOpt.owner.toString())
+                        .resolve(internalKey)
+
+        try {
+            if (targetDir.exists()) {
+                targetDir.toFile().deleteRecursively()
+            }
+        } catch (e: Exception) {
+            plugin.logger.severe("Failed to delete ME directory $targetDir: ${e.message}")
+        }
+
+        loadedLayers[layerId] = def to options.filter { it.id != partId }
+        return "Successfully deleted part '${optOpt.displayName}'"
+    }
+
     private fun loadMetadata(directory: Path): Map<String, Any> {
         val file = directory.resolve("metadata.json")
         if (!file.exists()) return emptyMap()

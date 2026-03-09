@@ -53,9 +53,10 @@ A rich set of built-in colour palettes: skin tones, hair, eyes, primary, pastel,
 | `/mannequin reload` | Reload config and re-render all mannequins |
 | `/mannequin history <player>` | Show the undo history of a player's modifications |
 | `/mannequin template <uid> <name> [layer...]` | Create a named template from a player's outfit |
-| `/mannequin upload <layer> <url> [name]` | Upload a custom skin part PNG for your exclusive use |
-| `/mannequin remask <layer> <part> <strategy> [channel]` | Re-run colour-channel masking for a global part |
-| `/mannequin remaskugc <layer> <uuid> <part> [strategy] [channel]` | Re-run colour-channel masking for an uploaded part |
+| `/mannequin me upload <layer> <url> [name]` | Upload a custom skin part PNG for your exclusive use |
+| `/mannequin me remask <layer> <uuid> <part> [strategy] [channels]` | Re-run colour-channel masking for an uploaded part |
+| `/mannequin me delete <layer> <uuid> <part>` | Delete an uploaded part |
+| `/mannequin remask <layer> <part> <strategy> [channels]` | Re-run colour-channel masking for a global part |
 | `/mannequin debug` | Various debug actions. Not intended for everyday use |
 
 Permission nodes: `sneakymannequins.command.mannequin`, plus `sneakymannequins.command.debug.<subcmd>` for debug operations.
