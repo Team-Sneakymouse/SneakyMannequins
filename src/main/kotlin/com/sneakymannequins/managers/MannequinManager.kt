@@ -1047,14 +1047,83 @@ class MannequinManager(
                                         selectedTexture =
                                                 if (nextTex == "default") null else nextTex
                                 )
-                mannequin.selection =
-                        mannequin.selection.copy(
-                                selections = mannequin.selection.selections + (layer.id to nextSel)
-                        )
+
                 updateStatus(mannequinId, "Texture: ${prettyName(nextTex)}")
-                render(mannequin, nearbyViewers(mannequin))
                 refreshDynamicLabels(mannequinId, option, layer)
                 refreshColorGrid(player, mannequin, state, hud)
+
+                // Flash texture channels for 10 ticks
+                val slots = resolveChannelSlots(layer, option, state, player)
+                val texDef = layerManager.texture(nextTex)
+                val hasBlendMap = texDef?.blendMapImage != null
+
+                val flashColors = nextSel.channelColors.toMutableMap()
+                val flashTextured = nextSel.texturedColors.toMutableMap()
+
+                if (hasBlendMap) {
+                    val distinctColors =
+                            listOf(
+                                    java.awt.Color.RED,
+                                    java.awt.Color.GREEN,
+                                    java.awt.Color.BLUE,
+                                    java.awt.Color.YELLOW,
+                                    java.awt.Color.CYAN,
+                                    java.awt.Color.MAGENTA
+                            )
+                    var colorIdx = 0
+                    for (slot in slots) {
+                        val c = distinctColors[colorIdx % distinctColors.size]
+                        if (slot.subChannel != null) {
+                            val sub =
+                                    flashTextured
+                                            .getOrPut(slot.maskIdx) { emptyMap() }
+                                            .toMutableMap()
+                            sub[slot.subChannel] = c
+                            flashTextured[slot.maskIdx] = sub
+                        } else {
+                            flashColors[slot.maskIdx] = c
+                        }
+                        colorIdx++
+                    }
+                } else {
+                    for (slot in slots) {
+                        if (slot.subChannel != null) {
+                            val sub =
+                                    flashTextured
+                                            .getOrPut(slot.maskIdx) { emptyMap() }
+                                            .toMutableMap()
+                            sub[slot.subChannel] = java.awt.Color.WHITE
+                            flashTextured[slot.maskIdx] = sub
+                        } else {
+                            flashColors[slot.maskIdx] = java.awt.Color.WHITE
+                        }
+                    }
+                }
+
+                val flashSel =
+                        nextSel.copy(channelColors = flashColors, texturedColors = flashTextured)
+                mannequin.selection =
+                        mannequin.selection.copy(
+                                selections = mannequin.selection.selections + (layer.id to flashSel)
+                        )
+
+                val viewers = nearbyViewers(mannequin)
+                render(mannequin, viewers, forceInstant = true)
+
+                plugin.server.scheduler.runTaskLater(
+                        plugin,
+                        Runnable {
+                            if (mannequins[mannequinId] != mannequin) return@Runnable
+                            mannequin.selection =
+                                    mannequin.selection.copy(
+                                            selections =
+                                                    mannequin.selection.selections +
+                                                            (layer.id to nextSel)
+                                    )
+                            render(mannequin, viewers, forceInstant = true)
+                        },
+                        10L
+                )
             }
             "channel" -> {
                 if (layer == null) return
