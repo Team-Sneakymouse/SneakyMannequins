@@ -87,7 +87,6 @@ class MannequinManager(
         private val persistence: MannequinPersistence,
         private val sessionManager: SessionManager,
         private val characterManagerBridge: CharacterManagerBridge,
-        private val appliedSessionRegistry: AppliedSessionRegistry,
         private val holoController: HoloController
 ) {
     private val mannequins = mutableMapOf<UUID, Mannequin>()
@@ -96,8 +95,6 @@ class MannequinManager(
     private val statusText = mutableMapOf<UUID, String>()
     /** mannequinId -> last saved fingerprint */
     private val lastSavedFingerprint = mutableMapOf<UUID, String>()
-    /** mannequinId -> last saved session UID */
-    private val lastSavedUid = mutableMapOf<UUID, String>()
     /** mannequinId -> true = T-pose */
     private val poseState = mutableMapOf<UUID, Boolean>()
     private val controlState = mutableMapOf<UUID, ControlState>()
@@ -298,20 +295,21 @@ class MannequinManager(
     fun loadFromDisk() {
         partSelectionMemory.clear()
         val loaded = persistence.load()
-        loaded.forEach { (id, loc, slim) ->
+        loaded.forEach { data ->
             val selection = bootstrapSelection()
             val mannequin =
                     Mannequin(
-                            id = id,
-                            location = loc.clone(),
+                            id = data.id,
+                            location = data.location.clone(),
                             selection = selection,
-                            slimModel = slim
+                            slimModel = data.slim,
+                            savedUid = data.savedUid
                     )
-            mannequins[id] = mannequin
-            controlState[id] = ControlState()
+            mannequins[data.id] = mannequin
+            controlState[data.id] = ControlState()
             randomize(mannequin, randomizeModel = true)
-            initButtonVisuals(id)
-            cleanupControlEntities(id)
+            initButtonVisuals(data.id)
+            cleanupControlEntities(data.id)
             registerTrigger(mannequin)
         }
     }
@@ -1790,7 +1788,8 @@ class MannequinManager(
         val mannequin = mannequins[manId] ?: return
         when (action) {
             "Save" -> {
-                val uid = saveMannequinState(mannequin, player)
+                val session = saveMannequinState(mannequin, player)
+                val uid = session.uid
                 player.sendMessage(
                         Component.text("Session saved: ")
                                 .color(NamedTextColor.GREEN)
@@ -1845,20 +1844,23 @@ class MannequinManager(
             contextPlayer: Player,
             sessionOverride: SessionData? = null
     ) {
-        var appliedUid = sessionOverride?.uid
+        var actualSessionOverride = sessionOverride
 
         if (sessionOverride == null) {
             val currentFingerprint = sessionManager.fingerprint(mannequin)
             if (lastSavedFingerprint[mannequin.id] != currentFingerprint) {
-                val uid = saveMannequinState(mannequin, requester)
+                val session = saveMannequinState(mannequin, requester)
                 requester.sendMessage(
                         TextUtility.convertToComponent(
-                                "&7Unsaved changes detected. Auto-saved to session &e$uid&7."
+                                "&7Unsaved changes detected. Auto-saved to session &e${session.uid}&7."
                         )
                 )
-                appliedUid = uid
+                actualSessionOverride = session
             } else {
-                appliedUid = lastSavedUid[mannequin.id]
+                val savedUid = mannequin.savedUid
+                if (savedUid != null) {
+                    actualSessionOverride = sessionManager.load(savedUid)
+                }
             }
         }
 
@@ -1866,7 +1868,7 @@ class MannequinManager(
                 .finalizeSession(
                         requester,
                         mannequin,
-                        sessionOverride = sessionOverride,
+                        sessionOverride = actualSessionOverride,
                         contextPlayer = contextPlayer
                 )
                 .thenAccept { result ->
@@ -1881,15 +1883,6 @@ class MannequinManager(
                                     url,
                                     result.slim
                             )
-
-                            // Record in registry for future merges
-                            if (appliedUid != null) {
-                                appliedSessionRegistry.setLastApplied(
-                                        contextPlayer.uniqueId,
-                                        appliedUid,
-                                        charContext.characterUuid
-                                )
-                            }
 
                             requester.sendMessage(
                                     TextUtility.convertToComponent(
@@ -1925,23 +1918,25 @@ class MannequinManager(
     }
 
     /** Saves the mannequin state and tracks the fingerprint. */
-    fun saveMannequinState(mannequin: Mannequin, player: Player): String {
+    fun saveMannequinState(mannequin: Mannequin, player: Player): SessionData {
         val charContext = characterManagerBridge.currentCharacter(player)
-        val uid =
+        val session =
                 sessionManager.save(
                         mannequin,
                         player,
                         characterUuid = charContext?.characterUuid,
                         characterName = charContext?.characterName
                 )
+        val uid = session.uid
         val fingerprint = sessionManager.fingerprint(mannequin)
         lastSavedFingerprint[mannequin.id] = fingerprint
-        lastSavedUid[mannequin.id] = uid
+        mannequin.savedUid = uid
+        persist()
         plugin.server.pluginManager.callEvent(
                 MannequinSessionSaveEvent(mannequin.id, mannequin.location, player, uid)
         )
         updateStatus(mannequin.id, "Saved to session '$uid'")
-        return uid
+        return session
     }
 
     fun handleInteract(mannequinId: UUID, player: Player, backwards: Boolean) {

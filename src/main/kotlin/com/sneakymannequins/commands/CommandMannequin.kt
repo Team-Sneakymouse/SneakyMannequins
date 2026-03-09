@@ -149,7 +149,9 @@ class CommandMannequin(
                                                                 "save",
                                                                 "apply",
                                                                 "info",
-                                                                "delete"
+                                                                "delete",
+                                                                "checkskin",
+                                                                "debug"
                                                         )
                                                         .filter {
                                                                 hasDebugPermission(stack.sender, it)
@@ -237,6 +239,18 @@ class CommandMannequin(
                                                                                 .listTemplateNames() +
                                                                                 sessionManager
                                                                                         .listSessionUids())
+                                                                        .filter {
+                                                                                it.startsWith(
+                                                                                        args[2],
+                                                                                        ignoreCase =
+                                                                                                true
+                                                                                )
+                                                                        }
+                                                                        .toMutableList()
+                                                        "checkskin" ->
+                                                                plugin.server
+                                                                        .onlinePlayers
+                                                                        .map { it.name }
                                                                         .filter {
                                                                                 it.startsWith(
                                                                                         args[2],
@@ -479,6 +493,18 @@ class CommandMannequin(
                         sendDebugHelp(stack.sender)
                         return true
                 }
+
+                when (args[1].lowercase()) {
+                        "checkskin" -> {
+                                handleCheckSkin(stack, args)
+                                return true
+                        }
+                        "debug" -> {
+                                handleDebugToggle(stack, args)
+                                return true
+                        }
+                }
+
                 val player =
                         stack.sender as? Player
                                 ?: run {
@@ -650,7 +676,8 @@ class CommandMannequin(
                                         return
                                 }
 
-                val uid = mannequinManager.saveMannequinState(man, player)
+                val session = mannequinManager.saveMannequinState(man, player)
+                val uid = session.uid
                 player.sendMessage(
                         TextUtility.convertToComponent(
                                 "&aMannequin state saved with UID: ${TextUtility.clickableCopy(uid)}"
@@ -802,6 +829,78 @@ class CommandMannequin(
                         plugin.logger.severe("Remask failed: ${e.message}")
                         e.printStackTrace()
                 }
+        }
+
+        private fun handleDebugToggle(stack: CommandSourceStack, args: Array<out String>) {
+                val current = plugin.config.getBoolean("plugin.debug", false)
+                val newDebug = !current
+                plugin.config.set("plugin.debug", newDebug)
+                stack.sender.sendMessage(
+                        TextUtility.convertToComponent(
+                                "&aPlugin debug mode is now &e$newDebug&a (in-memory)."
+                        )
+                )
+        }
+
+        private fun handleCheckSkin(stack: CommandSourceStack, args: Array<out String>) {
+                val targetName = if (args.size >= 3) args[2] else stack.sender.name
+                val target =
+                        plugin.server.getPlayer(targetName)
+                                ?: run {
+                                        stack.sender.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&cPlayer '$targetName' not found or offline."
+                                                )
+                                        )
+                                        return
+                                }
+                val skinUrl = target.playerProfile.textures.skin
+                if (skinUrl == null) {
+                        stack.sender.sendMessage(
+                                TextUtility.convertToComponent(
+                                        "&cPlayer '${target.name}' has no skin URL."
+                                )
+                        )
+                        return
+                }
+                stack.sender.sendMessage(
+                        TextUtility.convertToComponent("&eDownloading skin for ${target.name}...")
+                )
+                sessionManager
+                        .downloadSkin(skinUrl)
+                        .thenAccept { skin ->
+                                val uid = SessionManager.decodeUidFromImage(skin)
+                                if (uid == null) {
+                                        stack.sender.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&cNo valid encoded session ID (UID) found in ${target.name}'s skin pixels."
+                                                )
+                                        )
+                                        return@thenAccept
+                                }
+                                val session = sessionManager.load(uid)
+                                if (session == null) {
+                                        stack.sender.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&eFound valid encoded UID '&b$uid&e' in skin pixels, but no local session data matches it."
+                                                )
+                                        )
+                                } else {
+                                        stack.sender.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&aFound VALID encoded UID '&b$uid&a' in skin pixels! Session contains &e${session.layers.size}&a layers."
+                                                )
+                                        )
+                                }
+                        }
+                        .exceptionally { ex ->
+                                stack.sender.sendMessage(
+                                        TextUtility.convertToComponent(
+                                                "&cFailed to download or process skin: ${ex.message}"
+                                        )
+                                )
+                                null
+                        }
         }
 
         private fun handleRemaskUgc(sender: Player, args: Array<out String>) {
@@ -1054,12 +1153,13 @@ class CommandMannequin(
                 val merged = sessionManager.merge(sourceSession, targetSession, defaultSlim)
 
                 // Save for debug purposes
-                val uid =
+                val savedSession =
                         sessionManager.save(
                                 mannequin = mannequinManager.nearestMannequin(player.location)
                                                 ?: return,
                                 player = player
                         )
+                val uid = savedSession.uid
                 // Overwrite the saved JSON with our merged session but keep the UID
                 val savedFile = File(File(plugin.dataFolder, "sessions"), "$uid.json")
                 val finalMerged = merged.copy(uid = uid)

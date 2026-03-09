@@ -9,5 +9,6 @@ data class Mannequin(
         var selection: SkinSelection,
         var slimModel: Boolean = false,
         var showOverlay: Boolean = true,
-        var lastFrame: PixelFrame = PixelFrame.blank()
+        var lastFrame: PixelFrame = PixelFrame.blank(),
+        var savedUid: String? = null
 )

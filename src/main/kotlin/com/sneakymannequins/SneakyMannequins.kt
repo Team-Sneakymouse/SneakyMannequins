@@ -3,9 +3,7 @@ package com.sneakymannequins
 import com.sneakymannequins.commands.CommandMannequin
 import com.sneakymannequins.integrations.CharacterManagerBridge
 import com.sneakymannequins.integrations.CharacterManagerBridgeFactory
-import com.sneakymannequins.listeners.CharacterManagerListener
 import com.sneakymannequins.listeners.TriggerListener
-import com.sneakymannequins.managers.AppliedSessionRegistry
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymannequins.managers.MannequinManager
 import com.sneakymannequins.managers.MannequinPersistence
@@ -46,7 +44,6 @@ class SneakyMannequins : JavaPlugin(), Listener {
     private lateinit var persistence: MannequinPersistence
     private lateinit var sessionManager: SessionManager
     lateinit var characterManagerBridge: CharacterManagerBridge
-    private lateinit var appliedSessionRegistry: AppliedSessionRegistry
     lateinit var holoController: HoloController
         private set
 
@@ -61,19 +58,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
         layerManager = LayerManager(this).also { it.reload() }
         persistence = MannequinPersistence(this)
         characterManagerBridge = CharacterManagerBridgeFactory.create(this)
-        appliedSessionRegistry =
-                AppliedSessionRegistry(
-                        dataFolder = dataFolder,
-                        logger = logger,
-                        characterScopedMode = { characterManagerBridge.active }
-                )
-        sessionManager =
-                SessionManager(
-                        dataFolder,
-                        layerManager,
-                        characterManagerBridge,
-                        appliedSessionRegistry
-                )
+        sessionManager = SessionManager(dataFolder, layerManager, characterManagerBridge)
         holoController = HoloController(this, HoloHandler1214()).also { it.start() }
         mannequinManager =
                 MannequinManager(
@@ -83,7 +68,6 @@ class SneakyMannequins : JavaPlugin(), Listener {
                                 persistence,
                                 sessionManager,
                                 characterManagerBridge,
-                                appliedSessionRegistry,
                                 holoController
                         )
                         .also {
@@ -99,10 +83,6 @@ class SneakyMannequins : JavaPlugin(), Listener {
         server.pluginManager.registerEvents(this, this)
         server.pluginManager.registerEvents(TriggerListener(this), this)
         if (characterManagerBridge.active) {
-            server.pluginManager.registerEvents(
-                    CharacterManagerListener(appliedSessionRegistry),
-                    this
-            )
             logger.info("CharacterManager integration enabled.")
         }
     }

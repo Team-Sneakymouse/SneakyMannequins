@@ -30,8 +30,7 @@ data class FinalizedResult(val file: File, val slim: Boolean)
 class SessionManager(
         private val dataFolder: File,
         private val layerManager: LayerManager,
-        private val characterManagerBridge: CharacterManagerBridge,
-        private val appliedSessionRegistry: AppliedSessionRegistry
+        private val characterManagerBridge: CharacterManagerBridge
 ) {
     private fun hexToColor(hex: String?): Color? {
         if (hex == null) return null
@@ -50,7 +49,50 @@ class SessionManager(
 
     companion object {
         private const val UID_LENGTH = 8
-        private const val UID_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        private const val UID_CHARS =
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+
+        fun encodeUidToImage(image: BufferedImage, uid: String) {
+            val paddedUid = uid.padEnd(UID_LENGTH, '0').take(UID_LENGTH)
+            val bytes = paddedUid.toByteArray(Charsets.US_ASCII)
+
+            val p1 =
+                    ((bytes[0].toInt() and 0xFF) shl 24) or
+                            ((bytes[1].toInt() and 0xFF) shl 16) or
+                            ((bytes[2].toInt() and 0xFF) shl 8) or
+                            (bytes[3].toInt() and 0xFF)
+            image.setRGB(3, 48, p1)
+
+            val p2 =
+                    ((bytes[4].toInt() and 0xFF) shl 24) or
+                            ((bytes[5].toInt() and 0xFF) shl 16) or
+                            ((bytes[6].toInt() and 0xFF) shl 8) or
+                            (bytes[7].toInt() and 0xFF)
+            image.setRGB(3, 49, p2)
+        }
+
+        fun decodeUidFromImage(image: BufferedImage): String? {
+            if (image.width < 64 || image.height < 64) return null
+            val p1 = image.getRGB(3, 48)
+            val p2 = image.getRGB(3, 49)
+
+            val bytes = ByteArray(8)
+            bytes[0] = ((p1 ushr 24) and 0xFF).toByte()
+            bytes[1] = ((p1 ushr 16) and 0xFF).toByte()
+            bytes[2] = ((p1 ushr 8) and 0xFF).toByte()
+            bytes[3] = (p1 and 0xFF).toByte()
+
+            bytes[4] = ((p2 ushr 24) and 0xFF).toByte()
+            bytes[5] = ((p2 ushr 16) and 0xFF).toByte()
+            bytes[6] = ((p2 ushr 8) and 0xFF).toByte()
+            bytes[7] = (p2 and 0xFF).toByte()
+
+            val str = String(bytes, Charsets.US_ASCII)
+            if (str.length == 8 && str.all { it in UID_CHARS }) {
+                return str
+            }
+            return null
+        }
     }
 
     init {
@@ -64,7 +106,7 @@ class SessionManager(
             renderedImage: BufferedImage? = null,
             characterUuid: String? = null,
             characterName: String? = null
-    ): String {
+    ): SessionData {
         val uid = generateUid()
         val layers = snapshotLayers(mannequin)
         val session =
@@ -84,11 +126,11 @@ class SessionManager(
                 runCatching { ImageIO.write(renderedImage, "PNG", File(sessionsDir, "$uid.png")) }
             }
         }
-        return uid
+        return session
     }
 
     fun load(id: String): SessionData? {
-        val normalized = id.uppercase().trim()
+        val normalized = id.trim()
         val sessionFile = File(sessionsDir, "$normalized.json")
         if (sessionFile.exists()) {
             return runCatching { gson.fromJson(sessionFile.readText(), SessionData::class.java) }
@@ -249,11 +291,30 @@ class SessionManager(
         return CompletableFuture.supplyAsync {
             val targetDir = ConfigManager.instance.getImageStoragePath().toFile()
             val mannequinSession = sessionOverride ?: sessionFromMannequin(man)
-            val lastAppliedUid =
-                    if (characterManagerBridge.active) {
-                        appliedSessionRegistry.getLastApplied(contextPlayerUniqueId, charUuid)
-                    } else null
 
+            val skinUrl =
+                    playerSkinUrl ?: throw IllegalStateException("Context player has no skin URL")
+
+            val downloadedSkin =
+                    downloadSkin(skinUrl).join()
+                            ?: throw IllegalStateException("Failed to download skin")
+
+            val baseSkin =
+                    if (downloadedSkin.type != BufferedImage.TYPE_INT_ARGB) {
+                        val converted =
+                                BufferedImage(
+                                        downloadedSkin.width,
+                                        downloadedSkin.height,
+                                        BufferedImage.TYPE_INT_ARGB
+                                )
+                        val g = converted.createGraphics()
+                        g.drawImage(downloadedSkin, 0, 0, null)
+                        g.dispose()
+                        converted
+                    } else downloadedSkin
+
+            val lastAppliedUid =
+                    if (characterManagerBridge.active) decodeUidFromImage(baseSkin) else null
             val baseSession = lastAppliedUid?.let { load(it) }
             val merged =
                     if (baseSession != null) {
@@ -281,34 +342,16 @@ class SessionManager(
 
             val isComplete = isComplete(merged, slim)
             if (isComplete) {
+                targetDir.mkdirs()
+                encodeUidToImage(sessionImage, merged.uid)
                 val f = File(targetDir, "finalized_${merged.uid}.png")
                 ImageIO.write(sessionImage, "PNG", f)
                 return@supplyAsync FinalizedResult(f, slim)
             }
 
-            val skinUrl =
-                    playerSkinUrl ?: throw IllegalStateException("Context player has no skin URL")
-
-            val downloadedSkin =
-                    downloadSkin(skinUrl).join()
-                            ?: throw IllegalStateException("Failed to download skin")
-
-            val baseSkin =
-                    if (downloadedSkin.type != BufferedImage.TYPE_INT_ARGB) {
-                        val converted =
-                                BufferedImage(
-                                        downloadedSkin.width,
-                                        downloadedSkin.height,
-                                        BufferedImage.TYPE_INT_ARGB
-                                )
-                        val g = converted.createGraphics()
-                        g.drawImage(downloadedSkin, 0, 0, null)
-                        g.dispose()
-                        converted
-                    } else downloadedSkin
-
             overlayWithPunchThrough(sessionImage, baseSkin)
             targetDir.mkdirs()
+            encodeUidToImage(baseSkin, merged.uid)
             val f = File(targetDir, "finalized_${merged.uid}.png")
             ImageIO.write(baseSkin, "PNG", f)
             FinalizedResult(f, slim)
@@ -502,7 +545,7 @@ class SessionManager(
             )
         }
 
-        val normalized = input.uppercase().trim()
+        val normalized = input.trim()
         val isSession = File(sessionsDir, "$normalized.json").exists()
         val res = load(input) ?: return null
 
