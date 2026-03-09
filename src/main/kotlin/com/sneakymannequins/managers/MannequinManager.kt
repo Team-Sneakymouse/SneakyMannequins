@@ -1125,23 +1125,28 @@ class MannequinManager(
                 } else 0
         val channelDisabled = channelSlotCount <= 1
 
+        val gridConfig = loadGridConfig()
         val channelJson =
-                if (channelDisabled) {
-                    TextUtility.mmToJson("<gray>Channel")
-                } else {
-                    TextUtility.mmToJson("<white>Channel")
-                }
+                TextUtility.mmToJson(
+                        gridConfig.headerTextMM.replace(
+                                "{message}",
+                                if (channelDisabled) "<gray>Channel" else "Channel"
+                        )
+                )
 
         val texCount =
                 if (finalOption != null && finalLayer != null)
                         layerManager.resolveTextures(finalLayer, finalOption, null).size
                 else 0
         val textureJson =
-                if (texCount <= 1) {
-                    TextUtility.mmToJson("<gray>Texture")
-                } else {
-                    TextUtility.mmToJson("<white>Texture")
-                }
+                TextUtility.mmToJson(
+                        gridConfig.headerTextMM.replace(
+                                "{message}",
+                                if (texCount <= 1) "<gray>Texture" else "Texture"
+                        )
+                )
+
+        val layerJson = TextUtility.mmToJson(gridConfig.headerTextMM.replace("{message}", "Layer"))
 
         val colorBtn = buttonByName("color")
         val configBtn = buttonByName("config")
@@ -1154,6 +1159,7 @@ class MannequinManager(
                     continue
 
             if (hud.isButtonActive("color_texture")) {
+                hud.updateButtonText("color_layer", layerJson)
                 hud.updateButtonText("color_channel", channelJson)
                 hud.updateButtonText("color_texture", textureJson)
             }
@@ -1367,11 +1373,41 @@ class MannequinManager(
             )
         }
 
+        // Layer button
+        grid.addButton(
+                id = "color_layer",
+                textMM = config.headerTextMM.replace("{message}", "Layer"),
+                column = 4,
+                row = -1,
+                bgDefault = config.bgHeader,
+                bgHighlight = HUD_BG_HIGHLIGHT,
+                lineWidth = config.headerLineWidth,
+                scaleX = config.headerScale,
+                scaleY = config.headerScale,
+                interactionWidth = 0.6f,
+                interactionHeight = 0.3f,
+                onClick = { p, isLeftClick ->
+                    val backwards = isLeftClick
+                    val allLayers = layerManager.definitionsInOrder()
+                    if (allLayers.size > 1) {
+                        state.layerIndex =
+                                if (backwards)
+                                        (state.layerIndex - 1 + allLayers.size) % allLayers.size
+                                else (state.layerIndex + 1) % allLayers.size
+                        val nextLayer = allLayers[state.layerIndex % allLayers.size]
+                        val nextOpt = freshOption(nextLayer.id, mannequin)
+                        updateStatus(mannequin.id, "Layer: ${prettyName(nextLayer.id)}")
+                        refreshDynamicLabels(mannequin.id, nextOpt, nextLayer)
+                        spawnColorGrid(p, mannequin, state, hud, quiet = true)
+                    }
+                }
+        )
+
         // Texture button
         grid.addButton(
                 id = "color_texture",
                 textMM = config.headerTextMM.replace("{message}", "Texture"),
-                column = 5,
+                column = 8,
                 row = -1,
                 bgDefault = config.bgHeader,
                 bgHighlight = HUD_BG_HIGHLIGHT,
@@ -1491,7 +1527,7 @@ class MannequinManager(
         grid.addButton(
                 id = "color_channel",
                 textMM = config.headerTextMM.replace("{message}", "Channel"),
-                column = 10,
+                column = 12,
                 row = -1,
                 bgDefault = config.bgHeader,
                 bgHighlight = HUD_BG_HIGHLIGHT,
