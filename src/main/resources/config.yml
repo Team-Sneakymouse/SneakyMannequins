@@ -14,9 +14,6 @@ images:
 plugin:
   # Enable debug logging
   debug: false
-  
-  # Default skin model for mannequins
-  default-skin-model: "CLASSIC"
 
   preprocessing:
     # If true, sanitize/mask new layer PNGs on load (creates *_mask_*.png)
@@ -264,7 +261,7 @@ hud-buttons:
     # Extra yaw offset (radians, positive = swing left)
     yaw: 1
     # Vertical spacing between menu items
-    item-spacing-y: 0.5
+    item-spacing-y: 0.3
     # Text display line width for menu items
     item-line-width: 200
 

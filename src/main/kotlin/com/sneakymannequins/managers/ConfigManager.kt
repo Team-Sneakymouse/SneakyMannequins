@@ -84,14 +84,6 @@ class ConfigManager {
         return config.getBoolean("plugin.debug", false)
     }
 
-    /**
-     * Gets the default skin model from config
-     * @return The default skin model string
-     */
-    fun getDefaultSkinModel(): String {
-        return config.getString("plugin.default-skin-model", "CLASSIC") ?: "CLASSIC"
-    }
-
     /** Reloads the configuration from disk */
     fun reloadConfig() {
         plugin.reloadConfig()
