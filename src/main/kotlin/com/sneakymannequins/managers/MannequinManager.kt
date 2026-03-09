@@ -112,15 +112,15 @@ class MannequinManager(
 
     /** Radius at which a mannequin first appears for a player. */
     private val viewRadius: Double
-        get() = plugin.config.getDouble("rendering.view-radius", 32.0)
+        get() = plugin.config.getDouble("rendering.view-radius", 8.0)
 
     /** Radius within which a player keeps receiving updates. */
     private val updateRadius: Double
-        get() = plugin.config.getDouble("rendering.update-radius", 48.0)
+        get() = plugin.config.getDouble("rendering.update-radius", 15.0)
 
     /** Radius of the mannequin Interaction hitbox (blocks). */
     private val interactRadius: Double
-        get() = plugin.config.getDouble("controls.interact-radius", 8.0).coerceAtLeast(0.5)
+        get() = plugin.config.getDouble("controls.interact-radius", 5.0).coerceAtLeast(0.5)
 
     /** Distance required for control interaction logic (blocks). */
     private val interactRange: Double
@@ -142,11 +142,11 @@ class MannequinManager(
     /** Read [RenderSettings] from config for first-seen or update context. */
     private fun readRenderSettings(isFirstSeen: Boolean): RenderSettings {
         val path = if (isFirstSeen) "rendering.first-seen" else "rendering.update"
-        val modeStr = plugin.config.getString("$path.mode", "INSTANT")?.uppercase() ?: "INSTANT"
+        val modeStr = plugin.config.getString("$path.mode", "BUILD")?.uppercase() ?: "INSTANT"
         val mode = runCatching { RenderMode.valueOf(modeStr) }.getOrDefault(RenderMode.INSTANT)
         val interval = plugin.config.getInt("$path.tick-interval", 1).coerceAtLeast(1)
         val skip = plugin.config.getDouble("$path.skip-chance", 0.5).coerceIn(0.0, 1.0)
-        val flyIn = plugin.config.getInt("$path.fly-in-count", 0).coerceAtLeast(0)
+        val flyIn = plugin.config.getInt("$path.fly-in-count", 5).coerceAtLeast(0)
         return RenderSettings(mode, interval, skip, flyIn)
     }
 
@@ -161,8 +161,8 @@ class MannequinManager(
     companion object {
         private const val HOVER_RANGE = 6.0
         private const val INTERACT_RADIUS_DEFAULT = 10.0
-        private const val INTERACT_RANGE_DEFAULT = 2.0
-        private const val PART_FACING_TOLERANCE_DEG_DEFAULT = 60.0
+        private const val INTERACT_RANGE_DEFAULT = 4.0
+        private const val PART_FACING_TOLERANCE_DEG_DEFAULT = 20.0
         private const val HUD_BG_DEFAULT = 0x78000000.toInt() // fallback semi-transparent black
         private const val HUD_BG_HIGHLIGHT = 0xB8336699.toInt() // fallback translucent blue
         private const val BUTTON_TOLERANCE = 0.35
