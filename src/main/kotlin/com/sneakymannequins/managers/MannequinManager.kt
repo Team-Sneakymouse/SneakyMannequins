@@ -1326,6 +1326,7 @@ class MannequinManager(
         val hud = holoController.getHud(player.uniqueId)
         if (hud != null) refreshColorGrid(player, mannequin, state, hud)
 
+        val prettyLayer = prettyName(layer.displayName)
         val prettyPart = prettyName(chosen.displayName)
         val partEvent =
                 MannequinPartChangeEvent(
@@ -1336,9 +1337,9 @@ class MannequinManager(
                         part = prettyPart.replace(' ', '\u00A0')
                 )
         plugin.server.pluginManager.callEvent(partEvent)
-        if (partEvent.isCancelled) return "Part: $prettyPart"
+        if (partEvent.isCancelled) return "$prettyLayer: $prettyPart"
 
-        return "Part: $prettyPart"
+        return "$prettyLayer: $prettyPart"
     }
 
     // ── Grid & Submenu Management (SneakyHolos compatible) ──────────────────────────
