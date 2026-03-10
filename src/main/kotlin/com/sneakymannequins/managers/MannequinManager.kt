@@ -1742,13 +1742,24 @@ class MannequinManager(
 
             // Color swatches
             for ((col, namedColor) in palette.colors.withIndex()) {
-                val rgb = namedColor.color
+                val baseRgb = namedColor.color
+                val rgb =
+                        if (slots.isNotEmpty()) baseRgb
+                        else {
+                            val gray =
+                                    (baseRgb.red * 0.299 +
+                                                    baseRgb.green * 0.587 +
+                                                    baseRgb.blue * 0.114)
+                                            .toInt()
+                            java.awt.Color(gray, gray, gray)
+                        }
+
                 val bgNormal =
                         (0xFF shl 24) or
                                 ((rgb.red and 0xFF) shl 16) or
                                 ((rgb.green and 0xFF) shl 8) or
                                 (rgb.blue and 0xFF)
-                val isSelected = selectedColor != null && rgb == selectedColor
+                val isSelected = selectedColor != null && baseRgb == selectedColor
 
                 grid.addButton(
                         id = "color_${palId}_${namedColor.name}",
@@ -1765,7 +1776,7 @@ class MannequinManager(
                         onClick = { p, _ ->
                             applyGridCellColor(
                                     prettyName(namedColor.name),
-                                    rgb,
+                                    baseRgb,
                                     mannequin.id,
                                     mannequin,
                                     state,
