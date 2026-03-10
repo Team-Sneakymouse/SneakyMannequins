@@ -1824,15 +1824,24 @@ class MannequinManager(
         val slotIdx = state.channelIndex.getOrDefault(layer.id, 0)
         val slot = slots.getOrNull(slotIdx) ?: return
 
-        if (slot.subChannel != null) {
+        if (color == null) {
+            val selection =
+                    current?.copy(
+                            channelColors = emptyMap(),
+                            texturedColors = emptyMap(),
+                            selectedTexture = null
+                    )
+                            ?: LayerSelection(layer.id, option)
+            mannequin.selection =
+                    mannequin.selection.copy(
+                            selections = mannequin.selection.selections + (layer.id to selection)
+                    )
+            state.textureIndex[layer.id] = 0 // Reset texture index to default
+        } else if (slot.subChannel != null) {
             val prevTextured = current?.texturedColors ?: emptyMap()
             val prevSub = prevTextured[slot.maskIdx] ?: emptyMap()
-            val newSub =
-                    if (color == null) prevSub - slot.subChannel
-                    else prevSub + (slot.subChannel to color)
-            val newTextured =
-                    if (newSub.isEmpty()) prevTextured - slot.maskIdx
-                    else prevTextured + (slot.maskIdx to newSub)
+            val newSub = prevSub + (slot.subChannel to color)
+            val newTextured = prevTextured + (slot.maskIdx to newSub)
             val selection =
                     current?.copy(texturedColors = newTextured)
                             ?: LayerSelection(layer.id, option, texturedColors = newTextured)
@@ -1842,9 +1851,7 @@ class MannequinManager(
                     )
         } else {
             val prevColors = current?.channelColors ?: emptyMap()
-            val newColors =
-                    if (color == null) prevColors - slot.maskIdx
-                    else prevColors + (slot.maskIdx to color)
+            val newColors = prevColors + (slot.maskIdx to color)
             val selection =
                     current?.copy(channelColors = newColors)
                             ?: LayerSelection(layer.id, option, channelColors = newColors)
