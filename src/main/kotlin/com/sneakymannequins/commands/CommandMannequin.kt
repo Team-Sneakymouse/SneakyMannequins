@@ -614,6 +614,10 @@ class CommandMannequin(
                                 handleInfo(player)
                                 true
                         }
+                        "overlay" -> {
+                                handleOverlay(player)
+                                true
+                        }
                         "delete" -> {
                                 handleDelete(player, args.drop(1).toTypedArray())
                                 true
@@ -635,6 +639,7 @@ class CommandMannequin(
                                 "finalize" to "Finalize and export a session",
                                 "save" to "Save nearest mannequin session",
                                 "apply" to "Apply a session/template",
+                                "overlay" to "Toggle nearest mannequin overlay",
                                 "info" to "Show nearest mannequin info",
                                 "delete" to "Delete a session UID"
                         )
@@ -731,6 +736,20 @@ class CommandMannequin(
                                 "&eLayers: &f${man.selection.selections.size}"
                         )
                 )
+        }
+
+        private fun handleOverlay(player: Player) {
+                val man =
+                        mannequinManager.nearestMannequin(player.location, 5.0)
+                                ?: run {
+                                        player.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&cNo mannequin nearby."
+                                                )
+                                        )
+                                        return
+                                }
+                mannequinManager.toggleOverlay(man.id, player)
         }
 
         private fun handleSave(player: Player) {

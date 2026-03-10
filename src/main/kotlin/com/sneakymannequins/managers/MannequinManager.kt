@@ -1861,7 +1861,7 @@ class MannequinManager(
                         true
                 )
 
-        val options = listOf("Save", "Load", "Apply", "Overlay")
+        val options = listOf("Save", "Load", "Apply")
         for ((i, opt) in options.withIndex()) {
             grid.addButton(
                     id = "config_${opt.lowercase()}",
@@ -1934,14 +1934,24 @@ class MannequinManager(
             "Apply" -> {
                 handleApplyAction(manId, player)
             }
-            "Overlay" -> {
-                mannequin.showOverlay = !mannequin.showOverlay
-                updateStatus(manId, "Outer Layer: ${if (mannequin.showOverlay) "ON" else "OFF"}")
-                renderFull(mannequin, nearbyViewers(mannequin))
-            }
         }
         // despawnConfigGrid(player, hud) // Removed: keep menu open
         refreshDynamicLabels(manId)
+    }
+
+    /** Toggles the outer rendering layer (overlay) for a given mannequin. */
+    fun toggleOverlay(mannequinId: UUID, requester: Player) {
+        val mannequin = mannequins[mannequinId] ?: return
+        mannequin.showOverlay = !mannequin.showOverlay
+        val state = if (mannequin.showOverlay) "ON" else "OFF"
+        requester.sendMessage(
+                TextUtility.convertToComponent(
+                        "&aMannequin $mannequinId outer layer turned &e$state&a."
+                )
+        )
+        updateStatus(mannequinId, "Outer Layer: $state")
+        renderFull(mannequin, nearbyViewers(mannequin))
+        refreshDynamicLabels(mannequinId)
     }
 
     private fun handleApplyAction(manId: UUID, player: Player) {
