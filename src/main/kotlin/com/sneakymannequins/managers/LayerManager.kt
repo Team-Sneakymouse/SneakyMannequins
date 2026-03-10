@@ -1132,10 +1132,10 @@ class LayerManager(private val plugin: SneakyMannequins) {
 
     private fun collectChromatic(image: java.awt.image.BufferedImage): List<ColorPixel> {
         val neutralSat =
-                plugin.config.getDouble("plugin.preprocessing.neutral-saturation", 0.12).toFloat()
+                plugin.config.getDouble("plugin.preprocessing.neutral-saturation", 0).toFloat()
         val neutralBriLow =
                 plugin.config
-                        .getDouble("plugin.preprocessing.neutral-brightness-low", 0.10)
+                        .getDouble("plugin.preprocessing.neutral-brightness-low", 0.0)
                         .toFloat()
         val result = mutableListOf<ColorPixel>()
         for (x in 0 until image.width) {
