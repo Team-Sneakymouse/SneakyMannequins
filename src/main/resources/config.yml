@@ -176,6 +176,7 @@ hud-buttons:
   bg-highlight: "B8336699"
 
   status:
+    type: "status"
     # Use {message} as a placeholder for the dynamic status text.
     # The default message ("Controls") is shown when no action has occurred yet.
     text: "<white>{message}"
@@ -188,6 +189,7 @@ hud-buttons:
 
   # Left column
   model:
+    type: "model"
     text: "<white>Model"
     translation:
       x: -1.1
@@ -195,6 +197,7 @@ hud-buttons:
       z: -2.0
 
   random:
+    type: "random"
     text: "<white>Random"
     confirm-text: "<yellow>Confirm?"
     translation:
@@ -203,6 +206,7 @@ hud-buttons:
       z: -2.0
 
   config:
+    type: "config"
     text: "<white>Config"
     active-text: "<yellow>Config"
     translation:
@@ -212,6 +216,7 @@ hud-buttons:
 
   # Right column
   layer:
+    type: "layer"
     text: "<white>Layer"
     translation:
       x: 1.1
@@ -219,6 +224,7 @@ hud-buttons:
       z: -2.0
 
   color:
+    type: "color"
     text: "<white>Color"
     active-text: "<yellow>Color"
     translation:
@@ -227,6 +233,7 @@ hud-buttons:
       z: -2.0
 
   pose:
+    type: "pose"
     text: "<white>Pose"
     translation:
       x: 1.1

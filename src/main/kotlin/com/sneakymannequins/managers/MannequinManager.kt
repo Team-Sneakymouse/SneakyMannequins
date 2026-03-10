@@ -65,8 +65,8 @@ private data class HudButton(
         val name: String,
         val textMM: String, // raw MiniMessage string (for generating variants)
         val activeTextJson: String?, // JSON component for part/color active mode
-        val disabledTextJson:
-                String?, // JSON component when button is disabled (e.g. channel with no masks)
+        val disabledTextJson: String?, // JSON component when button is disabled
+        val confirmTextJson: String?, // JSON component for "confirm?" (random only)
         val tx: Float,
         val ty: Float,
         val tz: Float,
@@ -182,42 +182,6 @@ class MannequinManager(
         private const val HUD_FLY_INTERP_TICKS = 10 // interpolation duration (ticks)
         private const val HUD_DISMISS_RANGE = 8.0 // dismiss HUD when player is this far (blocks)
 
-        /** Canonical ordered list of button names. */
-        private val BUTTON_ORDER =
-                listOf("status", "model", "random", "config", "layer", "color", "pose")
-
-        /** Button names that respond to clicks. "status" is display-only. */
-        private val CLICKABLE_BUTTONS = setOf("model", "pose", "random", "layer", "color", "config")
-
-        /** Hardcoded defaults used when a key is absent from config. */
-        private data class BtnDefault(
-                val text: String,
-                val activeText: String?,
-                val tx: Float,
-                val ty: Float,
-                val tz: Float,
-                val lineWidth: Int
-        )
-        private val BUTTON_DEFAULTS =
-                mapOf(
-                        "status" to BtnDefault("<white>{message}", null, 0.0f, 2.8f, -2.0f, 256),
-                        "model" to BtnDefault("<white>Model", null, -1.1f, 1.7f, -2.0f, 200),
-                        "random" to BtnDefault("<white>Random", null, -1.1f, 1.2f, -2.0f, 200),
-                        "config" to
-                                BtnDefault(
-                                        "<white>Config",
-                                        "<yellow>Config",
-                                        -1.1f,
-                                        0.7f,
-                                        -2.0f,
-                                        200
-                                ),
-                        "layer" to BtnDefault("<white>Layer", null, 1.1f, 1.7f, -2.0f, 200),
-                        "color" to
-                                BtnDefault("<white>Color", "<yellow>Color", 1.1f, 1.2f, -2.0f, 200),
-                        "pose" to BtnDefault("<white>Pose", null, 1.1f, 0.7f, -2.0f, 200)
-                )
-
         /** Parse an ARGB hex string (e.g. "B8336699") to an Int. */
         private fun parseArgb(hex: String?): Int? {
             if (hex.isNullOrBlank()) return null
@@ -254,7 +218,6 @@ class MannequinManager(
                 parseArgb(plugin.config.getString("hud-buttons.bg-default")) ?: HUD_BG_DEFAULT
         val globalBgHi =
                 parseArgb(plugin.config.getString("hud-buttons.bg-highlight")) ?: HUD_BG_HIGHLIGHT
-        val gridConfig = loadGridConfig()
 
         val parentSec = plugin.config.getConfigurationSection("hud-buttons") ?: return emptyList()
         val keys =
@@ -265,44 +228,32 @@ class MannequinManager(
                             it != "color-grid"
                 }
 
-        // Use BUTTON_ORDER to preserve a clean base sequence, then add any remaining custom keys
-        val orderedKeys = (BUTTON_ORDER + keys).distinct()
-
-        return orderedKeys.mapNotNull { name ->
+        return keys.mapNotNull { name ->
             val sec = parentSec.getConfigurationSection(name)
             if (sec == null && !parentSec.contains(name)) return@mapNotNull null
 
-            val def = BUTTON_DEFAULTS[name]
-
-            val baseText =
-                    if (name == "layer") gridConfig.headerTextMM.replace("{message}", "Layer")
-                    else def?.text ?: "<white>${name.replaceFirstChar { it.uppercase() }}"
-            val baseBgDef = if (name == "layer") gridConfig.bgHeader else globalBgDef
-
-            val textMM = sec?.getString("text") ?: baseText
-            val activeMM = sec?.getString("active-text") ?: def?.activeText
+            val type = sec?.getString("type") ?: name
+            val textMM =
+                    sec?.getString("text") ?: "<white>${name.replaceFirstChar { it.uppercase() }}"
+            val activeMM = sec?.getString("active-text")
             val disabledMM = sec?.getString("disabled-text")
-            val tx =
-                    sec?.getDouble("translation.x", def?.tx?.toDouble() ?: 0.0)?.toFloat()
-                            ?: (def?.tx ?: 0f)
-            val ty =
-                    sec?.getDouble("translation.y", def?.ty?.toDouble() ?: 0.0)?.toFloat()
-                            ?: (def?.ty ?: 0f)
-            val tz =
-                    sec?.getDouble("translation.z", def?.tz?.toDouble() ?: 0.0)?.toFloat()
-                            ?: (def?.tz ?: 0f)
-            val lw =
-                    if (name == "layer" && !sec!!.contains("line-width")) 80
-                    else sec?.getInt("line-width", def?.lineWidth ?: 200) ?: (def?.lineWidth ?: 200)
-            val bgDef = parseArgb(sec?.getString("bg-default")) ?: baseBgDef
+            val confirmMM = sec?.getString("confirm-text")
+
+            val tx = sec?.getDouble("translation.x", 0.0)?.toFloat() ?: 0f
+            val ty = sec?.getDouble("translation.y", 0.0)?.toFloat() ?: 0f
+            val tz = sec?.getDouble("translation.z", 0.0)?.toFloat() ?: 0f
+
+            val lw = sec?.getInt("line-width", 200) ?: 200
+            val bgDef = parseArgb(sec?.getString("bg-default")) ?: globalBgDef
             val bgHi = parseArgb(sec?.getString("bg-highlight")) ?: globalBgHi
+
             val sx =
                     if (sec?.contains("scale-x") == true) sec.getDouble("scale-x").toFloat()
                     else null
             val sy =
                     if (sec?.contains("scale-y") == true) sec.getDouble("scale-y").toFloat()
                     else null
-            val type = sec?.getString("type")
+
             val targetLayer = sec?.getString("target-layer")
             val palette = sec?.getString("palette")
             val colorHex = sec?.getString("color")
@@ -312,6 +263,7 @@ class MannequinManager(
                     textMM = textMM,
                     activeTextJson = activeMM?.let { TextUtility.mmToJson(it) },
                     disabledTextJson = disabledMM?.let { TextUtility.mmToJson(it) },
+                    confirmTextJson = confirmMM?.let { TextUtility.mmToJson(it) },
                     tx = tx,
                     ty = ty,
                     tz = tz,
@@ -903,7 +855,7 @@ class MannequinManager(
      * formatting.
      */
     private fun formatStatusText(msg: String?): String {
-        val btn = buttonByName("status")
+        val btn = hudButtons.find { it.type == "status" }
         val template = btn?.textMM ?: "<white>{message}"
         val defaultMsg = plugin.config.getString("hud-buttons.status.default-message") ?: "Controls"
         val text = msg ?: defaultMsg
@@ -920,7 +872,7 @@ class MannequinManager(
         return hudButtons
                 .map { btn ->
                     val initialJson =
-                            if (btn.name == "status") formatStatusText(statusText[mannequin.id])
+                            if (btn.type == "status") formatStatusText(statusText[mannequin.id])
                             else TextUtility.mmToJson(btn.textMM)
                     HoloButton(
                             id = btn.name,
@@ -1005,15 +957,15 @@ class MannequinManager(
         val layers = layerManager.definitionsInOrder()
         val layer = layers.getOrNull(state.layerIndex % layers.size)
         val hud = holoController.getHud(player.uniqueId) ?: return
-        val configBtn = buttonByName(buttonName)
+        val configBtn = buttonByName(buttonName) ?: return
 
-        if (buttonName != "color" && buttonName != "config") {
+        if (configBtn.type != "color" && configBtn.type != "config") {
             plugin.server.pluginManager.callEvent(
                     MannequinClickEvent(mannequinId, mannequin.location, player, buttonName)
             )
         }
 
-        when (buttonName) {
+        when (configBtn.type) {
             "model" -> {
                 mannequin.slimModel = !mannequin.slimModel
                 updateStatus(
@@ -1021,6 +973,7 @@ class MannequinManager(
                         if (mannequin.slimModel) "Model: Slim" else "Model: Steve"
                 )
                 renderFull(mannequin, nearbyViewers(mannequin))
+                refreshDynamicLabels(mannequinId)
             }
             "pose" -> {
                 poseState[mannequinId] = !(poseState[mannequinId] ?: false)
@@ -1029,44 +982,31 @@ class MannequinManager(
                         if (poseState[mannequinId] == true) "Pose: T-Pose" else "Pose: Standard"
                 )
                 renderFull(mannequin, nearbyViewers(mannequin), forceInstant = true)
+                refreshDynamicLabels(mannequinId)
             }
             "random" -> {
                 val now = System.currentTimeMillis()
                 val expires = randomConfirm[player.uniqueId] ?: 0L
                 if (now < expires) {
-                    randomConfirm[player.uniqueId] = now + 5000L
+                    randomConfirm[player.uniqueId] = 0L
                     randomize(mannequin, randomizeModel = true)
                     updateStatus(mannequinId, "Randomized")
                     renderFull(mannequin, nearbyViewers(mannequin), forceInstant = true)
                     refreshDynamicLabels(mannequinId)
                     refreshColorGrid(player, mannequin, state, hud)
-
-                    val btn = hud.buttons.find { it.id == "random" }
-                    if (btn != null) {
-                        val baseJson =
-                                plugin.config.getString(
-                                        "hud-buttons.random.text",
-                                        "<white>Random"
-                                )!!
-                        btn.textJson = TextUtility.mmToJson(baseJson)
-                        hud.updateButtonText("random", btn.textJson)
-                    }
                 } else {
                     randomConfirm[player.uniqueId] = now + 5000L
-                    val btn = hud.buttons.find { it.id == "random" }
+                    val btn = hud.buttons.find { it.id == buttonName }
                     if (btn != null) {
-                        val confirmJson =
-                                plugin.config.getString(
-                                        "hud-buttons.random.confirm-text",
-                                        "<yellow>Confirm?"
-                                )!!
-                        btn.textJson = TextUtility.mmToJson(confirmJson)
-                        hud.updateButtonText("random", btn.textJson)
+                        btn.textJson =
+                                configBtn.confirmTextJson
+                                        ?: TextUtility.mmToJson("<yellow>Confirm?")
+                        hud.updateButtonText(buttonName, btn.textJson)
                     }
                 }
             }
             "layer" -> {
-                if (configBtn?.targetLayer != null) {
+                if (configBtn.targetLayer != null) {
                     val targetIdx = layers.indexOfFirst { it.id == configBtn.targetLayer }
                     if (targetIdx != -1) {
                         state.layerIndex = targetIdx
@@ -1100,49 +1040,44 @@ class MannequinManager(
                 }
                 refreshDynamicLabels(mannequinId)
             }
-            else -> {
-                if (configBtn?.type == "layer" && configBtn.targetLayer != null) {
-                    val targetIdx = layers.indexOfFirst { it.id == configBtn.targetLayer }
-                    if (targetIdx != -1) {
-                        state.layerIndex = targetIdx
-                        updateStatus(mannequinId, "Layer: ${prettyName(configBtn.targetLayer)}")
-                        refreshDynamicLabels(mannequinId)
-                        refreshColorGrid(player, mannequin, state, hud)
-                    }
-                } else if (configBtn?.type == "default_color") {
-                    val paletteId = configBtn.palette ?: "standard"
-                    val resolvedPalette = layerManager.palette(paletteId)
-                    val color = resolvedPalette?.colors?.getOrNull(0)
-                    if (color != null && layer != null) {
-                        applyGridCellColor(
-                                prettyName(color.name),
-                                color.color,
-                                mannequinId,
-                                mannequin,
-                                state,
-                                player
-                        )
-                    }
-                } else if (configBtn?.type == "texture") {
-                    if (layer != null) {
-                        val option = freshOption(layer.id, mannequin)
-                        if (option != null) {
-                            val texs = layerManager.resolveTextures(layer, option, player)
-                            if (texs.size > 1) {
-                                val currentIdx = state.textureIndex.getOrDefault(layer.id, 0)
-                                val nextIdx =
-                                        if (backwards) (currentIdx - 1 + texs.size) % texs.size
-                                        else (currentIdx + 1) % texs.size
-                                state.textureIndex[layer.id] = nextIdx
-                                updateStatus(mannequinId, "Texture: ${texs[nextIdx]}")
-                                refreshDynamicLabels(mannequinId)
-                                refreshColorGrid(player, mannequin, state, hud)
-                                render(mannequin, nearbyViewers(mannequin))
-                            }
+            "texture" -> {
+                if (layer != null) {
+                    val option = freshOption(layer.id, mannequin)
+                    if (option != null) {
+                        val texs = layerManager.resolveTextures(layer, option, player)
+                        if (texs.size > 1) {
+                            val currentIdx = state.textureIndex.getOrDefault(layer.id, 0)
+                            val nextIdx =
+                                    if (backwards) (currentIdx - 1 + texs.size) % texs.size
+                                    else (currentIdx + 1) % texs.size
+                            state.textureIndex[layer.id] = nextIdx
+                            updateStatus(mannequinId, "Texture: ${texs[nextIdx]}")
+                            refreshDynamicLabels(mannequinId)
+                            refreshColorGrid(player, mannequin, state, hud)
+                            render(mannequin, nearbyViewers(mannequin))
                         }
                     }
-                } else if (buttonName.startsWith("color_")) {
-                    // Logic for color swatch clicks
+                }
+            }
+            "default_color" -> {
+                val paletteId = configBtn.palette ?: "standard"
+                val resolvedPalette = layerManager.palette(paletteId)
+                val color = resolvedPalette?.colors?.getOrNull(0)
+                if (color != null && layer != null) {
+                    applyGridCellColor(
+                            prettyName(color.name),
+                            color.color,
+                            mannequinId,
+                            mannequin,
+                            state,
+                            player
+                    )
+                }
+            }
+            else -> {
+                if (buttonName.startsWith("color_")) {
+                    // Logic for color swatch clicks - usually handled via specialized HUD buttons
+                    // or event interception
                 } else if (buttonName.startsWith("config_")) {
                     // Logic for config submenu clicks
                 }
@@ -1206,7 +1141,7 @@ class MannequinManager(
             val textureDisabled = texs.size <= 1
 
             for (btn in hudButtons) {
-                val isLayerType = btn.name == "layer" || btn.type == "layer"
+                val isLayerType = btn.type == "layer"
                 val isTextureType = btn.type == "texture"
 
                 val isButtonDisabled =
@@ -1250,20 +1185,19 @@ class MannequinManager(
                 }
 
                 val isActive =
-                        when (btn.name) {
+                        when (btn.type) {
                             "color" -> hud.isButtonActive("color_")
                             "config" -> hud.isButtonActive("config_") || mode == ControlMode.LOAD
-                            else -> {
-                                if (btn.type == "layer" && btn.targetLayer != null) {
-                                    btn.targetLayer == currentLayer?.id
-                                } else if (btn.name == "layer" && btn.targetLayer != null) {
+                            "layer" -> {
+                                if (btn.targetLayer != null) {
                                     btn.targetLayer == currentLayer?.id
                                 } else false
                             }
+                            else -> false
                         }
 
                 val textJson =
-                        if (btn.name == "status") {
+                        if (btn.type == "status") {
                             formatStatusText(statusText[mannequinId])
                         } else if (isButtonDisabled && btn.disabledTextJson != null) {
                             btn.disabledTextJson
