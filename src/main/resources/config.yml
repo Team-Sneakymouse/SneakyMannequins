@@ -339,8 +339,6 @@ hud-buttons:
 
     # ARGB background for header labels and the Default button
     bg-header: "60000000"
-    # ARGB background for the currently selected color cell
-    bg-selected: "FF44AA44"
 
 # HUD frame – optional ItemDisplay rendered as a backdrop behind the HUD buttons.
 # Rotates together with the rest of the HUD.  Disabled by default.

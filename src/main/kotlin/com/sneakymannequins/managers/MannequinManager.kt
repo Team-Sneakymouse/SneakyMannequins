@@ -1760,13 +1760,16 @@ class MannequinManager(
                                 ((rgb.green and 0xFF) shl 8) or
                                 (rgb.blue and 0xFF)
                 val isSelected = selectedColor != null && baseRgb == selectedColor
+                val luma =
+                        (0.299 * baseRgb.red + 0.587 * baseRgb.green + 0.114 * baseRgb.blue) / 255.0
+                val xColor = if (luma > 0.6) "black" else "white"
 
                 grid.addButton(
                         id = "color_${palId}_${namedColor.name}",
-                        textMM = " ",
+                        textMM = if (isSelected) "<$xColor><b>•</b></$xColor>" else " ",
                         column = (config.headerGap / config.cellSpacingX).toInt() + col,
                         row = row,
-                        bgDefault = if (isSelected) config.bgSelected else bgNormal,
+                        bgDefault = bgNormal,
                         bgHighlight = HUD_BG_HIGHLIGHT,
                         lineWidth = config.cellLineWidth,
                         scaleX = config.cellScaleX,
@@ -1874,13 +1877,14 @@ class MannequinManager(
             val palette = layerManager.palette(partPalId) ?: continue
             val namedColor = palette.colors.find { it.name == colorPart } ?: continue
             val rgb = namedColor.color
-            val bgNormal =
-                    (0xFF shl 24) or
-                            ((rgb.red and 0xFF) shl 16) or
-                            ((rgb.green and 0xFF) shl 8) or
-                            (rgb.blue and 0xFF)
             val isMatch = color != null && rgb == color
-            hud.updateButtonBg(id, if (isMatch) config.bgSelected else bgNormal)
+
+            val luma = (0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue) / 255.0
+            val xColor = if (luma > 0.6) "black" else "white"
+            hud.updateButtonText(
+                    id,
+                    TextUtility.mmToJson(if (isMatch) "<$xColor><b>•</b></$xColor>" else " ")
+            )
         }
     }
 
@@ -2325,7 +2329,6 @@ class MannequinManager(
             val headerGap: Float,
             val headerTextMM: String,
             val bgHeader: Int,
-            val bgSelected: Int,
             val defaultBtn: GridButtonConfig?,
             val textureBtn: GridButtonConfig?,
             val channelBtn: GridButtonConfig?
@@ -2390,7 +2393,6 @@ class MannequinManager(
                 headerGap = sec?.getDouble("header-gap", 0.35)?.toFloat() ?: 0.35f,
                 headerTextMM = sec?.getString("header-text") ?: defaultHeaderText,
                 bgHeader = parseArgb(sec?.getString("bg-header")) ?: 0x60000000,
-                bgSelected = parseArgb(sec?.getString("bg-selected")) ?: 0xFF44AA44.toInt(),
                 defaultBtn = loadBtn("default", 0),
                 textureBtn = loadBtn("texture", 8),
                 channelBtn = loadBtn("channel", 12)
