@@ -1042,6 +1042,71 @@ class MannequinManager(
                 }
                 refreshDynamicLabels(mannequinId)
                 refreshColorGrid(player, mannequin, state, hud)
+
+                // Flash the newly selected layer white for 10 ticks
+                val nextLayerDef = layers.getOrNull(state.layerIndex % layers.size)
+                if (nextLayerDef != null) {
+                    val option = freshOption(nextLayerDef.id, mannequin)
+                    if (option != null) {
+                        val slots = resolveChannelSlots(nextLayerDef, option, state, player)
+                        val currentSel = mannequin.selection.selections[nextLayerDef.id]
+
+                        val flashColors = (currentSel?.channelColors ?: emptyMap()).toMutableMap()
+                        val flashTextured =
+                                (currentSel?.texturedColors ?: emptyMap()).toMutableMap()
+
+                        for (slot in slots) {
+                            if (slot.subChannel != null) {
+                                val sub =
+                                        flashTextured
+                                                .getOrPut(slot.maskIdx) { emptyMap() }
+                                                .toMutableMap()
+                                sub[slot.subChannel] = java.awt.Color.WHITE
+                                flashTextured[slot.maskIdx] = sub
+                            } else {
+                                flashColors[slot.maskIdx] = java.awt.Color.WHITE
+                            }
+                        }
+
+                        val flashSel =
+                                currentSel?.copy(
+                                        channelColors = flashColors,
+                                        texturedColors = flashTextured
+                                )
+                                        ?: LayerSelection(
+                                                nextLayerDef.id,
+                                                option,
+                                                channelColors = flashColors,
+                                                texturedColors = flashTextured
+                                        )
+
+                        mannequin.selection =
+                                mannequin.selection.copy(
+                                        selections =
+                                                mannequin.selection.selections +
+                                                        (nextLayerDef.id to flashSel)
+                                )
+
+                        val viewers = nearbyViewers(mannequin)
+                        render(mannequin, viewers, forceInstant = true)
+
+                        val restoreSel = currentSel ?: LayerSelection(nextLayerDef.id, option)
+                        plugin.server.scheduler.runTaskLater(
+                                plugin,
+                                Runnable {
+                                    if (mannequins[mannequinId] != mannequin) return@Runnable
+                                    mannequin.selection =
+                                            mannequin.selection.copy(
+                                                    selections =
+                                                            mannequin.selection.selections +
+                                                                    (nextLayerDef.id to restoreSel)
+                                            )
+                                    render(mannequin, nearbyViewers(mannequin), forceInstant = true)
+                                },
+                                10L
+                        )
+                    }
+                }
             }
             "color" -> {
                 val gridVisible = hud.buttons.any { it.id.startsWith("color_") }
