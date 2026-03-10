@@ -111,6 +111,8 @@ class MannequinManager(
     private val interactionDebounce = mutableMapOf<Pair<UUID, String>, Long>()
     /** playerId → expiry timestamp for random confirmation */
     private val randomConfirm = mutableMapOf<UUID, Long>()
+    /** playerId -> expiry timestamp for apply button cooldown */
+    private val applyCooldown = mutableMapOf<UUID, Long>()
 
     /** Manages INSTANT / BUILD pixel delivery to viewers. */
     private val animationManager = AnimationManager(plugin, handler)
@@ -1086,6 +1088,9 @@ class MannequinManager(
                     )
                 }
             }
+            "apply" -> {
+                handleApplyAction(mannequinId, player)
+            }
             else -> {
                 if (buttonName.startsWith("color_")) {
                     // Logic for color swatch clicks - usually handled via specialized HUD buttons
@@ -1147,8 +1152,8 @@ class MannequinManager(
 
             val currentOption = currentLayer?.let { freshOption(it.id, mannequin) }
             val texs =
-                    if (currentOption != null)
-                            layerManager.resolveTextures(currentLayer!!, currentOption, player)
+                    if (currentLayer != null && currentOption != null)
+                            layerManager.resolveTextures(currentLayer, currentOption, player)
                     else emptyList<String>()
             val textureDisabled = texs.size <= 1
 
@@ -1927,13 +1932,7 @@ class MannequinManager(
                 )
             }
             "Apply" -> {
-                if (mannequin.selection.selections.isEmpty()) {
-                    player.sendMessage(TextUtility.convertToComponent("&cNo layers to apply."))
-                    return
-                }
-
-                player.sendMessage(TextUtility.convertToComponent("&eApplying skin..."))
-                finalizeAndApply(player, mannequin, player)
+                handleApplyAction(manId, player)
             }
             "Overlay" -> {
                 mannequin.showOverlay = !mannequin.showOverlay
@@ -1943,6 +1942,61 @@ class MannequinManager(
         }
         // despawnConfigGrid(player, hud) // Removed: keep menu open
         refreshDynamicLabels(manId)
+    }
+
+    private fun handleApplyAction(manId: UUID, player: Player) {
+        val mannequin = mannequins[manId] ?: return
+        val now = System.currentTimeMillis()
+        val expires = applyCooldown[player.uniqueId] ?: 0L
+        if (now < expires) {
+            return // ignore click if on cooldown
+        }
+        applyCooldown[player.uniqueId] = now + 5000L
+
+        val applyHides = plugin.config.getBoolean("rendering.apply-hides-mannequin", true)
+        if (applyHides) {
+            mannequin.isHidden = true
+            val viewers = nearbyViewers(mannequin)
+            viewers.forEach { v ->
+                val otherHud = holoController.getHud(v.uniqueId)
+                if (otherHud?.mannequinId == manId) {
+                    holoController.closeHud(v.uniqueId)
+                }
+            }
+
+            val blankFrame = PixelFrame.blank()
+            val diff = mannequin.lastFrame.diff(blankFrame)
+            mannequin.lastFrame = blankFrame
+
+            val projected =
+                    PixelProjector.project(
+                            origin = mannequin.location,
+                            changes = diff,
+                            pixelScale = 1.0 / 16.0,
+                            scaleMultiplier = handler.pixelScaleMultiplier(),
+                            slimArms = isSlimModel(mannequin),
+                            showOverlay = mannequin.showOverlay,
+                            tPose = poseState[manId] == true
+                    )
+
+            val settings = readRenderSettings(isFirstSeen = true).copy(reversed = true)
+            viewers.forEach { viewer ->
+                animationManager.deliver(viewer, manId, projected, settings)
+            }
+        }
+
+        if (mannequin.selection.selections.isEmpty()) {
+            player.sendMessage(TextUtility.convertToComponent("&cNo layers to apply."))
+            return
+        }
+
+        player.sendMessage(TextUtility.convertToComponent("&eApplying skin..."))
+        finalizeAndApply(player, mannequin, player)
+
+        if (!applyHides) {
+            updateStatus(manId, "Applied")
+            refreshDynamicLabels(manId)
+        }
     }
 
     /**
@@ -2054,6 +2108,14 @@ class MannequinManager(
 
     fun handleInteract(mannequinId: UUID, player: Player, backwards: Boolean) {
         val mannequin = mannequins[mannequinId] ?: return
+
+        if (mannequin.isHidden) {
+            mannequin.isHidden = false
+            renderFull(mannequin, nearbyViewers(mannequin), isFirstSeen = true)
+            spawnPlayerHud(player, mannequin)
+            return
+        }
+
         val hud = holoController.getHud(player.uniqueId)
 
         if (hud != null && hud.mannequinId == mannequinId) {

@@ -71,6 +71,9 @@ rendering:
   # remains visible until vanilla tracking distance despawns it.
   update-radius: 15
 
+  # Should clicking an 'apply' button hide the mannequin?
+  apply-hides-mannequin: true
+
   # Settings for the first time a player sees a mannequin.
   first-seen:
     # INSTANT – all pixels in one burst.

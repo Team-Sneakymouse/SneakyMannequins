@@ -10,5 +10,6 @@ data class Mannequin(
         var slimModel: Boolean = false,
         var showOverlay: Boolean = true,
         var lastFrame: PixelFrame = PixelFrame.blank(),
-        var savedUid: String? = null
+        var savedUid: String? = null,
+        var isHidden: Boolean = false
 )
