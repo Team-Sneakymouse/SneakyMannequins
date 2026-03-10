@@ -111,6 +111,9 @@ class MannequinManager(
     private val interactionDebounce = mutableMapOf<Pair<UUID, String>, Long>()
     /** playerId → expiry timestamp for random confirmation */
     private val randomConfirm = mutableMapOf<UUID, Long>()
+
+    /** mannequinId → expiry timestamp for random cooldown */
+    private val randomCooldown = mutableMapOf<UUID, Long>()
     /** playerId -> expiry timestamp for apply button cooldown */
     private val applyCooldown = mutableMapOf<UUID, Long>()
 
@@ -1000,6 +1003,10 @@ class MannequinManager(
             }
             "random" -> {
                 val now = System.currentTimeMillis()
+                val cooldownExpires = randomCooldown[mannequinId] ?: 0L
+                if (now < cooldownExpires) return
+                randomCooldown[mannequinId] = now + 500L
+
                 val expires = randomConfirm[player.uniqueId] ?: 0L
                 if (now < expires) {
                     randomConfirm[player.uniqueId] = 0L
@@ -1906,22 +1913,44 @@ class MannequinManager(
         val mannequin = mannequins[manId] ?: return
         when (action) {
             "Save" -> {
-                val session = saveMannequinState(mannequin, player)
-                val uid = session.uid
-                player.sendMessage(
-                        Component.text("Session saved: ")
-                                .color(NamedTextColor.GREEN)
-                                .append(
-                                        Component.text(uid)
-                                                .color(NamedTextColor.YELLOW)
-                                                .hoverEvent(
-                                                        HoverEvent.showText(
-                                                                Component.text("Click to copy UID")
-                                                        )
-                                                )
-                                                .clickEvent(ClickEvent.copyToClipboard(uid))
-                                )
-                )
+                if (!hasUnsavedChanges(mannequin)) {
+                    val uid = mannequin.savedUid!!
+                    player.sendMessage(
+                            Component.text("Session unchanged. UID: ")
+                                    .color(NamedTextColor.GREEN)
+                                    .append(
+                                            Component.text(uid)
+                                                    .color(NamedTextColor.YELLOW)
+                                                    .hoverEvent(
+                                                            HoverEvent.showText(
+                                                                    Component.text(
+                                                                            "Click to copy UID"
+                                                                    )
+                                                            )
+                                                    )
+                                                    .clickEvent(ClickEvent.copyToClipboard(uid))
+                                    )
+                    )
+                } else {
+                    val session = saveMannequinState(mannequin, player)
+                    val uid = session.uid
+                    player.sendMessage(
+                            Component.text("Session saved: ")
+                                    .color(NamedTextColor.GREEN)
+                                    .append(
+                                            Component.text(uid)
+                                                    .color(NamedTextColor.YELLOW)
+                                                    .hoverEvent(
+                                                            HoverEvent.showText(
+                                                                    Component.text(
+                                                                            "Click to copy UID"
+                                                                    )
+                                                            )
+                                                    )
+                                                    .clickEvent(ClickEvent.copyToClipboard(uid))
+                                    )
+                    )
+                }
             }
             "Load" -> {
                 state.mode = ControlMode.LOAD
@@ -2094,7 +2123,6 @@ class MannequinManager(
                 }
     }
 
-    /** Saves the mannequin state and tracks the fingerprint. */
     fun saveMannequinState(mannequin: Mannequin, player: Player): SessionData {
         val charContext = characterManagerBridge.currentCharacter(player)
         val session =
@@ -2114,6 +2142,15 @@ class MannequinManager(
         )
         updateStatus(mannequin.id, "Saved to session '$uid'")
         return session
+    }
+
+    /**
+     * Returns true if the mannequin has modifications since its last save, or has never been saved.
+     */
+    fun hasUnsavedChanges(mannequin: Mannequin): Boolean {
+        if (mannequin.savedUid == null) return true
+        val currentFingerprint = sessionManager.fingerprint(mannequin)
+        return lastSavedFingerprint[mannequin.id] != currentFingerprint
     }
 
     fun handleInteract(mannequinId: UUID, player: Player, backwards: Boolean) {

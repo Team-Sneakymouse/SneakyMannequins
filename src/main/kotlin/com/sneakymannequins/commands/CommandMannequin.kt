@@ -764,6 +764,16 @@ class CommandMannequin(
                                         return
                                 }
 
+                if (!mannequinManager.hasUnsavedChanges(man)) {
+                        val uid = man.savedUid!!
+                        player.sendMessage(
+                                TextUtility.convertToComponent(
+                                        "&aSession unchanged. UID: ${TextUtility.clickableCopy(uid)}"
+                                )
+                        )
+                        return
+                }
+
                 val session = mannequinManager.saveMannequinState(man, player)
                 val uid = session.uid
                 player.sendMessage(
