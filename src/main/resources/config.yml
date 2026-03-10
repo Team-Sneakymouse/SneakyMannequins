@@ -233,6 +233,33 @@ hud-buttons:
       y: 0.7
       z: -2.0
 
+  # ── Examples of Optional HUD Variants (commented out) ──────────────────────
+  # These are optional custom buttons you can add to the main HUD.
+  
+  # A "Tab-pane" style toggle for a specific layer.
+  # Automatically highlights when the 'hair' layer is selected.
+  # If the character doesn't have a 'hair' layer, it hides (if disabled-text is null).
+  # hair_tab:
+  #   text: "<white>Hair"
+  #   active-text: "<yellow>Hair"
+  #   type: "layer"
+  #   target-layer: "hair"
+  #   translation: {x: 2.0, y: 1.7, z: -2.0}
+  
+  # A dedicated texture cycle button in the main HUD.
+  # Cycles textures for the *current* active layer.
+  # next_texture:
+  #   text: "<white>Texture+"
+  #   type: "texture"
+  #   translation: {x: 2.0, y: 1.2, z: -2.0}
+  
+  # A button that applies the first color of a specific palette to the current channel.
+  # reset_color:
+  #   text: "<white>Reset Color"
+  #   type: "default_color"
+  #   palette: "primary"    # Optional: defaults to "standard" if omitted
+  #   translation: {x: 2.0, y: 0.7, z: -2.0}
+
   # ── Config submenu ────────────────────────────────────────────────
   # Appears when the Config button is clicked. Contains Save, Load, and
   # Apply items. Positioned to the left of the mannequin, mirroring the
