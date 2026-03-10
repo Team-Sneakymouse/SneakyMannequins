@@ -215,9 +215,20 @@ class AnimationManager(private val plugin: SneakyMannequins, private val handler
 
     // ── Viewer scale ─────────────────────────────────────────────────────────────
 
-    /** Read the observer's [Attribute.SCALE] value (defaults to 1.0). */
-    private fun viewerScale(player: Player): Double =
-            player.getAttribute(Attribute.SCALE)?.value ?: 1.0
+    /**
+     * Calculate scale for the viewer based on config. Shrinks mannequins by 10% (0.9x) so they
+     * aren't larger than players.
+     */
+    private fun viewerScale(player: Player): Double {
+        val cfg = plugin.config.getString("rendering.scale", "auto") ?: "auto"
+        val baseScale =
+                if (cfg.equals("auto", ignoreCase = true)) {
+                    player.getAttribute(Attribute.SCALE)?.value ?: 1.0
+                } else {
+                    cfg.toDoubleOrNull() ?: (player.getAttribute(Attribute.SCALE)?.value ?: 1.0)
+                }
+        return baseScale * 0.925
+    }
 
     /**
      * Scale every projected pixel for the given viewer. Returns the original list unchanged when

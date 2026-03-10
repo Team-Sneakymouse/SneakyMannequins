@@ -64,6 +64,10 @@ controls:
 
 # ── Rendering & Animation ─────────────────────────────────────────────────────
 rendering:
+  # Scale of the mannequin. Can be "auto" (matches player scale) or a number (e.g. 1.0).
+  # The final scale is always multiplied by 0.9 to ensure mannequins are slightly smaller than players.
+  scale: "auto"
+  
   # Radius (blocks) at which a mannequin first appears for a player.
   view-radius: 8
   # Radius (blocks) within which a player continues to receive updates.
