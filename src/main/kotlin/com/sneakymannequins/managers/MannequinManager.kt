@@ -878,8 +878,9 @@ class MannequinManager(
     private fun buildHoloButtons(mannequin: Mannequin): MutableList<HoloButton> {
         return hudButtons
                 .map { btn ->
+                    val isStatus = btn.type == "status"
                     val initialJson =
-                            if (btn.type == "status") formatStatusText(statusText[mannequin.id])
+                            if (isStatus) formatStatusText(statusText[mannequin.id])
                             else TextUtility.mmToJson(btn.textMM)
                     HoloButton(
                             id = btn.name,
@@ -889,14 +890,18 @@ class MannequinManager(
                             tz = btn.tz,
                             lineWidth = btn.lineWidth,
                             bgDefault = btn.bgDefault,
-                            bgHighlight = btn.bgHighlight,
+                            bgHighlight = if (isStatus) btn.bgDefault else btn.bgHighlight,
                             scaleX = btn.scaleX ?: 1f,
                             scaleY = btn.scaleY ?: 1f,
+                            interactionWidth = if (isStatus) 0.0f else null,
+                            interactionHeight = if (isStatus) 0.0f else null,
                             onClick = { viewer, backwards ->
-                                handleButtonClick(btn.name, mannequin.id, viewer, backwards)
+                                if (!isStatus) {
+                                    handleButtonClick(btn.name, mannequin.id, viewer, backwards)
+                                }
                             },
                             onHover = { viewer, entering ->
-                                if (entering) {
+                                if (entering && !isStatus) {
                                     plugin.server.pluginManager.callEvent(
                                             MannequinHoverEvent(
                                                     mannequin.id,
