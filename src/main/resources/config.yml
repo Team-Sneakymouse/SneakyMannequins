@@ -284,7 +284,22 @@ hud-buttons:
     header-gap: 0.35
     # MiniMessage template for row headers and the Default button.
     # {message} = palette display name (or "Default").
-    header-text: "<white><font:minecraft:uniform>{message}"
+    header-text: "<white>{message}"
+    # Action buttons (will use header-text template if 'text' is missing)
+    default:
+      text: "<white>Default"
+      column: 0
+    texture:
+      text: "<white>Texture"
+      disabled-text: null # Set to "<gray>Texture" to show while disabled, or null to hide
+      column: 5
+      scale-x: 0.6
+    channel:
+      text: "<white>Channel"
+      disabled-text: null # Set to "<gray>Channel" to show while disabled, or null to hide
+      column: 10
+      scale-x: 0.6
+
     # ARGB background for header labels and the Default button
     bg-header: "60000000"
     # ARGB background for the currently selected color cell
