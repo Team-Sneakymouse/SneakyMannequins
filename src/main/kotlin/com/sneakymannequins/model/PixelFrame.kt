@@ -5,16 +5,9 @@ import java.awt.image.BufferedImage
 private const val SKIN_SIZE = 64
 private const val TOTAL_PIXELS = SKIN_SIZE * SKIN_SIZE
 
-data class PixelChange(
-    val x: Int,
-    val y: Int,
-    val argb: Int?,
-    val visible: Boolean
-)
+data class PixelChange(val x: Int, val y: Int, val argb: Int?, val visible: Boolean)
 
-/**
- * Represents a 64x64 ARGB pixel grid with diff utilities.
- */
+/** Represents a 64x64 ARGB pixel grid with diff utilities. */
 class PixelFrame(private val pixels: IntArray) {
 
     fun get(x: Int, y: Int): Int {
@@ -22,14 +15,17 @@ class PixelFrame(private val pixels: IntArray) {
         return pixels[index(x, y)]
     }
 
-    fun diff(next: PixelFrame): List<PixelChange> {
+    fun diff(next: PixelFrame): List<PixelChange> = diff(next, null)
+
+    fun diff(next: PixelFrame, forcePredicate: ((Int, Int) -> Boolean)?): List<PixelChange> {
         val changes = mutableListOf<PixelChange>()
         for (i in 0 until TOTAL_PIXELS) {
             val current = pixels[i]
             val target = next.pixels[i]
-            if (current == target) continue
             val x = i % SKIN_SIZE
             val y = i / SKIN_SIZE
+            val forced = forcePredicate?.invoke(x, y) ?: false
+            if (!forced && current == target) continue
             val visible = (target ushr 24) != 0
             changes += PixelChange(x, y, argb = if (visible) target else null, visible = visible)
         }
@@ -51,4 +47,3 @@ class PixelFrame(private val pixels: IntArray) {
 
     private fun index(x: Int, y: Int): Int = y * SKIN_SIZE + x
 }
-

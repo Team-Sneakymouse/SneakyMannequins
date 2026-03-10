@@ -21,6 +21,7 @@ import com.sneakymannequins.render.PixelProjector
 import com.sneakymannequins.render.RenderMode
 import com.sneakymannequins.render.RenderSettings
 import com.sneakymannequins.util.SkinComposer
+import com.sneakymannequins.util.SkinUv
 import com.sneakymouse.sneakyholos.*
 import com.sneakymouse.sneakyholos.util.HoloGridBuilder
 import com.sneakymouse.sneakyholos.util.TextUtility
@@ -694,7 +695,8 @@ class MannequinManager(
     fun render(
             mannequin: Mannequin,
             viewers: Collection<Player>,
-            forceInstant: Boolean = false
+            forceInstant: Boolean = false,
+            forceArmPixels: Boolean = false
     ): Int {
         val definitions = layerManager.definitionsInOrder()
         val composed =
@@ -707,7 +709,12 @@ class MannequinManager(
                         brightnessInfluenceResolver = brightnessInfluenceResolver
                 )
         val nextFrame = PixelFrame.fromImage(composed)
-        val diff = mannequin.lastFrame.diff(nextFrame)
+        val diff =
+                if (forceArmPixels) {
+                    mannequin.lastFrame.diff(nextFrame) { x, y -> SkinUv.isArmPixel(x, y) }
+                } else {
+                    mannequin.lastFrame.diff(nextFrame)
+                }
         mannequin.lastFrame = nextFrame
         if (plugin.config.getBoolean("plugin.debug", false)) {
             val changeStatus =
@@ -972,7 +979,7 @@ class MannequinManager(
                         mannequinId,
                         if (mannequin.slimModel) "Model: Slim" else "Model: Steve"
                 )
-                renderFull(mannequin, nearbyViewers(mannequin))
+                render(mannequin, nearbyViewers(mannequin), forceArmPixels = true)
                 refreshDynamicLabels(mannequinId)
             }
             "pose" -> {

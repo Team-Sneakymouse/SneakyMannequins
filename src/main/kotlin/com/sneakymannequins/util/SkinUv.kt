@@ -275,6 +275,18 @@ object SkinUv {
                         x in it.x until (it.x + it.w) && y in it.y until (it.y + it.h)
                 }
 
+        fun isArmPixel(x: Int, y: Int): Boolean {
+                // Right arm base (40, 16, 16, 16)
+                if (x in 40..55 && y in 16..31) return true
+                // Right arm overlay (40, 32, 16, 16)
+                if (x in 40..55 && y in 32..47) return true
+                // Left arm base (32, 48, 16, 16)
+                if (x in 32..47 && y in 48..63) return true
+                // Left arm overlay (48, 48, 16, 16)
+                if (x in 48..63 && y in 48..63) return true
+                return false
+        }
+
         /**
          * Given an outer layer coordinate (x, y), returns the corresponding inner layer coordinate,
          * or null if it's not in an outer layer.
