@@ -69,7 +69,7 @@ rendering:
   # Radius (blocks) within which a player continues to receive updates.
   # Players beyond this distance stop getting updates but the mannequin
   # remains visible until vanilla tracking distance despawns it.
-  update-radius: 15
+  update-radius: 30
 
   # Should clicking an 'apply' button hide the mannequin?
   apply-hides-mannequin: true

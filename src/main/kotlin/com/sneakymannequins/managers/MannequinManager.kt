@@ -128,7 +128,7 @@ class MannequinManager(
 
     /** Radius within which a player keeps receiving updates. */
     private val updateRadius: Double
-        get() = plugin.config.getDouble("rendering.update-radius", 15.0)
+        get() = plugin.config.getDouble("rendering.update-radius", 30.0)
 
     /** Radius of the mannequin Interaction hitbox (blocks). */
     private val interactRadius: Double
