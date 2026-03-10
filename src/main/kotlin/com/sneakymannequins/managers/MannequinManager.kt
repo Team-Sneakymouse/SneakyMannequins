@@ -249,9 +249,11 @@ class MannequinManager(
         val globalBgHi =
                 parseArgb(plugin.config.getString("hud-buttons.bg-highlight")) ?: HUD_BG_HIGHLIGHT
 
-        return BUTTON_ORDER.map { name ->
-            val def = BUTTON_DEFAULTS[name]!!
+        return BUTTON_ORDER.mapNotNull { name ->
             val sec = plugin.config.getConfigurationSection("hud-buttons.$name")
+            if (sec == null && !plugin.config.contains("hud-buttons.$name")) return@mapNotNull null
+
+            val def = BUTTON_DEFAULTS[name]!!
             val textMM = sec?.getString("text") ?: def.text
             val activeMM = sec?.getString("active-text") ?: def.activeText
             val disabledMM = sec?.getString("disabled-text")
