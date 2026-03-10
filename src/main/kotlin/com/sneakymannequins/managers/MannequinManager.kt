@@ -961,6 +961,16 @@ class MannequinManager(
         plugin.server.pluginManager.callEvent(
                 MannequinControlOpenEvent(mannequin.id, mannequin.location, player)
         )
+
+        val state = controlState[mannequin.id]
+        if (state != null) {
+            if (loadGridConfig("hud-buttons.color-grid").openByDefault) {
+                spawnColorGrid(player, mannequin, state, hud, quiet = false)
+            }
+            if (loadGridConfig("hud-buttons.config-menu").openByDefault) {
+                spawnConfigGrid(player, mannequin, state, hud, quiet = false)
+            }
+        }
     }
 
     private fun handleButtonClick(
@@ -2313,6 +2323,7 @@ class MannequinManager(
     )
 
     private data class GridConfig(
+            val openByDefault: Boolean,
             val maxRows: Int,
             val cellSpacingX: Float,
             val cellSpacingY: Float,
@@ -2364,6 +2375,7 @@ class MannequinManager(
         }
 
         return GridConfig(
+                openByDefault = sec?.getBoolean("open-by-default", false) ?: false,
                 maxRows = sec?.getInt("max-rows", 6) ?: 6,
                 cellSpacingX = sec?.getDouble("cell-spacing-x", 0.12)?.toFloat() ?: 0.12f,
                 cellSpacingY =

@@ -275,6 +275,7 @@ hud-buttons:
   # Apply items. Positioned to the left of the mannequin, mirroring the
   # color picker grid on the right.
   config-menu:
+    open-by-default: false
     # Grid origin in HUD-local space (rotated by yaw)
     origin-x: 1
     origin-y: 1
@@ -294,6 +295,7 @@ hud-buttons:
   # Left/right-click on Color pages through palette groups when there
   # are more than max-rows.
   color-grid:
+    open-by-default: false
     max-rows: 4
     # Horizontal gap between colour swatches within a row
     cell-spacing-x: 0.12
