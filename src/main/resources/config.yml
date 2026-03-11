@@ -19,23 +19,27 @@ plugin:
     # If true, sanitize/mask new layer PNGs on load (creates *_mask_*.png)
     enabled: true
     # Default masking strategy for splitting pixels into colour channels.
-    # Available: HSB (k-means in hue/saturation/brightness — best all-rounder),
-    #            HUE (largest hue gap — fast, good when colours are clearly different hues),
-    #            RGB (k-means in RGB space — classic Euclidean colour distance)
-    # Can be overridden per part with: /mannequin remask <layer> <part> [strategy] [channels]
-    default-strategy: HSB
-    # Default number of colour channels (masks) to generate per part.
-    # Each channel gets its own recolourable mask.  Min 1, max 8.
-    # Can be overridden per part with the remask command.
+    # Available: RGB (agglomerative distance clustering),
+    #            HSB (k-means in hue/saturation/brightness),
+    #            HUE (largest hue gap)
+    # Can be overridden per part with: /mannequin remask <layer> <part> [strategy] [distance_or_channels]
+    default-strategy: RGB
+    # How to automatically determine the number of channels for a part.
+    # DISTANCE: Merges similar colors until the gap between them exceeds default-distance.
+    # CHANNELS: Forces exactly default-channels number of channels (legacy behavior).
+    grouping-mode: DISTANCE
+    # The color distance threshold used when grouping-mode is DISTANCE (0.0 - 1.0).
+    # Higher values mean fewer, broader channels. Lower values mean more, specific channels.
+    default-distance: 0.50
+    # Default number of colour channels to generate when grouping-mode is CHANNELS.
     default-channels: 2
-    # Pixels below this saturation (0.0-1.0) are considered neutral and excluded from masks
-    # (catches greys, whites, near-whites whose hue is meaningless)
-    # If you want to use this, a recommended starting value is 0.02
-    neutral-saturation: 0
-    # Pixels below this brightness (0.0-1.0) are considered too dark and excluded from masks
-    # (catches blacks, near-blacks whose hue is unreliable)
-    # If you want to use this, a recommended starting value is 0.10
-    neutral-brightness-low: 0
+    # Pixels below this saturation (0.0-1.0) are considered neutral.
+    neutral-saturation: 0.15
+    # Pixels below this brightness (0.0-1.0) are considered neutral.
+    neutral-brightness-low: 0.15
+    # Minimum percentage of neutral pixels (0.0-1.0) required to generate a dedicated neutral mask channel.
+    # Prevents creating a full mask for just a few noise pixels.
+    neutral-threshold-percent: 0.15
 
 # ── Optional Integrations ──────────────────────────────────────────────────────
 integrations:

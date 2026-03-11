@@ -890,25 +890,53 @@ class CommandMannequin(
                                 }
                         } else null
 
-                val channelsArg: Int? =
+                val distanceOrChannelsArg: Any? =
                         if (args.size >= 5) {
-                                val n = args[4].toIntOrNull()
-                                if (n == null || n < 1 || n > 8) {
+                                val floatVal = args[4].toFloatOrNull()
+                                val intVal = args[4].toIntOrNull()
+                                if (intVal != null &&
+                                                floatVal != null &&
+                                                floatVal == intVal.toFloat() &&
+                                                !args[4].contains('.')
+                                ) {
+                                        if (intVal < 1 || intVal > 8) {
+                                                sender.sendMessage(
+                                                        TextUtility.convertToComponent(
+                                                                "&cChannels must be between 1 and 8."
+                                                        )
+                                                )
+                                                return
+                                        }
+                                        intVal
+                                } else if (floatVal != null) {
+                                        if (floatVal < 0f || floatVal > 1f) {
+                                                sender.sendMessage(
+                                                        TextUtility.convertToComponent(
+                                                                "&cDistance must be between 0.0 and 1.0."
+                                                        )
+                                                )
+                                                return
+                                        }
+                                        floatVal
+                                } else {
                                         sender.sendMessage(
                                                 TextUtility.convertToComponent(
-                                                        "&cChannels must be a number between 1 and 8."
+                                                        "&cArgument must be an integer (channels) or float (distance)."
                                                 )
                                         )
                                         return
                                 }
-                                n
                         } else null
 
                 val label = strategy?.name ?: "default"
-                val channelsLabel = channelsArg?.toString() ?: "default"
+                val configLabel =
+                        distanceOrChannelsArg?.let {
+                                if (it is Float) "dist=$it" else "channels=$it"
+                        }
+                                ?: "default config"
                 sender.sendMessage(
                         TextUtility.convertToComponent(
-                                "&7Remasking '$partId' in '$layerId' with $label strategy, $channelsLabel channels..."
+                                "&7Remasking '$partId' in '$layerId' with $label strategy, $configLabel..."
                         )
                 )
                 try {
@@ -917,7 +945,7 @@ class CommandMannequin(
                                         strategy = strategy,
                                         layerId = layerId,
                                         partId = partId,
-                                        channels = channelsArg
+                                        distanceOrChannels = distanceOrChannelsArg
                                 )
                         sender.sendMessage(TextUtility.convertToComponent("&a$result"))
                 } catch (e: Exception) {
@@ -1095,25 +1123,53 @@ class CommandMannequin(
                                 }
                         } else null
 
-                val channelsArg: Int? =
+                val distanceOrChannelsArg: Any? =
                         if (args.size >= 7) {
-                                val n = args[6].toIntOrNull()
-                                if (n == null || n < 1 || n > 8) {
+                                val floatVal = args[6].toFloatOrNull()
+                                val intVal = args[6].toIntOrNull()
+                                if (intVal != null &&
+                                                floatVal != null &&
+                                                floatVal == intVal.toFloat() &&
+                                                !args[6].contains('.')
+                                ) {
+                                        if (intVal < 1 || intVal > 8) {
+                                                sender.sendMessage(
+                                                        TextUtility.convertToComponent(
+                                                                "&cChannels must be between 1 and 8."
+                                                        )
+                                                )
+                                                return
+                                        }
+                                        intVal
+                                } else if (floatVal != null) {
+                                        if (floatVal < 0f || floatVal > 1f) {
+                                                sender.sendMessage(
+                                                        TextUtility.convertToComponent(
+                                                                "&cDistance must be between 0.0 and 1.0."
+                                                        )
+                                                )
+                                                return
+                                        }
+                                        floatVal
+                                } else {
                                         sender.sendMessage(
                                                 TextUtility.convertToComponent(
-                                                        "&cChannels must be a number between 1 and 8."
+                                                        "&cArgument must be an integer (channels) or float (distance)."
                                                 )
                                         )
                                         return
                                 }
-                                n
                         } else null
 
                 val label = strategy?.name ?: "default"
-                val channelsLabel = channelsArg?.toString() ?: "default"
+                val configLabel =
+                        distanceOrChannelsArg?.let {
+                                if (it is Float) "dist=$it" else "channels=$it"
+                        }
+                                ?: "default config"
                 sender.sendMessage(
                         TextUtility.convertToComponent(
-                                "&7Remasking ME '$internalKey' (owner $uuidStr) in '$layerId' with $label strategy, $channelsLabel channels..."
+                                "&7Remasking ME '$internalKey' (owner $uuidStr) in '$layerId' with $label strategy, $configLabel..."
                         )
                 )
                 try {
@@ -1122,7 +1178,7 @@ class CommandMannequin(
                                         strategy = strategy,
                                         layerId = layerId,
                                         partId = partId,
-                                        channels = channelsArg
+                                        distanceOrChannels = distanceOrChannelsArg
                                 )
                         sender.sendMessage(TextUtility.convertToComponent("&a$result"))
                 } catch (e: Exception) {
