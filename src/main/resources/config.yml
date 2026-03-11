@@ -212,10 +212,43 @@ hud-buttons:
       y: 1.2
       z: -2.0
 
+  # Config submenu
   config:
-    type: "config"
+    type: "submenu"
     text: "<white>Config"
     active-text: "<yellow>Config"
+    open-by-default: false
+    submenu-layout:
+      origin-x: 1
+      origin-y: 1
+      origin-z: -3
+      pitch: -0.35
+      yaw: 1
+    items:
+      save:
+        type: "save"
+        text: "<white>Save"
+        translation:
+          x: 0.0
+          y: 0.3
+          z: 0.0
+        line-width: 200
+      load:
+        type: "load"
+        text: "<white>Load"
+        translation:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+        line-width: 200
+      apply:
+        type: "apply"
+        text: "<white>Apply"
+        translation:
+          x: 0.0
+          y: -0.3
+          z: 0.0
+        line-width: 200
     translation:
       x: -1.1
       y: 0.7
@@ -230,10 +263,61 @@ hud-buttons:
       y: 1.7
       z: -2.0
 
+  # Color picker submenu
   color:
-    type: "color"
+    type: "submenu"
     text: "<white>Color"
     active-text: "<yellow>Color"
+    open-by-default: false
+    submenu-layout:
+      origin-x: -1
+      origin-y: 1
+      origin-z: -2
+      pitch: -0.35
+      yaw: -1
+    items:
+      picker:
+        type: "color_grid"
+        max-rows: 4
+        cell-spacing-x: 0.12
+        cell-spacing-y: 0.18
+        cell-line-width: 18
+        cell-scale-x: 1.0
+        cell-scale-y: 0.66
+        header-line-width: 80
+        header-scale: 0.6
+        header-gap: 0.35
+        header-text: "<white>{message}"
+        bg-header: "60000000"
+      default:
+        type: "default_color"
+        text: "<white>Default"
+        translation:
+          x: 0.0
+          y: 0.2
+          z: 0.0
+        scale-x: 0.6
+        scale-y: 0.6
+      texture:
+        type: "texture"
+        text: "<white>Texture"
+        disabled-text: null # Set to "<gray>Texture" to show while disabled, or null to hide
+        translation:
+          x: 0.6
+          y: 0.2
+          z: 0.0
+        scale-x: 0.6
+        scale-y: 0.6
+      channel:
+        type: "channel"
+        text: "<white>Channel"
+        disabled-text: null # Set to "<gray>Channel" to show while disabled, or null to hide
+        translation:
+          x: 1.22
+          y: 0.2
+          z: 0.0
+        scale-x: 0.6
+        scale-y: 0.6
     translation:
       x: 1.1
       y: 1.2
@@ -273,78 +357,6 @@ hud-buttons:
   #   type: "default_color"
   #   palette: "primary"    # Optional: defaults to "standard" if omitted
   #   translation: {x: 2.0, y: 0.7, z: -2.0}
-
-  # ── Config submenu ────────────────────────────────────────────────
-  # Appears when the Config button is clicked. Contains Save, Load, and
-  # Apply items. Positioned to the left of the mannequin, mirroring the
-  # color picker grid on the right.
-  config-menu:
-    open-by-default: false
-    # Grid origin in HUD-local space (rotated by yaw)
-    origin-x: 1
-    origin-y: 1
-    origin-z: -3
-    # Extra pitch (radians, negative = tilt up toward viewer)
-    pitch: -0.35
-    # Extra yaw offset (radians, positive = swing left)
-    yaw: 1
-    # Vertical spacing between menu items
-    item-spacing-y: 0.3
-    # Text display line width for menu items
-    item-line-width: 200
-
-  # ── Color picker grid ──────────────────────────────────────────────
-  # Appears when the Color button is clicked. Each palette is a row:
-  # the label sits on the left and colour swatches extend to the right.
-  # Left/right-click on Color pages through palette groups when there
-  # are more than max-rows.
-  color-grid:
-    open-by-default: false
-    max-rows: 4
-    # Horizontal gap between colour swatches within a row
-    cell-spacing-x: 0.12
-    # Vertical gap between palette rows
-    cell-spacing-y: 0.18
-    # Grid origin in HUD-local space (rotated by yaw).
-    # origin-x/y are relative to the mannequin.
-    # origin-z is relative to the *player* (negative = toward mannequin).
-    # The grid follows the player so it stays at a constant depth.
-    origin-x: -1
-    origin-y: 1
-    origin-z: -2
-    # Extra pitch (radians, negative = tilt up toward viewer)
-    pitch: -0.35
-    # Extra yaw offset (radians, added to the facing yaw)
-    yaw: -1
-    cell-line-width: 18
-    # Non-uniform scale for colour swatches (adjust to make them square)
-    cell-scale-x: 1.0
-    cell-scale-y: 0.66
-    header-line-width: 80
-    # Uniform scale for header labels and the Default button
-    header-scale: 0.6
-    # Horizontal gap between the row header and the first colour swatch
-    header-gap: 0.35
-    # MiniMessage template for row headers and the Default button.
-    # {message} = palette display name (or "Default").
-    header-text: "<white>{message}"
-    # Action buttons (will use header-text template if 'text' is missing)
-    default:
-      text: "<white>Default"
-      column: 0
-    texture:
-      text: "<white>Texture"
-      disabled-text: null # Set to "<gray>Texture" to show while disabled, or null to hide
-      column: 5
-      scale-x: 0.6
-    channel:
-      text: "<white>Channel"
-      disabled-text: null # Set to "<gray>Channel" to show while disabled, or null to hide
-      column: 10
-      scale-x: 0.6
-
-    # ARGB background for header labels and the Default button
-    bg-header: "60000000"
 
 # HUD frame – optional ItemDisplay rendered as a backdrop behind the HUD buttons.
 # Rotates together with the rest of the HUD.  Disabled by default.
