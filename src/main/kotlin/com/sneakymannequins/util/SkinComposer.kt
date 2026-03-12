@@ -201,8 +201,6 @@ object SkinComposer {
         val avgSat = (satSum / count).toFloat()
         val avgBri = (briSum / count).toFloat()
         val hueDelta = targetHue - avgHue
-        val satDelta = targetSat - avgSat
-        val briDelta = targetBri - avgBri
 
         // --- Second pass: apply relative offset to each masked pixel ---
         for (x in 0 until image.width) {
@@ -230,8 +228,20 @@ object SkinComposer {
                 val hsb = Color.RGBtoHSB(r, g, b, null)
 
                 val newHue = (hsb[0] + hueDelta + 1f) % 1f
-                val newSat = (hsb[1] + saturationInfluence * satDelta).coerceIn(0f, 1f)
-                val newBri = (hsb[2] + brightnessInfluence * briDelta).coerceIn(0f, 1f)
+                val newSat =
+                        if (avgSat > 0.0001f) {
+                            val satScale = targetSat / avgSat
+                            (hsb[1] * (1f + saturationInfluence * (satScale - 1f))).coerceIn(0f, 1f)
+                        } else {
+                            (hsb[1] + (targetSat - avgSat) * saturationInfluence).coerceIn(0f, 1f)
+                        }
+                val newBri =
+                        if (avgBri > 0.0001f) {
+                            val briScale = targetBri / avgBri
+                            (hsb[2] * (1f + brightnessInfluence * (briScale - 1f))).coerceIn(0f, 1f)
+                        } else {
+                            (hsb[2] + (targetBri - avgBri) * brightnessInfluence).coerceIn(0f, 1f)
+                        }
                 val newRgb = Color.HSBtoRGB(newHue, newSat, newBri)
                 tinted.setRGB(x, y, (alpha shl 24) or (newRgb and 0x00FFFFFF))
             }
@@ -413,8 +423,6 @@ object SkinComposer {
                 }
 
                 val hueDelta = perPixelHue - avgHue
-                val satDelta = perPixelSat - avgSat
-                val briDelta = perPixelBri - avgBri
 
                 val oR = argb shr 16 and 0xFF
                 val oG = argb shr 8 and 0xFF
@@ -422,8 +430,20 @@ object SkinComposer {
                 val hsb = Color.RGBtoHSB(oR, oG, oB, null)
 
                 val newHue = (hsb[0] + hueDelta + 1f) % 1f
-                val newSat = (hsb[1] + saturationInfluence * satDelta).coerceIn(0f, 1f)
-                val newBri = (hsb[2] + brightnessInfluence * briDelta).coerceIn(0f, 1f)
+                val newSat =
+                        if (avgSat > 0.0001f) {
+                            val satScale = perPixelSat / avgSat
+                            (hsb[1] * (1f + saturationInfluence * (satScale - 1f))).coerceIn(0f, 1f)
+                        } else {
+                            (hsb[1] + (perPixelSat - avgSat) * saturationInfluence).coerceIn(0f, 1f)
+                        }
+                val newBri =
+                        if (avgBri > 0.0001f) {
+                            val briScale = perPixelBri / avgBri
+                            (hsb[2] * (1f + brightnessInfluence * (briScale - 1f))).coerceIn(0f, 1f)
+                        } else {
+                            (hsb[2] + (perPixelBri - avgBri) * brightnessInfluence).coerceIn(0f, 1f)
+                        }
 
                 val newRgb = Color.HSBtoRGB(newHue, newSat, newBri)
                 tinted.setRGB(x, y, (alpha shl 24) or (newRgb and 0x00FFFFFF))
