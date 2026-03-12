@@ -23,14 +23,14 @@ plugin:
     #            HSB (k-means in hue/saturation/brightness),
     #            HUE (largest hue gap)
     # Can be overridden per part with: /mannequin remask <layer> <part> [strategy] [distance_or_channels]
-    default-strategy: RGB
+    default-strategy: HUE
     # How to automatically determine the number of channels for a part.
     # DISTANCE: Merges similar colors until the gap between them exceeds default-distance.
     # CHANNELS: Forces exactly default-channels number of channels (legacy behavior).
     grouping-mode: DISTANCE
     # The color distance threshold used when grouping-mode is DISTANCE (0.0 - 1.0).
     # Higher values mean fewer, broader channels. Lower values mean more, specific channels.
-    default-distance: 0.50
+    default-distance: 0.15
     # Default number of colour channels to generate when grouping-mode is CHANNELS.
     default-channels: 2
     # Pixels below this saturation (0.0-1.0) are considered neutral.
@@ -39,7 +39,7 @@ plugin:
     neutral-brightness-low: 0.15
     # Minimum percentage of neutral pixels (0.0-1.0) required to generate a dedicated neutral mask channel.
     # Prevents creating a full mask for just a few noise pixels.
-    neutral-threshold-percent: 0.15
+    neutral-threshold-percent: 0.05
 
 # ── Optional Integrations ──────────────────────────────────────────────────────
 integrations:

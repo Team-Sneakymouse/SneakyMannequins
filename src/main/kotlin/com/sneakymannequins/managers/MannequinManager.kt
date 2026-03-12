@@ -1502,7 +1502,8 @@ class MannequinManager(
         val mannequin = mannequins[mannequinId] ?: return
 
         val layers = layerManager.definitionsInOrder()
-        val layerCount = layers.size
+        val layersOnMannequin = layers.filter { it.id in mannequin.selection.selections.keys }
+        val layerCount = layersOnMannequin.size
         val layerDisabled = layerCount <= 1
         val currentLayer = layers.getOrNull(state.layerIndex % layers.size)
 
@@ -1520,76 +1521,101 @@ class MannequinManager(
                     else emptyList<String>()
             val textureDisabled = texs.size <= 1
 
-            for (btn in hudButtons) {
+            val slots =
+                    if (currentLayer != null && currentOption != null)
+                            resolveChannelSlots(currentLayer, currentOption, state, player)
+                    else emptyList()
+            val channelDisabled = slots.size <= 1
+
+            fun processBtn(btn: HudButton, parentName: String? = null) {
+                val activeId = if (parentName != null) "${parentName}_${btn.name}" else btn.name
+
                 val isLayerType = btn.type == "layer"
                 val isTextureType = btn.type == "texture"
+                val isChannelType = btn.type == "channel"
 
                 val isButtonDisabled =
-                        (isLayerType && layerDisabled) || (isTextureType && textureDisabled)
+                        (isLayerType && layerDisabled) ||
+                                (isTextureType && textureDisabled) ||
+                                (isChannelType && channelDisabled)
                 val hideThis = isButtonDisabled && btn.disabledTextJson == null
 
                 if (hideThis) {
-                    if (hud.isButtonActive(btn.name)) {
-                        hud.removeButtons(listOf(btn.name), instant = true)
+                    if (hud.isButtonActive(activeId)) {
+                        hud.removeButtons(listOf(activeId), instant = true)
                     }
-                    continue
+                } else if (!hud.isButtonActive(activeId)) {
+                    // Only auto-add if it's a top-level button (submenus manage their own
+                    // visibility)
+                    if (parentName == null) {
+                        hud.addButtons(
+                                listOf(
+                                        HoloButton(
+                                                id = activeId,
+                                                textJson = btn.disabledTextJson
+                                                                ?: TextUtility.mmToJson(btn.textMM),
+                                                tx = btn.tx,
+                                                ty = btn.ty,
+                                                tz = btn.tz,
+                                                lineWidth = btn.lineWidth,
+                                                bgDefault = btn.bgDefault,
+                                                bgHighlight = btn.bgHighlight,
+                                                scaleX = btn.scaleX ?: 1f,
+                                                scaleY = btn.scaleY ?: 1f,
+                                                onClick = { p, backwards ->
+                                                    handleButtonClick(
+                                                            btn.name,
+                                                            mannequinId,
+                                                            p,
+                                                            backwards
+                                                    )
+                                                }
+                                        )
+                                ),
+                                instant = true
+                        )
+                    }
                 }
 
-                if (!hud.isButtonActive(btn.name)) {
-                    hud.addButtons(
-                            listOf(
-                                    HoloButton(
-                                            id = btn.name,
-                                            textJson = btn.disabledTextJson
-                                                            ?: TextUtility.mmToJson(btn.textMM),
-                                            tx = btn.tx,
-                                            ty = btn.ty,
-                                            tz = btn.tz,
-                                            lineWidth = btn.lineWidth,
-                                            bgDefault = btn.bgDefault,
-                                            bgHighlight = btn.bgHighlight,
-                                            scaleX = btn.scaleX ?: 1f,
-                                            scaleY = btn.scaleY ?: 1f,
-                                            onClick = { p, backwards ->
-                                                handleButtonClick(
-                                                        btn.name,
-                                                        mannequinId,
-                                                        p,
-                                                        backwards
-                                                )
-                                            }
-                                    )
-                            ),
-                            instant = true
-                    )
-                }
-
-                val isActive =
-                        when (btn.type) {
-                            "submenu" ->
-                                    hud.isButtonActive("${btn.name}_") ||
-                                            (btn.name == "config" && mode == ControlMode.LOAD)
-                            "layer" -> {
-                                if (btn.targetLayer != null) {
-                                    btn.targetLayer == currentLayer?.id
-                                } else false
+                if (hud.isButtonActive(activeId)) {
+                    val isActive =
+                            when (btn.type) {
+                                "submenu" ->
+                                        hud.isButtonActive("${activeId}_") ||
+                                                (btn.name == "config" && mode == ControlMode.LOAD)
+                                "layer" -> {
+                                    if (btn.targetLayer != null) {
+                                        btn.targetLayer == currentLayer?.id
+                                    } else false
+                                }
+                                else -> false
                             }
-                            else -> false
-                        }
 
-                val textJson =
-                        if (btn.type == "status") {
-                            formatStatusText(statusText[mannequinId])
-                        } else if (isButtonDisabled && btn.disabledTextJson != null) {
-                            btn.disabledTextJson
-                        } else if (isActive && btn.activeTextJson != null) {
-                            btn.activeTextJson
-                        } else {
-                            TextUtility.mmToJson(btn.textMM)
-                        }
+                    val textJson =
+                            if (btn.type == "status") {
+                                formatStatusText(statusText[mannequinId])
+                            } else if (isButtonDisabled && btn.disabledTextJson != null) {
+                                btn.disabledTextJson
+                            } else if (isActive && btn.activeTextJson != null) {
+                                btn.activeTextJson
+                            } else {
+                                TextUtility.mmToJson(btn.textMM)
+                            }
 
-                hud.updateButtonText(btn.name, textJson)
-                hud.updateButtonBg(btn.name, if (isActive) btn.bgHighlight else btn.bgDefault)
+                    hud.updateButtonText(activeId, textJson)
+                    hud.updateButtonBg(activeId, if (isActive) btn.bgHighlight else btn.bgDefault)
+                }
+
+                // Recursively process children if this is a submenu and it's open
+                if (hud.isButtonActive("${activeId}_") && btn.items != null) {
+                    for (item in btn.items.values) {
+                        processBtn(item, activeId)
+                    }
+                }
+            }
+
+            for (btn in hudButtons) {
+                processBtn(btn)
             }
         }
     }

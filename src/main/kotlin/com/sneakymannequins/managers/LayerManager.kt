@@ -1197,12 +1197,12 @@ class LayerManager(private val plugin: SneakyMannequins) {
         val totalPixels = chromatic.size + neutral.size
         if (totalPixels == 0) return emptyList()
 
-        val neutralThreshold = neutralThresholdPercent()
-        val hasNeutralMask = neutral.size.toFloat() / totalPixels >= neutralThreshold
-        val actualNeutralCluster =
-                if (hasNeutralMask) Cluster(neutral.map { it.x to it.y }.toMutableList()) else null
-
         if (chromatic.isEmpty()) {
+            val neutralThreshold = neutralThresholdPercent()
+            val hasNeutralMask = neutral.size.toFloat() / totalPixels >= neutralThreshold
+            val actualNeutralCluster =
+                    if (hasNeutralMask) Cluster(neutral.map { it.x to it.y }.toMutableList())
+                    else null
             return listOfNotNull(actualNeutralCluster)
         }
 
@@ -1232,6 +1232,103 @@ class LayerManager(private val plugin: SneakyMannequins) {
                         MaskStrategy.RGB -> clusterAgglomerativeRgb(chromatic, distance)
                     }
                 }
+
+        val pixelMap = (chromatic + neutral).associateBy { it.x to it.y }
+
+        class Centroid(
+                val r: Float,
+                val g: Float,
+                val bl: Float,
+                val h: Float,
+                val s: Float,
+                val b: Float
+        )
+
+        val clusterCentroids =
+                rawClusters.map { cluster ->
+                    var rSum = 0f
+                    var gSum = 0f
+                    var blSum = 0f
+                    var sSum = 0f
+                    var bSum = 0f
+                    var sinSum = 0.0
+                    var cosSum = 0.0
+
+                    val clusterPixels = cluster.pixels.mapNotNull { pixelMap[it] }
+                    for (p in clusterPixels) {
+                        rSum += p.r / 255f
+                        gSum += p.g / 255f
+                        blSum += p.bl / 255f
+                        sSum += p.s
+                        bSum += p.b
+                        val angle = p.h.toDouble() * 2.0 * Math.PI
+                        sinSum += kotlin.math.sin(angle)
+                        cosSum += kotlin.math.cos(angle)
+                    }
+                    val size = clusterPixels.size.toFloat().coerceAtLeast(1f)
+                    val meanH =
+                            (kotlin.math.atan2(sinSum, cosSum) / (2.0 * Math.PI)).toFloat().let {
+                                if (it < 0) it + 1f else it
+                            }
+
+                    Centroid(
+                            r = rSum / size,
+                            g = gSum / size,
+                            bl = blSum / size,
+                            h = meanH,
+                            s = sSum / size,
+                            b = bSum / size
+                    )
+                }
+
+        val trueNeutral = mutableListOf<ColorPixel>()
+        val thresholdSq = distance * distance
+
+        for (np in neutral) {
+            var bestDistSq = Float.MAX_VALUE
+            var bestClusterIdx = -1
+
+            for (i in rawClusters.indices) {
+                val c = clusterCentroids[i]
+                val dsq =
+                        when (strategy) {
+                            MaskStrategy.RGB -> {
+                                val dr = (np.r / 255f) - c.r
+                                val dg = (np.g / 255f) - c.g
+                                val dbl = (np.bl / 255f) - c.bl
+                                dr * dr + dg * dg + dbl * dbl
+                            }
+                            MaskStrategy.HSB -> {
+                                val hDiff = kotlin.math.abs(np.h - c.h)
+                                val hDist = kotlin.math.min(hDiff, 1f - hDiff)
+                                val ds = np.s - c.s
+                                val db = np.b - c.b
+                                hDist * hDist + ds * ds + db * db
+                            }
+                            MaskStrategy.HUE -> {
+                                val hDiff = kotlin.math.abs(np.h - c.h)
+                                val hDist = kotlin.math.min(hDiff, 1f - hDiff)
+                                hDist * hDist
+                            }
+                        }
+                if (dsq < bestDistSq) {
+                    bestDistSq = dsq
+                    bestClusterIdx = i
+                }
+            }
+
+            if (bestClusterIdx != -1 && bestDistSq <= thresholdSq) {
+                rawClusters[bestClusterIdx].pixels.add(np.x to np.y)
+            } else {
+                trueNeutral.add(np)
+            }
+        }
+
+        val neutralThreshold = neutralThresholdPercent()
+        val hasNeutralMask = trueNeutral.size.toFloat() / totalPixels >= neutralThreshold
+        val actualNeutralCluster =
+                if (hasNeutralMask) Cluster(trueNeutral.map { it.x to it.y }.toMutableList())
+                else null
 
         val sortedChromatic =
                 rawClusters.sortedWith(
