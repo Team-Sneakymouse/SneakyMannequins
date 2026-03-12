@@ -773,6 +773,11 @@ class MannequinManager(
         if (layerDef != null) layerManager.resolveBrightnessInfluence(layerDef, option) else 0f
     }
 
+    private val saturationInfluenceResolver: (String, LayerOption) -> Float = { layerId, option ->
+        val layerDef = layerManager.definitionsInOrder().find { it.id == layerId }
+        if (layerDef != null) layerManager.resolveSaturationInfluence(layerDef, option) else 1f
+    }
+
     /**
      * Build the flat list of [ChannelSlot]s for a layer, taking the currently selected texture into
      * account. When the texture has a blend map with multiple active sub-channels, each mask
@@ -813,7 +818,8 @@ class MannequinManager(
                         useSlimModel = isSlimModel(mannequin),
                         optionResolver = optionResolver,
                         textureResolver = textureResolver(mannequin),
-                        brightnessInfluenceResolver = brightnessInfluenceResolver
+                        brightnessInfluenceResolver = brightnessInfluenceResolver,
+                        saturationInfluenceResolver = saturationInfluenceResolver
                 )
         val nextFrame = PixelFrame.fromImage(composed)
         val diff =
@@ -875,7 +881,8 @@ class MannequinManager(
                         useSlimModel = isSlimModel(mannequin),
                         optionResolver = optionResolver,
                         textureResolver = textureResolver(mannequin),
-                        brightnessInfluenceResolver = brightnessInfluenceResolver
+                        brightnessInfluenceResolver = brightnessInfluenceResolver,
+                        saturationInfluenceResolver = saturationInfluenceResolver
                 )
         mannequin.lastFrame = PixelFrame.fromImage(composed)
         val changes = mutableListOf<PixelChange>()
@@ -2466,6 +2473,10 @@ class MannequinManager(
                 brightnessInfluenceResolver = { layerId, option ->
                     val def = layerManager.definitionsInOrder().find { it.id == layerId }
                     if (def != null) layerManager.resolveBrightnessInfluence(def, option) else 0f
+                },
+                saturationInfluenceResolver = { layerId, option ->
+                    val def = layerManager.definitionsInOrder().find { it.id == layerId }
+                    if (def != null) layerManager.resolveSaturationInfluence(def, option) else 1f
                 }
         )
     }

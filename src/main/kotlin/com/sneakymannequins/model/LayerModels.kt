@@ -121,7 +121,8 @@ data class LayerDefinition(
         val allowColorMask: Boolean,
         val paletteSpec: PaletteSpec = PaletteSpec.INHERIT,
         val textureSpec: TextureSpec = TextureSpec.INHERIT,
-        val brightnessInfluence: Float? = null
+        val brightnessInfluence: Float? = null,
+        val saturationInfluence: Float? = null
 )
 
 /** One concrete option for a layer, backed by a PNG on disk. */
@@ -135,6 +136,7 @@ data class LayerOption(
         val paletteSpec: PaletteSpec = PaletteSpec.INHERIT,
         val textureSpec: TextureSpec = TextureSpec.INHERIT,
         val brightnessInfluence: Float? = null,
+        val saturationInfluence: Float? = null,
         val masks: Map<Int, Path> = emptyMap(), // channel idx -> mask PNG
         val directory: Path? = null, // part's subdirectory
         val owner: java.util.UUID? = null,

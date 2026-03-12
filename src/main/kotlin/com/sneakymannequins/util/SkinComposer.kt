@@ -32,7 +32,8 @@ object SkinComposer {
             useSlimModel: Boolean,
             optionResolver: ((layerId: String, optionId: String) -> LayerOption?)? = null,
             textureResolver: ((layerId: String) -> TextureDefinition?)? = null,
-            brightnessInfluenceResolver: ((layerId: String, option: LayerOption) -> Float)? = null
+            brightnessInfluenceResolver: ((layerId: String, option: LayerOption) -> Float)? = null,
+            saturationInfluenceResolver: ((layerId: String, option: LayerOption) -> Float)? = null
     ): BufferedImage {
         val output = BufferedImage(SKIN_SIZE, SKIN_SIZE, BufferedImage.TYPE_INT_ARGB)
         val graphics = output.createGraphics()
@@ -55,7 +56,10 @@ object SkinComposer {
             var source = sourceImage
             if (layer.allowColorMask) {
                 val brightnessInfluence =
-                        brightnessInfluenceResolver?.invoke(layer.id, chosen) ?: 0f
+                        brightnessInfluenceResolver?.invoke(layer.id, chosen) ?: 0.3f
+                val saturationInfluence =
+                        saturationInfluenceResolver?.invoke(layer.id, chosen) ?: 1.0f
+
                 // Resolve the active texture for this layer (null = "Default" / flat)
                 val texDef = textureResolver?.invoke(layer.id)
 
@@ -91,13 +95,21 @@ object SkinComposer {
                                         subColors,
                                         maskImage,
                                         blendImage,
-                                        brightnessInfluence
+                                        brightnessInfluence,
+                                        saturationInfluence
                                 )
                         continue
                     }
 
                     val flatColor = flatChannels[channelIdx] ?: continue
-                    source = applyColorMask(source, flatColor, maskImage, brightnessInfluence)
+                    source =
+                            applyColorMask(
+                                    source,
+                                    flatColor,
+                                    maskImage,
+                                    brightnessInfluence,
+                                    saturationInfluence
+                            )
                 }
 
                 // AO/roughness/alpha maps apply to ALL pixels as a final pass (after tinting)
@@ -144,7 +156,8 @@ object SkinComposer {
             image: BufferedImage,
             mask: Color,
             channelMask: BufferedImage?,
-            brightnessInfluence: Float = 0f
+            brightnessInfluence: Float = 0.3f,
+            saturationInfluence: Float = 1.0f
     ): BufferedImage {
         val tinted = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
         val maskHsb = Color.RGBtoHSB(mask.red, mask.green, mask.blue, null)
@@ -188,8 +201,8 @@ object SkinComposer {
         val avgSat = (satSum / count).toFloat()
         val avgBri = (briSum / count).toFloat()
         val hueDelta = targetHue - avgHue
-        val satScale = if (avgSat > 0.001f) targetSat / avgSat else 0f
-        val briScale = if (avgBri > 0.001f) targetBri / avgBri else 0f
+        val satDelta = targetSat - avgSat
+        val briDelta = targetBri - avgBri
 
         // --- Second pass: apply relative offset to each masked pixel ---
         for (x in 0 until image.width) {
@@ -217,9 +230,8 @@ object SkinComposer {
                 val hsb = Color.RGBtoHSB(r, g, b, null)
 
                 val newHue = (hsb[0] + hueDelta + 1f) % 1f
-                val newSat = (hsb[1] * satScale).coerceIn(0f, 1f)
-                val newBri =
-                        (hsb[2] * (1f + brightnessInfluence * (briScale - 1f))).coerceIn(0f, 1f)
+                val newSat = (hsb[1] + saturationInfluence * satDelta).coerceIn(0f, 1f)
+                val newBri = (hsb[2] + brightnessInfluence * briDelta).coerceIn(0f, 1f)
                 val newRgb = Color.HSBtoRGB(newHue, newSat, newBri)
                 tinted.setRGB(x, y, (alpha shl 24) or (newRgb and 0x00FFFFFF))
             }
@@ -289,7 +301,8 @@ object SkinComposer {
             subColors: Map<Int, Color>,
             channelMask: BufferedImage,
             blendMap: BufferedImage,
-            brightnessInfluence: Float = 0f
+            brightnessInfluence: Float = 0.3f,
+            saturationInfluence: Float = 1.0f
     ): BufferedImage {
         val tinted = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
 
@@ -400,8 +413,8 @@ object SkinComposer {
                 }
 
                 val hueDelta = perPixelHue - avgHue
-                val satScale = if (avgSat > 0.001f) perPixelSat / avgSat else 0f
-                val briScale = if (avgBri > 0.001f) perPixelBri / avgBri else 0f
+                val satDelta = perPixelSat - avgSat
+                val briDelta = perPixelBri - avgBri
 
                 val oR = argb shr 16 and 0xFF
                 val oG = argb shr 8 and 0xFF
@@ -409,9 +422,8 @@ object SkinComposer {
                 val hsb = Color.RGBtoHSB(oR, oG, oB, null)
 
                 val newHue = (hsb[0] + hueDelta + 1f) % 1f
-                val newSat = (hsb[1] * satScale).coerceIn(0f, 1f)
-                val newBri =
-                        (hsb[2] * (1f + brightnessInfluence * (briScale - 1f))).coerceIn(0f, 1f)
+                val newSat = (hsb[1] + saturationInfluence * satDelta).coerceIn(0f, 1f)
+                val newBri = (hsb[2] + brightnessInfluence * briDelta).coerceIn(0f, 1f)
 
                 val newRgb = Color.HSBtoRGB(newHue, newSat, newBri)
                 tinted.setRGB(x, y, (alpha shl 24) or (newRgb and 0x00FFFFFF))

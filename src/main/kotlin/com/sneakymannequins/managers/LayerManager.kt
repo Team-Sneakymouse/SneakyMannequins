@@ -36,6 +36,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
     private var defaultPaletteSpec = PaletteSpec.INHERIT
     private var defaultTextureSpec = TextureSpec.INHERIT
     private var defaultBrightnessInfluence = 0.3f
+    private var defaultSaturationInfluence = 1.0f
 
     fun reload() {
         loadedLayers.clear()
@@ -45,6 +46,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
         defaultPaletteSpec = PaletteSpec.INHERIT
         defaultTextureSpec = TextureSpec.INHERIT
         defaultBrightnessInfluence = 0.3f
+        defaultSaturationInfluence = 1.0f
         val root =
                 plugin.config.getConfigurationSection("layers")
                         ?: run {
@@ -66,6 +68,10 @@ class LayerManager(private val plugin: SneakyMannequins) {
         if (definitions.contains("brightness-influence")) {
             defaultBrightnessInfluence =
                     definitions.getDouble("brightness-influence", 0.3).toFloat()
+        }
+        if (definitions.contains("saturation-influence")) {
+            defaultSaturationInfluence =
+                    definitions.getDouble("saturation-influence", 1.0).toFloat()
         }
         val configuredOrder = root.getStringList("order")
         if (configuredOrder.isNotEmpty()) {
@@ -416,6 +422,12 @@ class LayerManager(private val plugin: SneakyMannequins) {
                             it.getDouble("brightness-influence").toFloat()
                     else null
                 }
+        val optSatInf =
+                optSection?.let {
+                    if (it.contains("saturation-influence"))
+                            it.getDouble("saturation-influence").toFloat()
+                    else null
+                }
 
         val defaultPath = agg.defaultPath ?: agg.sharedPath
         val slimPath = agg.slimPath ?: agg.sharedPath
@@ -441,6 +453,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 paletteSpec = optPaletteSpec,
                 textureSpec = optTextureSpec,
                 brightnessInfluence = optBriInf,
+                saturationInfluence = optSatInf,
                 masks = masks,
                 directory = agg.directory
         )
@@ -496,6 +509,12 @@ class LayerManager(private val plugin: SneakyMannequins) {
                             it.getDouble("brightness-influence").toFloat()
                     else null
                 }
+        val optSatInf =
+                optSection?.let {
+                    if (it.contains("saturation-influence"))
+                            it.getDouble("saturation-influence").toFloat()
+                    else null
+                }
 
         val image = loadImage(path, definition.id) ?: return null
         return LayerOption(
@@ -507,7 +526,8 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 imageSlim = image,
                 paletteSpec = optPaletteSpec,
                 textureSpec = optTextureSpec,
-                brightnessInfluence = optBriInf
+                brightnessInfluence = optBriInf,
+                saturationInfluence = optSatInf
         )
     }
 
@@ -1891,6 +1911,12 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 ?: layerDef.brightnessInfluence ?: defaultBrightnessInfluence
     }
 
+    /** Resolve saturation-influence for a layer+option. Resolution: option → layer → default. */
+    fun resolveSaturationInfluence(layerDef: LayerDefinition, option: LayerOption): Float {
+        return option.saturationInfluence
+                ?: layerDef.saturationInfluence ?: defaultSaturationInfluence
+    }
+
     // ── Layer definition parsing ─────────────────────────────────────────
 
     private fun ConfigurationSection.toDefinition(dataFolder: Path): LayerDefinition {
@@ -1905,6 +1931,9 @@ class LayerManager(private val plugin: SneakyMannequins) {
         val briInf =
                 if (contains("brightness-influence")) getDouble("brightness-influence").toFloat()
                 else null
+        val satInf =
+                if (contains("saturation-influence")) getDouble("saturation-influence").toFloat()
+                else null
 
         return LayerDefinition(
                 id = id,
@@ -1913,7 +1942,8 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 allowColorMask = allowMask,
                 paletteSpec = palSpec,
                 textureSpec = texSpec,
-                brightnessInfluence = briInf
+                brightnessInfluence = briInf,
+                saturationInfluence = satInf
         )
     }
 }

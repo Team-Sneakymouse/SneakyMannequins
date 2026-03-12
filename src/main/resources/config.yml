@@ -649,6 +649,11 @@ layers:
       - worn
       - fabric
 
+    # How much the picked color's saturation influences the final pixel.
+    # 0.0 = saturation fully preserved from original art.
+    # 1.0 = move the overall saturation towards the target (preserves variance).
+    saturation-influence: 1.0
+
     # How much the picked colour's brightness influences the final pixel.
     # 0.0 = brightness fully preserved from original art (old behaviour).
     # 1.0 = full rescale towards picked colour's brightness (destroys shading).
