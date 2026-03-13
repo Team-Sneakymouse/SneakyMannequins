@@ -2,7 +2,9 @@ package com.sneakymannequins.commands
 
 import com.sneakymannequins.SneakyMannequins
 import com.sneakymannequins.managers.LayerManager
+import com.sneakymannequins.managers.LayerManager.MaskStrategy
 import com.sneakymannequins.managers.MannequinManager
+import com.sneakymannequins.managers.RemaskManager
 import com.sneakymannequins.managers.SessionManager
 import com.sneakymouse.sneakyholos.util.TextUtility
 import io.papermc.paper.command.brigadier.CommandSourceStack
@@ -18,7 +20,8 @@ class CommandMannequin(
         private val plugin: SneakyMannequins,
         private val mannequinManager: MannequinManager,
         private val layerManager: LayerManager,
-        private val sessionManager: SessionManager
+        private val sessionManager: SessionManager,
+        private val remaskManager: RemaskManager
 ) : CommandBase("mannequin") {
 
         companion object {
@@ -124,17 +127,30 @@ class CommandMannequin(
                                         .toMutableList()
                         2 ->
                                 when (args[0].lowercase()) {
-                                        "remask" ->
-                                                layerManager
-                                                        .definitionsInOrder()
-                                                        .map { it.id }
-                                                        .filter {
-                                                                it.startsWith(
-                                                                        args[1],
-                                                                        ignoreCase = true
-                                                                )
-                                                        }
-                                                        .toMutableList()
+                                        "remask" -> {
+                                                val p = stack.sender as? Player
+                                                if (p != null && remaskManager.hasSession(p)) {
+                                                        listOf("confirm", "cancel")
+                                                                .filter {
+                                                                        it.startsWith(
+                                                                                args[1],
+                                                                                ignoreCase = true
+                                                                        )
+                                                                }
+                                                                .toMutableList()
+                                                } else {
+                                                        layerManager
+                                                                .definitionsInOrder()
+                                                                .map { it.id }
+                                                                .filter {
+                                                                        it.startsWith(
+                                                                                args[1],
+                                                                                ignoreCase = true
+                                                                        )
+                                                                }
+                                                                .toMutableList()
+                                                }
+                                        }
                                         "add" -> mutableListOf("<world,x,y,z,yaw>")
                                         "debug" ->
                                                 listOf(
@@ -158,7 +174,7 @@ class CommandMannequin(
                                                         }
                                                         .toMutableList()
                                         "me" ->
-                                                listOf("upload", "remask", "delete")
+                                                listOf("upload", "delete")
                                                         .filter {
                                                                 it.startsWith(
                                                                         args[1],
@@ -783,6 +799,82 @@ class CommandMannequin(
                 )
         }
 
+        private fun handleRemask(sender: Player, args: Array<out String>) {
+                if (remaskManager.hasSession(sender)) {
+                        val sub = args.getOrNull(1)?.lowercase()
+                        if (sub == "cancel") {
+                                remaskManager.cancelSession(sender)
+                        } else if (sub == "confirm" || sub == null) {
+                                remaskManager.confirmSession(sender)
+                        } else {
+                                sender.sendMessage(
+                                        TextUtility.convertToComponent(
+                                                "&cUsage: /mannequin remask [confirm|cancel]"
+                                        )
+                                )
+                        }
+                        return
+                }
+
+                if (args.size < 2) {
+                        sender.sendMessage(
+                                TextUtility.convertToComponent(
+                                        "&cUsage: /mannequin remask <layer> [strategy]"
+                                )
+                        )
+                        return
+                }
+
+                val layerId = args[1]
+                val strategyName = args.getOrNull(2)
+                val strategy =
+                        strategyName?.let {
+                                try {
+                                        MaskStrategy.valueOf(it.uppercase())
+                                } catch (_: Exception) {
+                                        null
+                                }
+                        }
+
+                val mannequin = mannequinManager.nearestMannequin(sender.location)
+                if (mannequin == null) {
+                        sender.sendMessage(TextUtility.convertToComponent("&cNo mannequin nearby."))
+                        return
+                }
+
+                val partId = mannequinManager.currentPartId(mannequin.id, layerId)
+                if (partId == null) {
+                        sender.sendMessage(
+                                TextUtility.convertToComponent(
+                                        "&cNo part selected in layer '&b$layerId&c' for this mannequin."
+                                )
+                        )
+                        return
+                }
+
+                // Permission check
+                val opt = layerManager.findPartById(layerId, partId)
+                if (opt == null) {
+                        sender.sendMessage(
+                                TextUtility.convertToComponent("&cCould not find part definition.")
+                        )
+                        return
+                }
+
+                val isOwner = opt.owner == sender.uniqueId
+                val isAdmin = sender.hasPermission("sneakymannequins.admin")
+                if (!isOwner && !isAdmin) {
+                        sender.sendMessage(
+                                TextUtility.convertToComponent(
+                                        "&cYou do not have permission to remask this part (not the owner)."
+                                )
+                        )
+                        return
+                }
+
+                remaskManager.startSession(sender, mannequin.id, layerId, partId, strategy)
+        }
+
         private fun handleDelete(player: Player, args: Array<out String>) {
                 if (args.size < 2) {
                         player.sendMessage(
@@ -863,100 +955,6 @@ class CommandMannequin(
                         }
         }
 
-        private fun handleRemask(sender: Player, args: Array<out String>) {
-                // /mannequin remask <layer> <part> [strategy] [channels]
-                if (args.size < 3) {
-                        sender.sendMessage(
-                                TextUtility.convertToComponent(
-                                        "&cUsage: /mannequin remask <layer> <part> [${LayerManager.STRATEGY_NAMES.joinToString("|")}] [channels]"
-                                )
-                        )
-                        return
-                }
-                val layerId = args[1].lowercase()
-                val partId = args[2].lowercase()
-                val strategyName = (if (args.size >= 4) args[3] else null)?.uppercase()
-                val strategy =
-                        if (strategyName != null) {
-                                try {
-                                        LayerManager.MaskStrategy.valueOf(strategyName)
-                                } catch (_: Exception) {
-                                        sender.sendMessage(
-                                                TextUtility.convertToComponent(
-                                                        "&cUnknown strategy '$strategyName'. Available: ${LayerManager.STRATEGY_NAMES.joinToString(", ")}"
-                                                )
-                                        )
-                                        return
-                                }
-                        } else null
-
-                val distanceOrChannelsArg: Any? =
-                        if (args.size >= 5) {
-                                val floatVal = args[4].toFloatOrNull()
-                                val intVal = args[4].toIntOrNull()
-                                if (intVal != null &&
-                                                floatVal != null &&
-                                                floatVal == intVal.toFloat() &&
-                                                !args[4].contains('.')
-                                ) {
-                                        if (intVal < 1 || intVal > 8) {
-                                                sender.sendMessage(
-                                                        TextUtility.convertToComponent(
-                                                                "&cChannels must be between 1 and 8."
-                                                        )
-                                                )
-                                                return
-                                        }
-                                        intVal
-                                } else if (floatVal != null) {
-                                        if (floatVal < 0f || floatVal > 1f) {
-                                                sender.sendMessage(
-                                                        TextUtility.convertToComponent(
-                                                                "&cDistance must be between 0.0 and 1.0."
-                                                        )
-                                                )
-                                                return
-                                        }
-                                        floatVal
-                                } else {
-                                        sender.sendMessage(
-                                                TextUtility.convertToComponent(
-                                                        "&cArgument must be an integer (channels) or float (distance)."
-                                                )
-                                        )
-                                        return
-                                }
-                        } else null
-
-                val label = strategy?.name ?: "default"
-                val configLabel =
-                        distanceOrChannelsArg?.let {
-                                if (it is Float) "dist=$it" else "channels=$it"
-                        }
-                                ?: "default config"
-                sender.sendMessage(
-                        TextUtility.convertToComponent(
-                                "&7Remasking '$partId' in '$layerId' with $label strategy, $configLabel..."
-                        )
-                )
-                try {
-                        val result =
-                                layerManager.remask(
-                                        strategy = strategy,
-                                        layerId = layerId,
-                                        partId = partId,
-                                        distanceOrChannels = distanceOrChannelsArg
-                                )
-                        sender.sendMessage(TextUtility.convertToComponent("&a$result"))
-                } catch (e: Exception) {
-                        sender.sendMessage(
-                                TextUtility.convertToComponent("&cRemask failed: ${e.message}")
-                        )
-                        plugin.logger.severe("Remask failed: ${e.message}")
-                        e.printStackTrace()
-                }
-        }
-
         private fun handleDebugToggle(stack: CommandSourceStack, args: Array<out String>) {
                 val current = plugin.config.getBoolean("plugin.debug", false)
                 val newDebug = !current
@@ -1033,19 +1031,18 @@ class CommandMannequin(
                 if (args.size < 2) {
                         player.sendMessage(
                                 TextUtility.convertToComponent(
-                                        "&cUsage: /mannequin me <upload|remask|delete> ..."
+                                        "&cUsage: /mannequin me <upload|delete> ..."
                                 )
                         )
                         return
                 }
                 when (args[1].lowercase()) {
                         "upload" -> handleMeUpload(player, args)
-                        "remask" -> handleMeRemask(player, args)
                         "delete" -> handleMeDelete(player, args)
                         else ->
                                 player.sendMessage(
                                         TextUtility.convertToComponent(
-                                                "&cUnknown me subcommand. Use upload, remask, or delete."
+                                                "&cUnknown me subcommand. Use upload or delete."
                                         )
                                 )
                 }
@@ -1174,10 +1171,11 @@ class CommandMannequin(
                 )
                 try {
                         val result =
-                                layerManager.remask(
-                                        strategy = strategy,
+                                layerManager.commitRemask(
+                                        strategy = strategy ?: layerManager.defaultStrategy(),
                                         layerId = layerId,
                                         partId = partId,
+                                        params = layerManager.currentRemaskParameters(),
                                         distanceOrChannels = distanceOrChannelsArg
                                 )
                         sender.sendMessage(TextUtility.convertToComponent("&a$result"))

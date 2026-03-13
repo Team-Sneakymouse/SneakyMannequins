@@ -131,16 +131,22 @@ data class LayerOption(
         val displayName: String,
         val fileDefault: Path?,
         val fileSlim: Path?,
+        val fileMaster: Path?,
         val imageDefault: BufferedImage?,
         val imageSlim: BufferedImage?,
+        val imageMaster: BufferedImage?,
         val paletteSpec: PaletteSpec = PaletteSpec.INHERIT,
         val textureSpec: TextureSpec = TextureSpec.INHERIT,
         val brightnessInfluence: Float? = null,
         val saturationInfluence: Float? = null,
-        val masks: Map<Int, Path> = emptyMap(), // channel idx -> mask PNG
+        val masks: Map<Int, Path> = emptyMap(), // master/shared masks
+        val masksDefault: Map<Int, Path> = emptyMap(),
+        val masksSlim: Map<Int, Path> = emptyMap(),
         val directory: Path? = null, // part's subdirectory
         val owner: java.util.UUID? = null,
-        val internalKey: String? = null
+        val internalKey: String? = null,
+        val hasArms: Boolean = false,
+        val isAlex: Boolean = false
 )
 
 /**

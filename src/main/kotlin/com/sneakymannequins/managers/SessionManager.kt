@@ -552,7 +552,7 @@ class SessionManager(
         if (isSession) {
             for ((layerId, data) in res.layers) {
                 val optionId = data.option ?: continue
-                val opt = layerManager.findOptionById(layerId, optionId)
+                val opt = layerManager.findPartById(layerId, optionId)
                 if (opt != null && opt.owner != null && opt.owner != player.uniqueId) {
                     player.sendMessage(
                             TextUtility.convertToComponent(

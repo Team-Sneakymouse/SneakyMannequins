@@ -25,6 +25,7 @@ import com.sneakymannequins.util.SkinUv
 import com.sneakymouse.sneakyholos.*
 import com.sneakymouse.sneakyholos.util.HoloGridBuilder
 import com.sneakymouse.sneakyholos.util.TextUtility
+import java.awt.image.BufferedImage
 import java.util.UUID
 import kotlin.math.sqrt
 import net.kyori.adventure.text.Component
@@ -144,6 +145,17 @@ class MannequinManager(
     /** Manages INSTANT / BUILD pixel delivery to viewers. */
     private val animationManager = AnimationManager(plugin, handler)
 
+    fun getMannequin(mannequinId: UUID): Mannequin? = mannequins[mannequinId]
+
+    fun currentPartId(mannequinId: UUID, layerId: String): String? {
+        val mannequin = mannequins[mannequinId] ?: return null
+        return mannequin.selection.selections[layerId]?.option?.id
+    }
+
+    fun findPartById(layerId: String, partId: String): LayerOption? {
+        return layerManager.findPartById(layerId, partId)
+    }
+
     // ── Config-driven radii ─────────────────────────────────────────────────────
 
     /** Radius at which a mannequin first appears for a player. */
@@ -262,7 +274,7 @@ class MannequinManager(
     private fun freshOption(layerId: String, mannequin: Mannequin): LayerOption? {
         val selOption = mannequin.selection.selections[layerId]?.option
         if (selOption != null) {
-            return layerManager.findOptionById(layerId, selOption.id) ?: selOption
+            return layerManager.findPartById(layerId, selOption.id) ?: selOption
         }
         return layerManager.optionsFor(layerId).firstOrNull()
     }
@@ -755,7 +767,7 @@ class MannequinManager(
      * reads up-to-date mask paths after a remask.
      */
     private val optionResolver: (String, String) -> LayerOption? = { layerId, optionId ->
-        layerManager.findOptionById(layerId, optionId)
+        layerManager.findPartById(layerId, optionId)
     }
 
     /**
@@ -808,7 +820,8 @@ class MannequinManager(
             mannequin: Mannequin,
             viewers: Collection<Player>,
             forceInstant: Boolean = false,
-            forceArmPixels: Boolean = false
+            forceArmPixels: Boolean = false,
+            forceAll: Boolean = false
     ): Int {
         val definitions = layerManager.definitionsInOrder()
         val composed =
@@ -823,7 +836,9 @@ class MannequinManager(
                 )
         val nextFrame = PixelFrame.fromImage(composed)
         val diff =
-                if (forceArmPixels) {
+                if (forceAll) {
+                    PixelFrame.blank().diff(nextFrame)
+                } else if (forceArmPixels) {
                     mannequin.lastFrame.diff(nextFrame) { x, y -> SkinUv.isArmPixel(x, y) }
                 } else {
                     mannequin.lastFrame.diff(nextFrame)
@@ -853,6 +868,44 @@ class MannequinManager(
             animationManager.deliver(viewer, mannequin.id, projected, settings)
         }
         return diff.size
+    }
+
+    /**
+     * Sends a temporary frame to [viewers] without updating the mannequin's canonical state (
+     * [Mannequin.lastFrame]). Useful for interactive previews (like remask mode).
+     */
+    fun renderOverride(
+            mannequin: Mannequin,
+            image: BufferedImage,
+            viewers: Collection<Player>,
+            force: Boolean = false
+    ) {
+        val nextFrame = PixelFrame.fromImage(image)
+        // Diff against current canonical state
+        val diff =
+                if (force) {
+                    mannequin.lastFrame.diff(nextFrame) { x, y ->
+                        (nextFrame.get(x, y) ushr 24) != 0
+                    }
+                } else {
+                    mannequin.lastFrame.diff(nextFrame)
+                }
+        if (diff.isEmpty()) return
+
+        val projected =
+                PixelProjector.project(
+                        origin = mannequin.location,
+                        changes = diff,
+                        pixelScale = 1.0 / 16.0,
+                        scaleMultiplier = handler.pixelScaleMultiplier(),
+                        slimArms = isSlimModel(mannequin),
+                        showOverlay = mannequin.showOverlay,
+                        tPose = poseState[mannequin.id] == true
+                )
+        val settings = RenderSettings(RenderMode.INSTANT)
+        viewers.forEach { viewer ->
+            animationManager.deliver(viewer, mannequin.id, projected, settings)
+        }
     }
 
     private fun renderFull(
@@ -1786,7 +1839,36 @@ class MannequinManager(
         // Note: we clear any previously generated menu buttons with this prefix
         despawnMenu(menuBtn.name, player, hud, quiet = true)
 
+        val layers = layerManager.definitionsInOrder()
+        val layersOnMannequin = layers.filter { it.id in mannequin.selection.selections.keys }
+        val layerDisabled = layersOnMannequin.size <= 1
+        val currentLayer = layers.getOrNull(state.layerIndex % layers.size)
+        val currentOption = currentLayer?.let { freshOption(it.id, mannequin) }
+
+        val texs =
+                if (currentLayer != null && currentOption != null)
+                        layerManager.resolveTextures(currentLayer, currentOption, player)
+                else emptyList<String>()
+        val textureDisabled = texs.size <= 1
+
+        val slots =
+                if (currentLayer != null && currentOption != null)
+                        resolveChannelSlots(currentLayer, currentOption, state, player)
+                else emptyList()
+        val channelDisabled = slots.size <= 1
+
         menuBtn.items?.values?.forEach { itemConf ->
+            val isLayerType = itemConf.type == "layer"
+            val isTextureType = itemConf.type == "texture"
+            val isChannelType = itemConf.type == "channel"
+
+            val isButtonDisabled =
+                    (isLayerType && layerDisabled) ||
+                            (isTextureType && textureDisabled) ||
+                            (isChannelType && channelDisabled)
+            val hideThis = isButtonDisabled && itemConf.disabledTextJson == null
+            if (hideThis) return@forEach
+
             if (itemConf.type == "color_grid") {
                 injectColorGrid(itemConf, grid, menuBtn.name, player, mannequin, state)
             } else {
@@ -1801,7 +1883,7 @@ class MannequinManager(
                                         itemConf.bgHeader
                                 else itemConf.bgDefault,
                         bgHighlight = HUD_BG_HIGHLIGHT,
-                        lineWidth = itemConf.lineWidth ?: 200,
+                        lineWidth = itemConf.lineWidth,
                         scaleX = itemConf.scaleX ?: 1.0f,
                         scaleY = itemConf.scaleY ?: 1.0f,
                         onClick = { p, backwards ->
@@ -2481,7 +2563,7 @@ class MannequinManager(
         )
     }
 
-    private fun nearbyViewers(mannequin: Mannequin): List<Player> {
+    fun nearbyViewers(mannequin: Mannequin): List<Player> {
         val radiusSq = viewRadius * viewRadius
         return plugin.server.onlinePlayers.filter {
             it.world == mannequin.location.world &&

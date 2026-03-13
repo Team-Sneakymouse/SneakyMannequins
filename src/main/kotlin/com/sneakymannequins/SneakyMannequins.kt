@@ -7,6 +7,7 @@ import com.sneakymannequins.listeners.TriggerListener
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymannequins.managers.MannequinManager
 import com.sneakymannequins.managers.MannequinPersistence
+import com.sneakymannequins.managers.RemaskManager
 import com.sneakymannequins.managers.SessionManager
 import com.sneakymannequins.nms.VolatileHandler
 import com.sneakymannequins.nms.VolatileHandlerRegistry
@@ -43,6 +44,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
     private lateinit var mannequinManager: MannequinManager
     private lateinit var persistence: MannequinPersistence
     private lateinit var sessionManager: SessionManager
+    private lateinit var remaskManager: RemaskManager
     lateinit var characterManagerBridge: CharacterManagerBridge
     lateinit var holoController: HoloController
         private set
@@ -74,11 +76,18 @@ class SneakyMannequins : JavaPlugin(), Listener {
                             it.loadFromDisk()
                             it.startTickLoop()
                         }
+        remaskManager = RemaskManager(this, mannequinManager, layerManager).also { it.start() }
 
         // Register commands
         registerCommand(
                 "mannequin",
-                CommandMannequin(this, mannequinManager, layerManager, sessionManager)
+                CommandMannequin(
+                        this,
+                        mannequinManager,
+                        layerManager,
+                        sessionManager,
+                        remaskManager
+                )
         )
         server.pluginManager.registerEvents(this, this)
         server.pluginManager.registerEvents(TriggerListener(this), this)
@@ -90,6 +99,9 @@ class SneakyMannequins : JavaPlugin(), Listener {
     override fun onDisable() {
         if (this::mannequinManager.isInitialized) {
             mannequinManager.shutdown()
+        }
+        if (this::remaskManager.isInitialized) {
+            remaskManager.stop()
         }
         if (this::holoController.isInitialized) {
             holoController.shutdown()

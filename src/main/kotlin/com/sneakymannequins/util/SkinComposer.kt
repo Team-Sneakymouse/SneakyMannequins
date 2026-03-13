@@ -43,16 +43,10 @@ object SkinComposer {
             val selOption = sel.option ?: return@forEach
             // Resolve fresh option (with up-to-date masks) if a resolver is provided
             val chosen = optionResolver?.invoke(layer.id, selOption.id) ?: selOption
-            val sourceImage =
-                    when {
-                        useSlimModel && chosen.imageSlim != null -> chosen.imageSlim
-                        else -> chosen.imageDefault ?: chosen.imageSlim
-                    }
-                            ?: return@forEach
+            val sourceImage = if (useSlimModel) chosen.imageSlim else chosen.imageDefault
+            if (sourceImage == null) return@forEach
 
             // Apply each channel's color independently, then composite.
-            // Skip channels whose mask file is missing — tinting without a
-            // mask would recolour every pixel instead of just the channel.
             var source = sourceImage
             if (layer.allowColorMask) {
                 val brightnessInfluence =
@@ -67,17 +61,21 @@ object SkinComposer {
                 val flatChannels = sel.channelColors
                 val texturedChannels = sel.texturedColors
 
-                // Load all mask images upfront so we can identify unmasked pixels later
+                // Load all mask images upfront.
+                // We trust that variant masks are prepopulated or fallback to master appropriately.
+                val maskMap =
+                        if (useSlimModel) chosen.masksSlim.ifEmpty { chosen.masks }
+                        else chosen.masksDefault.ifEmpty { chosen.masks }
+
                 val maskImages =
-                        chosen.masks
+                        maskMap
                                 .mapNotNull { (idx, path) ->
-                                    val img =
-                                            try {
-                                                javax.imageio.ImageIO.read(path.toFile())
-                                            } catch (_: Exception) {
-                                                null
-                                            }
-                                    if (img != null) idx to img else null
+                                    try {
+                                        val img = javax.imageio.ImageIO.read(path.toFile())
+                                        if (img != null) idx to img else null
+                                    } catch (_: Exception) {
+                                        null
+                                    }
                                 }
                                 .toMap()
 
@@ -91,7 +89,7 @@ object SkinComposer {
                     if (blendImage != null && subColors != null && subColors.isNotEmpty()) {
                         source =
                                 applyTexturedColorMask(
-                                        source,
+                                        source!!,
                                         subColors,
                                         maskImage,
                                         blendImage,
@@ -104,7 +102,7 @@ object SkinComposer {
                     val flatColor = flatChannels[channelIdx] ?: continue
                     source =
                             applyColorMask(
-                                    source,
+                                    source!!,
                                     flatColor,
                                     maskImage,
                                     brightnessInfluence,
@@ -117,7 +115,7 @@ object SkinComposer {
                 val roughnessMap = texDef?.roughnessMapImage
                 val alphaMap = texDef?.alphaMapImage
                 if (aoMap != null || roughnessMap != null || alphaMap != null) {
-                    source = applyMaps(source, aoMap, roughnessMap, alphaMap)
+                    source = applyMaps(source!!, aoMap, roughnessMap, alphaMap)
                 }
             }
             graphics.drawImage(source, 0, 0, null)

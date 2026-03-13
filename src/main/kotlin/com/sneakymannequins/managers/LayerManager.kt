@@ -110,10 +110,6 @@ class LayerManager(private val plugin: SneakyMannequins) {
         return loadedLayers[layerId]?.second.orEmpty()
     }
 
-    fun findOptionById(layerId: String, optionId: String): LayerOption? {
-        return loadedLayers[layerId]?.second?.find { it.id == optionId }
-    }
-
     fun addOption(layerId: String, option: LayerOption) {
         val entry = loadedLayers[layerId] ?: return
         val newOptions = entry.second.toMutableList().also { it.add(option) }
@@ -286,16 +282,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
             val metadata = loadMetadata(dir)
             val displayName = metadata["displayName"] as? String ?: toDisplayName(dir.name)
             val agg = grouped.getOrPut(id) { OptionAggregate(id, displayName, directory = dir) }
-
-            Files.list(dir).use { stream ->
-                stream.forEach { path ->
-                    val name = path.nameWithoutExtension.lowercase()
-                    if (name.endsWith("_slim")) agg.slimPath = path
-                    else if (name.endsWith("_default")) agg.defaultPath = path
-                    else if (path.name.lowercase().endsWith(".png") && !name.contains("_mask_"))
-                            agg.sharedPath = path
-                }
-            }
+            populateAggregate(agg, dir)
         }
 
         // 2. Identify standalone PNGs that need preprocessing
@@ -323,17 +310,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
                                     grouped.getOrPut(id) {
                                         OptionAggregate(id, displayName, directory = dir)
                                     }
-                            Files.list(dir).use { stream ->
-                                stream.forEach { p ->
-                                    val name = p.nameWithoutExtension.lowercase()
-                                    if (name.endsWith("_slim")) agg.slimPath = p
-                                    else if (name.endsWith("_default")) agg.defaultPath = p
-                                    else if (p.name.lowercase().endsWith(".png") &&
-                                                    !name.contains("_mask_")
-                                    )
-                                            agg.sharedPath = p
-                                }
-                            }
+                            populateAggregate(agg, dir)
                         }
                     }
                 }
@@ -350,8 +327,8 @@ class LayerManager(private val plugin: SneakyMannequins) {
         if (Files.exists(uploadsDir) && Files.isDirectory(uploadsDir)) {
             try {
                 Files.list(uploadsDir).use { userStream ->
-                    userStream.forEach { userDir ->
-                        if (!Files.isDirectory(userDir)) return@forEach
+                    userStream.forEach userLoop@{ userDir ->
+                        if (!Files.isDirectory(userDir)) return@userLoop
                         val uuidString = userDir.name
                         val ownerUuid =
                                 try {
@@ -361,26 +338,15 @@ class LayerManager(private val plugin: SneakyMannequins) {
                                 }
                         if (ownerUuid != null) {
                             val userPartDirs = Files.list(userDir).use { it.toList() }
-                            userPartDirs.forEach { partDir ->
-                                if (!Files.isDirectory(partDir)) return@forEach
+                            userPartDirs.forEach partLoop@{ partDir ->
+                                if (!Files.isDirectory(partDir)) return@partLoop
                                 val id = slugify(partDir.name)
                                 val metadata = loadMetadata(partDir)
                                 val displayName =
                                         metadata["displayName"] as? String
                                                 ?: toDisplayName(partDir.name)
                                 val agg = OptionAggregate(id, displayName, directory = partDir)
-
-                                Files.list(partDir).use { partStream ->
-                                    partStream.forEach { path ->
-                                        val name = path.nameWithoutExtension.lowercase()
-                                        if (name.endsWith("_slim")) agg.slimPath = path
-                                        else if (name.endsWith("_default")) agg.defaultPath = path
-                                        else if (path.name.lowercase().endsWith(".png") &&
-                                                        !name.contains("_mask_")
-                                        )
-                                                agg.sharedPath = path
-                                    }
-                                }
+                                populateAggregate(agg, partDir)
 
                                 val userOpt =
                                         createOptionFromAggregate(agg, definition, null, partDir)
@@ -429,67 +395,94 @@ class LayerManager(private val plugin: SneakyMannequins) {
                     else null
                 }
 
-        val defaultPath = agg.defaultPath ?: agg.sharedPath
-        val slimPath = agg.slimPath ?: agg.sharedPath
+        val masterPath = agg.masterPath ?: agg.sharedPath
+        val defaultPath = agg.defaultPath ?: masterPath
+        val slimPath = agg.slimPath ?: masterPath
+
+        val masterImage = masterPath?.let { loadImage(it, definition.id) }
         val defaultImage = defaultPath?.let { loadImage(it, definition.id) }
         val slimImage = slimPath?.let { loadImage(it, definition.id) }
 
-        if (defaultImage == null && slimImage == null) {
+        if (defaultImage == null && slimImage == null && masterImage == null) {
             plugin.logger.warning(
                     "Layer ${definition.id} option ${agg.id} has no readable images; skipping."
             )
             return null
         }
 
-        val masks = buildMaskMap(agg.directory ?: directory, agg)
+        val masks = agg.masks
+        val masksDefault = agg.masksDefault
+        val masksSlim = agg.masksSlim
 
         return LayerOption(
                 id = agg.id,
                 displayName = agg.displayName,
                 fileDefault = defaultPath,
                 fileSlim = slimPath,
+                fileMaster = masterPath,
                 imageDefault = defaultImage,
                 imageSlim = slimImage,
+                imageMaster = masterImage,
                 paletteSpec = optPaletteSpec,
                 textureSpec = optTextureSpec,
                 brightnessInfluence = optBriInf,
                 saturationInfluence = optSatInf,
                 masks = masks,
-                directory = agg.directory
+                masksDefault = masksDefault,
+                masksSlim = masksSlim,
+                directory = agg.directory,
+                hasArms = agg.hasArms,
+                isAlex = agg.isAlex
         )
     }
 
-    /** Scan the directory for mask PNGs belonging to the given option aggregate. */
-    private fun buildMaskMap(directory: Path, agg: OptionAggregate): Map<Int, Path> {
-        val baseNames =
-                listOfNotNull(agg.defaultPath, agg.slimPath, agg.sharedPath)
-                        .map { it.nameWithoutExtension }
-                        .toSet()
-        val pngs =
-                Files.list(directory).use { stream ->
-                    stream.iterator()
-                            .asSequence()
-                            .filter {
-                                Files.isRegularFile(it) &&
-                                        it.fileName.toString().lowercase().endsWith(".png")
-                            }
-                            .filter { path ->
-                                val name = path.nameWithoutExtension.lowercase()
-                                baseNames.any { base ->
-                                    name.startsWith("${base.lowercase()}_mask_")
-                                }
-                            }
-                            .toList()
-                }
+    private fun populateAggregate(agg: OptionAggregate, dir: Path) {
+        val metadata = loadMetadata(dir)
+        agg.hasArms = metadata["hasArms"] as? Boolean ?: false
+        agg.isAlex = metadata["isAlex"] as? Boolean ?: false
 
-        return pngs
-                .mapNotNull { path ->
-                    val name = path.nameWithoutExtension
-                    val idxPart = name.substringAfterLast("_mask_", missingDelimiterValue = "")
-                    val idx = idxPart.toIntOrNull() ?: return@mapNotNull null
-                    idx to path
+        @Suppress("UNCHECKED_CAST")
+        val mappings = metadata["mappings"] as? Map<String, Any> ?: emptyMap()
+
+        if (mappings.isNotEmpty()) {
+            (mappings["master"] as? String)?.let { agg.masterPath = dir.resolve(it) }
+            (mappings["default"] as? String)?.let { agg.defaultPath = dir.resolve(it) }
+            (mappings["slim"] as? String)?.let { agg.slimPath = dir.resolve(it) }
+
+            (mappings["masks"] as? Map<String, String>)?.forEach { (idx, file) ->
+                agg.masks[idx.toIntOrNull() ?: return@forEach] = dir.resolve(file)
+            }
+            (mappings["masksDefault"] as? Map<String, String>)?.forEach { (idx, file) ->
+                agg.masksDefault[idx.toIntOrNull() ?: return@forEach] = dir.resolve(file)
+            }
+            (mappings["masksSlim"] as? Map<String, String>)?.forEach { (idx, file) ->
+                agg.masksSlim[idx.toIntOrNull() ?: return@forEach] = dir.resolve(file)
+            }
+        }
+
+        // Fallback or additional scanning if mappings are incomplete
+        Files.list(dir).use { stream ->
+            stream.forEach { path ->
+                val name = path.nameWithoutExtension.lowercase()
+                val filename = path.name.lowercase()
+                if (!filename.endsWith(".png")) return@forEach
+
+                if (name.contains("_mask_")) {
+                    val idx = name.substringAfterLast("_mask_").toIntOrNull() ?: return@forEach
+                    if (name.contains("_default_")) {
+                        if (!agg.masksDefault.containsKey(idx)) agg.masksDefault[idx] = path
+                    } else if (name.contains("_slim_")) {
+                        if (!agg.masksSlim.containsKey(idx)) agg.masksSlim[idx] = path
+                    } else {
+                        if (!agg.masks.containsKey(idx)) agg.masks[idx] = path
+                    }
+                } else if (mappings.isEmpty()) {
+                    if (name.endsWith("_slim")) agg.slimPath = path
+                    else if (name.endsWith("_default")) agg.defaultPath = path
+                    else agg.masterPath = path
                 }
-                .toMap()
+            }
+        }
     }
 
     private fun loadOptionPair(
@@ -522,8 +515,10 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 displayName = displayName,
                 fileDefault = path,
                 fileSlim = path,
+                fileMaster = path,
                 imageDefault = image,
                 imageSlim = image,
+                imageMaster = image,
                 paletteSpec = optPaletteSpec,
                 textureSpec = optTextureSpec,
                 brightnessInfluence = optBriInf,
@@ -559,7 +554,13 @@ class LayerManager(private val plugin: SneakyMannequins) {
             var defaultPath: Path? = null,
             var slimPath: Path? = null,
             var sharedPath: Path? = null,
-            var directory: Path? = null
+            var masterPath: Path? = null,
+            var directory: Path? = null,
+            var masks: MutableMap<Int, Path> = mutableMapOf(),
+            var masksDefault: MutableMap<Int, Path> = mutableMapOf(),
+            var masksSlim: MutableMap<Int, Path> = mutableMapOf(),
+            var hasArms: Boolean = false,
+            var isAlex: Boolean = false
     )
 
     private enum class Variant {
@@ -677,12 +678,45 @@ class LayerManager(private val plugin: SneakyMannequins) {
         if (!file.exists()) return emptyMap()
         return try {
             val content = Files.readString(file)
-            // Simple manual parse for now since we only need two fields
             val map = mutableMapOf<String, Any>()
-            val nameMatch = Regex("\"displayName\":\\s*\"([^\"]+)\"").find(content)
-            val keyMatch = Regex("\"internalKey\":\\s*\"([^\"]+)\"").find(content)
-            nameMatch?.let { map["displayName"] = it.groupValues[1] }
-            keyMatch?.let { map["internalKey"] = it.groupValues[1] }
+
+            // Simple fields
+            Regex("\"displayName\":\\s*\"([^\"]+)\"").find(content)?.let {
+                map["displayName"] = it.groupValues[1]
+            }
+            Regex("\"internalKey\":\\s*\"([^\"]+)\"").find(content)?.let {
+                map["internalKey"] = it.groupValues[1]
+            }
+            Regex("\"hasArms\":\\s*(true|false)").find(content)?.let {
+                map["hasArms"] = it.groupValues[1].toBoolean()
+            }
+            Regex("\"isAlex\":\\s*(true|false)").find(content)?.let {
+                map["isAlex"] = it.groupValues[1].toBoolean()
+            }
+
+            // Asset Mappings (Manual extraction for consistency)
+            val mappings = mutableMapOf<String, Any>()
+            Regex("\"(master|default|slim)\":\\s*\"([^\"]+)\"").findAll(content).forEach { m ->
+                mappings[m.groupValues[1]] = m.groupValues[2]
+            }
+
+            fun extractMaskMap(key: String): Map<String, String> {
+                val match = Regex("\"$key\":\\s*\\{([^}]+)\\}").find(content)
+                val m = mutableMapOf<String, String>()
+                match?.let {
+                    Regex("\"(\\d+)\":\\s*\"([^\"]+)\"").findAll(it.groupValues[1]).forEach { res ->
+                        m[res.groupValues[1]] = res.groupValues[2]
+                    }
+                }
+                return m
+            }
+
+            mappings["masks"] = extractMaskMap("masks")
+            mappings["masksDefault"] = extractMaskMap("masksDefault")
+            mappings["masksSlim"] = extractMaskMap("masksSlim")
+
+            if (mappings.isNotEmpty()) map["mappings"] = mappings
+
             map
         } catch (e: Exception) {
             emptyMap()
@@ -697,22 +731,18 @@ class LayerManager(private val plugin: SneakyMannequins) {
         val image = ImageIO.read(sourcePath.toFile()) ?: return
         val sanitized = sanitizeUv(image)
 
-        // Metadata
-        val metadataFile = targetDir.resolve("metadata.json")
-        if (!metadataFile.exists()) {
-            val json =
-                    """
-                {
-                    "displayName": "${toDisplayName(partName)}",
-                    "internalKey": "${slugify(partName)}"
-                }
-            """.trimIndent()
-            Files.writeString(metadataFile, json)
-        }
-
         val hasArms = hasArmPixels(sanitized)
+        val isSlim = if (hasArms) isSlimArmModel(sanitized) else false
+
+        // 1. Save Master Sanitized Asset
+        val masterPath = targetDir.resolve("$partName.png")
+        ImageIO.write(sanitized, "png", masterPath.toFile())
+
+        // 3. Generate Master Masks
+        preprocessImage(masterPath)
+
+        // 4. Propagate to Variants if needed
         if (hasArms) {
-            val isSlim = isSlimArmModel(sanitized)
             val defaultImg: BufferedImage
             val slimImg: BufferedImage
 
@@ -730,20 +760,35 @@ class LayerManager(private val plugin: SneakyMannequins) {
             ImageIO.write(defaultImg, "png", defPath.toFile())
             ImageIO.write(slimImg, "png", slimPath.toFile())
 
-            // Mask both
-            preprocessImage(defPath)
-            preprocessImage(slimPath)
-        } else {
-            val outPath = targetDir.resolve("${partName}.png")
-            ImageIO.write(sanitized, "png", outPath.toFile())
-            preprocessImage(outPath)
+            // Propagate Masks
+            Files.list(targetDir).use { stream ->
+                stream.filter { it.nameWithoutExtension.startsWith("${partName}_mask_") }.forEach {
+                        masterMaskPath ->
+                    val maskImg = ImageIO.read(masterMaskPath.toFile()) ?: return@forEach
+                    val maskIdx = masterMaskPath.nameWithoutExtension.substringAfterLast("_mask_")
+
+                    val (defMask, slimMask) =
+                            if (isSlim) {
+                                generateDefaultFromSlim(maskImg) to maskImg
+                            } else {
+                                maskImg to generateSlimFromDefault(maskImg)
+                            }
+
+                    ImageIO.write(
+                            defMask,
+                            "png",
+                            targetDir.resolve("${partName}_Default_mask_$maskIdx.png").toFile()
+                    )
+                    ImageIO.write(
+                            slimMask,
+                            "png",
+                            targetDir.resolve("${partName}_Slim_mask_$maskIdx.png").toFile()
+                    )
+                }
+            }
         }
 
-        // Optionally delete or move sourcePath?
-        // User didn't specify, but keeping it outside will group it under the directory's slugified
-        // ID anyway.
-        // Actually, if I keep it, it will be ignored by loadLayerOptions because
-        // grouped.containsKey(id) will be true.
+        writeMetadata(targetDir, partName, hasArms, isSlim)
     }
 
     private fun hasArmPixels(image: BufferedImage): Boolean {
@@ -976,89 +1021,174 @@ class LayerManager(private val plugin: SneakyMannequins) {
         val image = ImageIO.read(sourcePath.toFile()) ?: return
         val sanitized = sanitizeUv(image)
 
-        val clusters = clusterColors(sanitized, strategy, distanceOrChannels)
+        val clusters =
+                clusterColors(
+                        sanitized,
+                        strategy,
+                        distanceOrChannels,
+                        params = currentRemaskParameters()
+                )
         writeMasks(sourcePath, sanitized, clusters)
         // overwrite source with sanitized (remove UV junk)
         ImageIO.write(sanitized, "png", sourcePath.toFile())
     }
 
-    /**
-     * Re-mask a specific part with the given strategy. Deletes existing masks, re-preprocesses, and
-     * reloads the layer. Returns a human-readable status message.
-     */
-    fun remask(
-            strategy: MaskStrategy? = null,
+    fun generatePreviewImage(
+            sourcePath: Path,
+            strategy: MaskStrategy,
+            params: RemaskParameters,
+            targetSlim: Boolean,
+            distanceOrChannels: Any? = null
+    ): BufferedImage? {
+        val image =
+                try {
+                    ImageIO.read(sourcePath.toFile())
+                } catch (_: Exception) {
+                    return null
+                }
+        val sanitized = sanitizeUv(image)
+
+        // Load metadata to check if the asset is natively Slim
+        val dir = sourcePath.parent
+        val metadata = loadMetadata(dir)
+        val isSlimAsset = metadata["isAlex"] as? Boolean ?: false
+        val hasArms = metadata["hasArms"] as? Boolean ?: false
+
+        val clusters = clusterColors(sanitized, strategy, distanceOrChannels, params)
+
+        val preview = BufferedImage(sanitized.width, sanitized.height, BufferedImage.TYPE_INT_ARGB)
+        clusters.forEachIndexed { idx, cluster ->
+            val color = previewVibrantColors[idx % previewVibrantColors.size]
+            cluster.pixels.forEach { (x, y) -> preview.setRGB(x, y, color.rgb) }
+        }
+
+        // Apply shared conversion logic if mismatch found
+        return if (hasArms && isSlimAsset != targetSlim) {
+            if (isSlimAsset) generateDefaultFromSlim(preview) else generateSlimFromDefault(preview)
+        } else {
+            preview
+        }
+    }
+
+    fun commitRemask(
             layerId: String,
             partId: String,
+            strategy: MaskStrategy,
+            params: RemaskParameters,
             distanceOrChannels: Any? = null
     ): String {
-        @Suppress("NAME_SHADOWING") val strategy = strategy ?: defaultStrategy()
-        val (_, options) = loadedLayers[layerId] ?: return "Unknown layer: $layerId"
-
         val option =
-                options.find { it.id.equals(partId, ignoreCase = true) }
-                        ?: return "Unknown part '$partId' in layer '$layerId'"
+                findPartById(layerId, partId) ?: return "Part '$partId' not found in '$layerId'"
+        val dir = option.directory ?: return "Part has no directory"
 
-        // Find the source image path(s)
-        val sourcePaths = mutableListOf<Path>()
-        option.directory?.let { dir ->
+        // Resolve Master Path from metadata authority if possible
+        val metadataMap = loadMetadata(dir)
+        @Suppress("UNCHECKED_CAST")
+        val mappings = metadataMap["mappings"] as? Map<String, Any> ?: emptyMap()
+        val masterPathString = mappings["master"] as? String ?: "${dir.name}.png"
+        val masterPath = dir.resolve(masterPathString)
+
+        if (!masterPath.exists()) return "Master asset not found at $masterPath"
+
+        // 1. Delete ALL masks in the directory
+        Files.list(dir).use { stream ->
+            stream.filter { it.name.lowercase().contains("_mask_") }.forEach {
+                Files.deleteIfExists(it)
+            }
+        }
+
+        // 2. Remask Master
+        val masterImg = ImageIO.read(masterPath.toFile()) ?: return "Failed to read master asset"
+        val sanitized = sanitizeUv(masterImg)
+        val clusters = clusterColors(sanitized, strategy, distanceOrChannels, params)
+        writeMasks(masterPath, sanitized, clusters)
+        ImageIO.write(sanitized, "png", masterPath.toFile())
+
+        // 3. Propagate to Variants if this part has arms
+        val hasArms = metadataMap["hasArms"] as? Boolean ?: false
+        val isSlim = metadataMap["isAlex"] as? Boolean ?: false
+
+        if (hasArms) {
+            // Re-read master masks just generated
             Files.list(dir).use { stream ->
-                stream.forEach { path ->
-                    if (path.name.lowercase().endsWith(".png") &&
-                                    !path.nameWithoutExtension.lowercase().contains("_mask_")
-                    ) {
-                        sourcePaths.add(path)
-                    }
+                stream.filter { it.nameWithoutExtension.startsWith("${dir.name}_mask_") }.forEach {
+                        masterMaskPath ->
+                    val maskImg = ImageIO.read(masterMaskPath.toFile()) ?: return@forEach
+                    val maskIdx = masterMaskPath.nameWithoutExtension.substringAfterLast("_mask_")
+
+                    val (defMask, slimMask) =
+                            if (isAlexMatch(isSlim)) { // Helper for clarity
+                                generateDefaultFromSlim(maskImg) to maskImg
+                            } else {
+                                maskImg to generateSlimFromDefault(maskImg)
+                            }
+
+                    // We use dir.name as partName consistent with preprocessPart
+                    ImageIO.write(
+                            defMask,
+                            "png",
+                            dir.resolve("${dir.name}_Default_mask_$maskIdx.png").toFile()
+                    )
+                    ImageIO.write(
+                            slimMask,
+                            "png",
+                            dir.resolve("${dir.name}_Slim_mask_$maskIdx.png").toFile()
+                    )
                 }
             }
         }
-                ?: run {
-                    listOfNotNull(option.fileDefault, option.fileSlim).distinct().forEach {
-                        sourcePaths.add(it)
-                    }
-                }
 
-        if (sourcePaths.isEmpty()) return "No image files for part '$partId'"
-
-        var totalMasks = 0
-        for (srcPath in sourcePaths) {
-            // Delete existing mask files
-            val baseName = srcPath.nameWithoutExtension
-            val dir = srcPath.parent
-            Files.list(dir).use { stream ->
-                stream.iterator()
-                        .asSequence()
-                        .filter {
-                            it.name.matches(Regex("${Regex.escape(baseName)}_mask_\\d+\\.png"))
-                        }
-                        .forEach { Files.deleteIfExists(it) }
-            }
-
-            // Re-preprocess with the chosen strategy
-            preprocessImage(srcPath, strategy, distanceOrChannels)
-
-            // Count generated masks
-            totalMasks +=
-                    Files.list(dir).use { stream ->
-                        stream.iterator()
-                                .asSequence()
-                                .filter {
-                                    it.name.matches(
-                                            Regex("${Regex.escape(baseName)}_mask_\\d+\\.png")
-                                    )
-                                }
-                                .count()
-                    }
-        }
-
-        // Reload this layer so the new masks are picked up in memory
+        writeMetadata(dir, dir.name, hasArms, isSlim)
         reloadLayer(layerId)
-
-        val configStr =
-                if (distanceOrChannels is Float) "dist=$distanceOrChannels"
-                else "k=${distanceOrChannels ?: defaultChannels()}"
-        return "Remasked '$partId' in '$layerId' using ${strategy.name} ($configStr): $totalMasks mask(s) generated"
+        return "Remasked '$partId' in '$layerId' using ${strategy.name}: ${clusters.size} mask(s) generated and propagated"
     }
+
+    private fun writeMetadata(dir: Path, partName: String, hasArms: Boolean, isAlex: Boolean) {
+        val mappingsMaster = mutableMapOf<Int, String>()
+        val mappingsDefault = mutableMapOf<Int, String>()
+        val mappingsSlim = mutableMapOf<Int, String>()
+
+        var masterFile = "$partName.png"
+        var defaultFile = if (hasArms) "${partName}_Default.png" else masterFile
+        var slimFile = if (hasArms) "${partName}_Slim.png" else masterFile
+
+        Files.list(dir).use { stream ->
+            stream.forEach { path ->
+                val name = path.nameWithoutExtension
+                if (name.contains("_mask_")) {
+                    val idx = name.substringAfterLast("_mask_").toIntOrNull() ?: return@forEach
+                    if (name.contains("_Default_")) mappingsDefault[idx] = path.name
+                    else if (name.contains("_Slim_")) mappingsSlim[idx] = path.name
+                    else mappingsMaster[idx] = path.name
+                }
+            }
+        }
+
+        fun mapToJson(m: Map<Int, String>) =
+                m.entries.sortedBy { it.key }.joinToString(",") { "\"${it.key}\": \"${it.value}\"" }
+
+        val json =
+                """
+            {
+                "displayName": "${toDisplayName(partName)}",
+                "internalKey": "${slugify(partName)}",
+                "hasArms": $hasArms,
+                "isAlex": $isAlex,
+                "mappings": {
+                    "master": "$masterFile",
+                    "default": "$defaultFile",
+                    "slim": "$slimFile",
+                    "masks": { ${mapToJson(mappingsMaster)} },
+                    "masksDefault": { ${mapToJson(mappingsDefault)} },
+                    "masksSlim": { ${mapToJson(mappingsSlim)} }
+                }
+            }
+        """.trimIndent()
+
+        Files.writeString(dir.resolve("metadata.json"), json)
+    }
+
+    private fun isAlexMatch(isSlim: Boolean) = isSlim // Semantic helper
 
     /** Reload a single layer's options (re-reads files from disk). */
     private fun reloadLayer(layerId: String) {
@@ -1128,6 +1258,29 @@ class LayerManager(private val plugin: SneakyMannequins) {
 
     private data class Cluster(val pixels: MutableList<Pair<Int, Int>>)
 
+    data class RemaskParameters(
+            val chromaticDistance: Float,
+            val neutralSaturation: Float,
+            val neutralBrightnessLow: Float,
+            val neutralThresholdPercent: Float
+    )
+
+    private val previewVibrantColors =
+            listOf(
+                    Color.RED,
+                    Color.GREEN,
+                    Color.BLUE,
+                    Color.YELLOW,
+                    Color.MAGENTA,
+                    Color.CYAN,
+                    Color.ORANGE,
+                    Color.PINK,
+                    Color.WHITE,
+                    Color(128, 0, 128), // Purple
+                    Color(0, 128, 128), // Teal
+                    Color(128, 128, 0) // Olive
+            )
+
     private data class ColorPixel(
             val h: Float,
             val s: Float,
@@ -1142,6 +1295,11 @@ class LayerManager(private val plugin: SneakyMannequins) {
     enum class GroupingMode {
         DISTANCE,
         CHANNELS
+    }
+
+    fun findPartById(layerId: String, partId: String): LayerOption? {
+        val (_, options) = loadedLayers[layerId] ?: return null
+        return options.find { it.id.equals(partId, ignoreCase = true) }
     }
 
     fun defaultStrategy(): MaskStrategy {
@@ -1178,15 +1336,27 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 .toFloat()
     }
 
+    fun currentRemaskParameters(): RemaskParameters {
+        return RemaskParameters(
+                chromaticDistance = defaultDistance(),
+                neutralSaturation =
+                        plugin.config
+                                .getDouble("plugin.preprocessing.neutral-saturation", 0.15)
+                                .toFloat(),
+                neutralBrightnessLow =
+                        plugin.config
+                                .getDouble("plugin.preprocessing.neutral-brightness-low", 0.15)
+                                .toFloat(),
+                neutralThresholdPercent = neutralThresholdPercent()
+        )
+    }
+
     private fun collectPixels(
-            image: java.awt.image.BufferedImage
+            image: java.awt.image.BufferedImage,
+            params: RemaskParameters
     ): Pair<List<ColorPixel>, List<ColorPixel>> {
-        val neutralSat =
-                plugin.config.getDouble("plugin.preprocessing.neutral-saturation", 0.0).toFloat()
-        val neutralBriLow =
-                plugin.config
-                        .getDouble("plugin.preprocessing.neutral-brightness-low", 0.0)
-                        .toFloat()
+        val neutralSat = params.neutralSaturation
+        val neutralBriLow = params.neutralBrightnessLow
         val chromatic = mutableListOf<ColorPixel>()
         val neutral = mutableListOf<ColorPixel>()
         for (x in 0 until image.width) {
@@ -1211,14 +1381,15 @@ class LayerManager(private val plugin: SneakyMannequins) {
     private fun clusterColors(
             image: java.awt.image.BufferedImage,
             strategy: MaskStrategy = defaultStrategy(),
-            distanceOrChannels: Any? = null
+            distanceOrChannels: Any? = null,
+            params: RemaskParameters = currentRemaskParameters()
     ): List<Cluster> {
-        val (chromatic, neutral) = collectPixels(image)
+        val (chromatic, neutral) = collectPixels(image, params)
         val totalPixels = chromatic.size + neutral.size
         if (totalPixels == 0) return emptyList()
 
         if (chromatic.isEmpty()) {
-            val neutralThreshold = neutralThresholdPercent()
+            val neutralThreshold = params.neutralThresholdPercent
             val hasNeutralMask = neutral.size.toFloat() / totalPixels >= neutralThreshold
             val actualNeutralCluster =
                     if (hasNeutralMask) Cluster(neutral.map { it.x to it.y }.toMutableList())
@@ -1229,7 +1400,8 @@ class LayerManager(private val plugin: SneakyMannequins) {
         val mode =
                 if (distanceOrChannels is Float) GroupingMode.DISTANCE
                 else if (distanceOrChannels is Int) GroupingMode.CHANNELS else defaultGroupingMode()
-        val distance = if (distanceOrChannels is Float) distanceOrChannels else defaultDistance()
+        val distance =
+                if (distanceOrChannels is Float) distanceOrChannels else params.chromaticDistance
         val channels = if (distanceOrChannels is Int) distanceOrChannels else defaultChannels()
 
         val rawClusters =
@@ -1344,7 +1516,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
             }
         }
 
-        val neutralThreshold = neutralThresholdPercent()
+        val neutralThreshold = params.neutralThresholdPercent
         val hasNeutralMask = trueNeutral.size.toFloat() / totalPixels >= neutralThreshold
         val actualNeutralCluster =
                 if (hasNeutralMask) Cluster(trueNeutral.map { it.x to it.y }.toMutableList())
