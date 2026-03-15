@@ -102,9 +102,11 @@ private data class HudButton(
         val cellScaleY: Float = 1f,
         val headerLineWidth: Int = 80,
         val headerScale: Float = 0.6f,
-        val headerGap: Float = 0.35f,
         val headerTextMM: String = "<white>{message}",
-        val bgHeader: Int? = null
+        val bgHeader: Int? = null,
+        val headerPaddingLen: Int = 0,
+        val headerPaddingSide: String = "none",
+        val headerColumn: Int = 0
 )
 
 /** Canonical per-button visual state (shared across all viewers). */
@@ -372,10 +374,12 @@ class MannequinManager(
                 cellScaleY = sec.getDouble("cell-scale-y", 1.0).toFloat(),
                 headerLineWidth = sec.getInt("header-line-width", 80),
                 headerScale = sec.getDouble("header-scale", 0.6).toFloat(),
-                headerGap = sec.getDouble("header-gap", 0.35).toFloat(),
                 headerTextMM = sec.getString("header-text", "<white>{message}")
                                 ?: "<white>{message}",
-                bgHeader = bgHeader
+                bgHeader = bgHeader,
+                headerPaddingLen = sec.getInt("header-padding-len", 0),
+                headerPaddingSide = sec.getString("header-padding-side", "none")?.lowercase() ?: "none",
+                headerColumn = sec.getInt("header-column", 0)
         )
     }
 
@@ -1931,10 +1935,19 @@ class MannequinManager(
             val palette = layerManager.palette(palId) ?: continue
 
             // Palette header
+            var finalName = prettyName(palId)
+            if (config.headerPaddingLen > 0) {
+                finalName = when (config.headerPaddingSide) {
+                    "left" -> finalName.padStart(config.headerPaddingLen)
+                    "right" -> finalName.padEnd(config.headerPaddingLen)
+                    else -> finalName
+                }
+            }
+
             grid.addButton(
                     id = "${parentId}_pal_header_$palId",
-                    textMM = config.headerTextMM.replace("{message}", prettyName(palId)),
-                    column = 0,
+                    textMM = config.headerTextMM.replace("{message}", finalName),
+                    column = config.headerColumn,
                     row = row,
                     bgDefault = config.bgHeader ?: HUD_BG_DEFAULT,
                     bgHighlight = config.bgHeader ?: HUD_BG_DEFAULT,
@@ -1970,7 +1983,7 @@ class MannequinManager(
                 grid.addButton(
                         id = "${parentId}_color_${palId}_${namedColor.name}",
                         textMM = if (isSelected) "<$xColor><b>•</b></$xColor>" else " ",
-                        column = (config.headerGap / config.cellSpacingX).toInt() + col,
+                        column = col,
                         row = row,
                         bgDefault = bgNormal,
                         bgHighlight = HUD_BG_HIGHLIGHT,
@@ -2470,7 +2483,6 @@ class MannequinManager(
             val cellScaleY: Float,
             val headerLineWidth: Int,
             val headerScale: Float,
-            val headerGap: Float,
             val headerTextMM: String,
             val bgHeader: Int,
             val defaultBtn: GridButtonConfig?,
@@ -2535,7 +2547,6 @@ class MannequinManager(
                 cellScaleY = sec?.getDouble("cell-scale-y", 1.0)?.toFloat() ?: 1f,
                 headerLineWidth = 80, // Default for label
                 headerScale = sec?.getDouble("header-scale", 1.0)?.toFloat() ?: 1f,
-                headerGap = sec?.getDouble("header-gap", 0.35)?.toFloat() ?: 0.35f,
                 headerTextMM = sec?.getString("header-text") ?: defaultHeaderText,
                 bgHeader = parseArgb(sec?.getString("bg-header")) ?: 0x60000000,
                 defaultBtn = loadBtn("default", 0),

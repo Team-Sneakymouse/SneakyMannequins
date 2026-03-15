@@ -274,7 +274,7 @@ hud-buttons:
     active-text: "<yellow>Color"
     open-by-default: false
     submenu-layout:
-      origin-x: -1
+      origin-x: -1.3
       origin-y: 1
       origin-z: -2
       pitch: -0.35
@@ -292,22 +292,15 @@ hud-buttons:
         header-scale: 0.6
         header-gap: 0.35
         header-text: "<white>{message}"
-        bg-header: "60000000"
+        header-padding-len: 15
+        header-padding-side: "right"
+        header-column: 13
+        bg-header: "90000000"
       default:
         type: "default_color"
         text: "<white>Default"
         translation:
-          x: 0.0
-          y: 0.2
-          z: 0.0
-        scale-x: 0.6
-        scale-y: 0.6
-      texture:
-        type: "texture"
-        text: "<white>Texture"
-        disabled-text: null # Set to "<gray>Texture" to show while disabled, or null to hide
-        translation:
-          x: 0.6
+          x: 0.25
           y: 0.2
           z: 0.0
         scale-x: 0.6
@@ -317,7 +310,17 @@ hud-buttons:
         text: "<white>Channel"
         disabled-text: null # Set to "<gray>Channel" to show while disabled, or null to hide
         translation:
-          x: 1.22
+          x: 0.85
+          y: 0.2
+          z: 0.0
+        scale-x: 0.6
+        scale-y: 0.6
+      texture:
+        type: "texture"
+        text: "<white>Texture"
+        disabled-text: null # Set to "<gray>Texture" to show while disabled, or null to hide
+        translation:
+          x: 1.48
           y: 0.2
           z: 0.0
         scale-x: 0.6
@@ -391,40 +394,38 @@ layers:
   palettes:
     # ── Natural / earthy tones ──
     earth:
+      mud: "3D2B1F"
       stone: "5E503F"
       bark: "7A5C42"
       sand: "A67C52"
       dune: "C2A47B"
       clay: "E0C9A6"
+      slate: "4A4E4D"
+      moss: "4B5320"
+      terracotta: "B35C37"
 
     # ── Skin tones ──
     skin:
       ivory: "F6E2CE"
-      porcelain: "F2D6C5"
       sand: "E8C5AE"
       almond: "D9B08C"
       beige: "CFA07A"
       honey: "C28B67"
       caramel: "B3775A"
       chestnut: "9C6147"
-      bronze: "8B503C"
       espresso: "6B3B2A"
       umber: "553023"
 
     # ── Hair colours ──
     hair:
       platinum: "E8E0D4"
-      ash_blonde: "C4B7A6"
-      golden_blonde: "D4A547"
+      blonde: "D4A547"
       strawberry: "C67A4B"
       ginger: "B8512D"
       auburn: "8C3420"
-      copper: "A64B2E"
       light_brown: "8B6C4A"
       brunette: "5C3A1E"
-      dark_brown: "3B2314"
       black: "1A1110"
-      silver: "B0B0B0"
       white: "E8E8E8"
 
     # ── Eye colours ──
@@ -436,18 +437,18 @@ layers:
       emerald: "3E8C5F"
       hazel: "8E7E54"
       amber: "B8860B"
-      light_brown: "9B7340"
       dark_brown: "4A2E1A"
       grey: "8A8D8F"
-      violet: "7B5EA7"
 
     # ── Greyscale ──
     greyscale:
       white: "F0F0F0"
       silver: "C0C0C0"
+      platinum: "D9D9D9"
       ash: "999999"
       grey: "707070"
       slate: "4A4A4A"
+      graphite: "333333"
       charcoal: "2A2A2A"
       black: "141414"
 
@@ -457,6 +458,7 @@ layers:
       orange: "E07020"
       yellow: "E0C030"
       green: "39A845"
+      cyan: "33CCCC"
       blue: "3366CC"
       purple: "7733AA"
       white: "F0F0F0"
@@ -472,15 +474,18 @@ layers:
       lavender: "C0A8E0"
       lilac: "D8B0E8"
       cream: "F5ECD7"
+      lemon: "FFF4A3"
 
     # ── Neon / vibrant ──
     neon:
       hot_pink: "FF4D6D"
-      cyan: "4DFFFF"
-      lime: "7CFF4D"
+      orange: "FF954D"
       amber: "FFD24D"
-      violet: "AA4DFF"
+      lime: "7CFF4D"
+      green: "4DFF91"
+      cyan: "4DFFFF"
       electric_blue: "4D6DFF"
+      violet: "AA4DFF"
       magenta: "FF4DAA"
 
     # ── Jewel tones ──
@@ -490,6 +495,7 @@ layers:
       emerald: "1B6B3A"
       jade: "2E8B57"
       sapphire: "1B3A6B"
+      cobalt: "3D59AB"
       amethyst: "6B3FA0"
       topaz: "C89B30"
       onyx: "1A1A2E"
@@ -500,6 +506,7 @@ layers:
       crimson: "A01530"
       rust: "B7410E"
       terracotta: "C66B3D"
+      orange: "FF8C00"
       tangerine: "E08030"
       gold: "D4A830"
       sunflower: "E0C040"
@@ -510,6 +517,7 @@ layers:
       navy: "1A2A50"
       cobalt: "2050A0"
       cerulean: "3080C0"
+      azure: "007FFF"
       teal: "207070"
       forest: "1A5030"
       sage: "6B8B6B"
@@ -521,6 +529,7 @@ layers:
       iron: "6B6B6B"
       steel: "8A8A9A"
       silver: "C0C0D0"
+      platinum: "E5E4E2"
       gold: "D4AA30"
       rose_gold: "C8907A"
       copper: "B87333"
@@ -533,7 +542,6 @@ layers:
       khaki: "BDB76B"
       olive: "6B7B3A"
       burgundy: "6B1A2A"
-      navy: "1A1A40"
       tan: "C8AD7F"
       ivory: "F0EAD6"
       charcoal: "36363A"
