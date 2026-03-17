@@ -295,7 +295,7 @@ object SkinUv {
         return when {
             // Head: (32..63, 0..15) -> (0..31, 0..15)
             x in 32..63 && y in 0..15 -> (x - 32) to y
-            // Torso: (16..55, 32..47) -> (16..39, 16..31)
+            // Torso & Right Arm: (16..55, 32..47) -> (16..55, 16..31)
             x in 16..55 && y in 32..47 -> x to (y - 16)
             // Left Arm: (48..63, 48..63) -> (32..47, 48..63)
             x in 48..63 && y in 48..63 -> (x - 16) to y
@@ -303,6 +303,26 @@ object SkinUv {
             x in 0..15 && y in 32..47 -> x to (y - 16)
             // Left Leg: (0..15, 48..63) -> (16..31, 48..63)
             x in 0..15 && y in 48..63 -> (x + 16) to y
+            else -> null
+        }
+    }
+
+    /**
+     * Given an inner layer coordinate (x, y), returns the corresponding outer layer coordinate, or
+     * null if it's not in an inner layer.
+     */
+    fun getOuterCorresponding(x: Int, y: Int): Pair<Int, Int>? {
+        return when {
+            // Head: (0..31, 0..15) -> (32..63, 0..15)
+            x in 0..31 && y in 0..15 -> (x + 32) to y
+            // Torso & Right Arm: (16..55, 16..31) -> (16..55, 32..47)
+            x in 16..55 && y in 16..31 -> x to (y + 16)
+            // Left Arm: (32..47, 48..63) -> (48..63, 48..63)
+            x in 32..47 && y in 48..63 -> (x + 16) to y
+            // Right Leg: (0..15, 16..31) -> (0..15, 32..47)
+            x in 0..15 && y in 16..31 -> x to (y + 16)
+            // Left Leg: (16..31, 48..63) -> (0..15, 48..63)
+            x in 16..31 && y in 48..63 -> (x - 16) to y
             else -> null
         }
     }

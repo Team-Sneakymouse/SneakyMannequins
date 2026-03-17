@@ -33,9 +33,19 @@ object SkinComposer {
             optionResolver: ((layerId: String, optionId: String) -> LayerOption?)? = null,
             textureResolver: ((layerId: String) -> TextureDefinition?)? = null,
             brightnessInfluenceResolver: ((layerId: String, option: LayerOption) -> Float)? = null,
-            saturationInfluenceResolver: ((layerId: String, option: LayerOption) -> Float)? = null
+            saturationInfluenceResolver: ((layerId: String, option: LayerOption) -> Float)? = null,
+            baseImage: BufferedImage? = null
     ): BufferedImage {
-        val output = BufferedImage(SKIN_SIZE, SKIN_SIZE, BufferedImage.TYPE_INT_ARGB)
+        val output =
+                if (baseImage != null) {
+                    val copy = BufferedImage(SKIN_SIZE, SKIN_SIZE, BufferedImage.TYPE_INT_ARGB)
+                    val g = copy.createGraphics()
+                    g.drawImage(baseImage, 0, 0, null)
+                    g.dispose()
+                    copy
+                } else {
+                    BufferedImage(SKIN_SIZE, SKIN_SIZE, BufferedImage.TYPE_INT_ARGB)
+                }
         val graphics = output.createGraphics()
 
         layers.forEach { layer ->
@@ -118,6 +128,11 @@ object SkinComposer {
                     source = applyMaps(source!!, aoMap, roughnessMap, alphaMap)
                 }
             }
+
+            // Apply punch-through: if this layer has opaque inner skin pixels,
+            // wipe the corresponding outer skin pixels in the composite so far.
+            punchThroughOuter(source!!, output)
+
             graphics.drawImage(source, 0, 0, null)
         }
 
@@ -449,5 +464,23 @@ object SkinComposer {
         }
 
         return tinted
+    }
+
+    private fun punchThroughOuter(layerImage: BufferedImage, outputComposite: BufferedImage) {
+        for (x in 0 until SKIN_SIZE) {
+            for (y in 0 until SKIN_SIZE) {
+                val argb = layerImage.getRGB(x, y)
+                val alpha = (argb ushr 24) and 0xFF
+                if (alpha > 0) {
+                    // Check if this is an inner layer pixel
+                    val outerCoord = SkinUv.getOuterCorresponding(x, y)
+                    if (outerCoord != null) {
+                        // This IS an inner layer pixel. Wipe the corresponding outer pixel in the
+                        // composite.
+                        outputComposite.setRGB(outerCoord.first, outerCoord.second, 0)
+                    }
+                }
+            }
+        }
     }
 }

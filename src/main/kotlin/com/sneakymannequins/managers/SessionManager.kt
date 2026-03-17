@@ -333,27 +333,18 @@ class SessionManager(
             val layersDef = layerManager.definitionsInOrder()
             val sessionImage =
                     SkinComposer.compose(
-                            layersDef,
-                            selection,
-                            slim,
-                            { l, o -> layerManager.optionsFor(l).find { it.id == o } },
-                            { layerManager.texture(it) }
+                            layers = layersDef,
+                            selection = selection,
+                            useSlimModel = slim,
+                            optionResolver = { l, o -> layerManager.optionsFor(l).find { it.id == o } },
+                            textureResolver = { layerManager.texture(it) },
+                            baseImage = baseSkin
                     )
 
-            val isComplete = isComplete(merged, slim)
-            if (isComplete) {
-                targetDir.mkdirs()
-                encodeUidToImage(sessionImage, merged.uid)
-                val f = File(targetDir, "finalized_${merged.uid}.png")
-                ImageIO.write(sessionImage, "PNG", f)
-                return@supplyAsync FinalizedResult(f, slim)
-            }
-
-            overlayWithPunchThrough(sessionImage, baseSkin)
             targetDir.mkdirs()
-            encodeUidToImage(baseSkin, merged.uid)
+            encodeUidToImage(sessionImage, merged.uid)
             val f = File(targetDir, "finalized_${merged.uid}.png")
-            ImageIO.write(baseSkin, "PNG", f)
+            ImageIO.write(sessionImage, "PNG", f)
             FinalizedResult(f, slim)
         }
     }
@@ -408,33 +399,6 @@ class SessionManager(
         }
     }
 
-    private fun overlayWithPunchThrough(sessionImage: BufferedImage, baseSkin: BufferedImage) {
-        val g2d = baseSkin.createGraphics()
-        // Standard overlay first
-        g2d.drawImage(sessionImage, 0, 0, null)
-        g2d.dispose()
-
-        // Transparency punch-through logic:
-        // "if the session image has an empty pixel in the outer layer and a filled pixel in the
-        // corresponding inner position, then the post-overlay pixel should also be empty."
-        for (x in 0 until 64) {
-            for (y in 0 until 64) {
-                if (SkinUv.isOuterLayer(x, y)) {
-                    val sessionOuterAlpha = (sessionImage.getRGB(x, y) ushr 24) and 0xFF
-                    if (sessionOuterAlpha == 0) {
-                        val innerCoord = SkinUv.getInnerCorresponding(x, y) ?: continue
-                        val sessionInnerAlpha =
-                                (sessionImage.getRGB(innerCoord.first, innerCoord.second) ushr
-                                        24) and 0xFF
-                        if (sessionInnerAlpha != 0) {
-                            // Punch through: make result empty at this outer spot
-                            baseSkin.setRGB(x, y, 0)
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     private fun saveImage(image: BufferedImage, dir: File, name: String): CompletableFuture<File> {
         return CompletableFuture.supplyAsync {
