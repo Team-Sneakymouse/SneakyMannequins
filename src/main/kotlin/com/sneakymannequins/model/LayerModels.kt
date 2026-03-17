@@ -122,7 +122,8 @@ data class LayerDefinition(
         val paletteSpec: PaletteSpec = PaletteSpec.INHERIT,
         val textureSpec: TextureSpec = TextureSpec.INHERIT,
         val brightnessInfluence: Float? = null,
-        val saturationInfluence: Float? = null
+        val saturationInfluence: Float? = null,
+        val isBase: Boolean = false
 )
 
 /** One concrete option for a layer, backed by a PNG on disk. */

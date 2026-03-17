@@ -569,10 +569,10 @@ class LayerManager(private val plugin: SneakyMannequins) {
         BOTH
     }
 
-    private fun slugify(raw: String): String =
+    internal fun slugify(raw: String): String =
             raw.trim().lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_').ifEmpty { "option" }
 
-    private fun toDisplayName(raw: String): String =
+    internal fun toDisplayName(raw: String): String =
             raw.trim()
                     .split(Regex("[_\\-\\s]+"))
                     .filter { it.isNotBlank() }
@@ -580,6 +580,27 @@ class LayerManager(private val plugin: SneakyMannequins) {
                         part.lowercase().replaceFirstChar { ch -> ch.titlecase() }
                     }
                     .ifEmpty { "Option" }
+
+    fun nextBasePartName(player: Player, layerId: String): String {
+        val entry = loadedLayers[layerId] ?: return "Base 1"
+        val def = entry.first
+        val targetDir = def.directory.resolve("uploads").resolve(player.uniqueId.toString())
+        if (!Files.exists(targetDir)) return "Base 1"
+
+        var maxIndex = 0
+        val regex = Regex("^base_(\\d+)(?:\\.png)?$")
+        Files.list(targetDir).use { stream ->
+            stream.forEach { path ->
+                val name = path.fileName.toString().lowercase()
+                val match = regex.find(name)
+                if (match != null) {
+                    val idx = match.groupValues[1].toIntOrNull() ?: 0
+                    if (idx > maxIndex) maxIndex = idx
+                }
+            }
+        }
+        return "Base ${maxIndex + 1}"
+    }
 
     fun uploadPart(
             player: Player,
@@ -2115,7 +2136,8 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 paletteSpec = palSpec,
                 textureSpec = texSpec,
                 brightnessInfluence = briInf,
-                saturationInfluence = satInf
+                saturationInfluence = satInf,
+                isBase = getBoolean("base", false)
         )
     }
 }

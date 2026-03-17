@@ -233,7 +233,7 @@ hud-buttons:
         type: "save"
         text: "<white>Save"
         translation:
-          x: 0.0
+          x: -0.5
           y: 0.3
           z: 0.0
         line-width: 200
@@ -241,7 +241,7 @@ hud-buttons:
         type: "load"
         text: "<white>Load"
         translation:
-          x: 0.0
+          x: -0.5
           y: 0.0
           z: 0.0
         line-width: 200
@@ -249,8 +249,16 @@ hud-buttons:
         type: "apply"
         text: "<white>Apply"
         translation:
-          x: 0.0
-          y: -0.3
+          x: 0.5
+          y: 0.3
+          z: 0.0
+        line-width: 200
+      copyMe:
+        type: "copyMe"
+        text: "<white>Copy Me"
+        translation:
+          x: 0.5
+          y: 0.0
           z: 0.0
         line-width: 200
     translation:
@@ -728,6 +736,7 @@ layers:
       display-name: "Body"
       directory: "layers/Body"
       allow-color-mask: true
+      base: true
       palettes:
         - default
         - skin

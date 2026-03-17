@@ -36,6 +36,7 @@ import net.kyori.adventure.text.format.TextDecoration
 import org.bukkit.Color
 import org.bukkit.Location
 import org.bukkit.entity.Player
+import org.bukkit.profile.PlayerTextures.SkinModel
 
 // ── Data classes ────────────────────────────────────────────────────────────────
 
@@ -1138,7 +1139,7 @@ class MannequinManager(
         }
     }
 
-    private fun handleButtonClick(
+    internal fun handleButtonClick(
             buttonName: String,
             mannequinId: UUID,
             player: Player,
@@ -1517,6 +1518,123 @@ class MannequinManager(
             "save", "load", "apply" -> {
                 executeConfigAction(configBtn.type, mannequinId, player, state)
             }
+            "copyMe" -> {
+                val skinUrl = player.playerProfile.textures.skin
+                val skinModel = player.playerProfile.textures.skinModel
+                if (skinUrl == null) {
+                    updateStatus(mannequinId, "No skin found")
+                    return
+                }
+
+                updateStatus(mannequinId, "Downloading skin...")
+                sessionManager.downloadSkin(skinUrl).thenAccept { image ->
+                    val uid = SessionManager.decodeUidFromImage(image)
+                    if (uid != null) {
+                        val session = sessionManager.load(uid)
+                        if (session != null) {
+                            plugin.server.scheduler.runTask(
+                                    plugin,
+                                    Runnable {
+                                        applySession(mannequinId, session)
+                                        updateStatus(mannequinId, "Sync: $uid")
+                                    }
+                            )
+                            return@thenAccept
+                        }
+                    }
+
+                    // Fallback: upload skin to base layer
+                    plugin.server.scheduler.runTask(
+                            plugin,
+                            Runnable {
+                                val baseLayer = findBaseLayer() ?: return@Runnable
+                                val partName = layerManager.nextBasePartName(player, baseLayer.id)
+
+                                updateStatus(mannequinId, "Uploading $partName...")
+                                layerManager
+                                        .uploadPart(
+                                                player,
+                                                baseLayer.id,
+                                                skinUrl,
+                                                partName,
+                                                sessionManager
+                                        )
+                                        .thenAccept { _ ->
+                                            plugin.server.scheduler.runTask(
+                                                    plugin,
+                                                    Runnable {
+                                                        // Re-find the part we just uploaded to get
+                                                        // its actual ID
+                                                        val opts =
+                                                                layerManager.optionsFor(
+                                                                        baseLayer.id,
+                                                                        player
+                                                                )
+                                                        val internalKey =
+                                                                layerManager.slugify(partName)
+                                                        val uploaded =
+                                                                opts.find {
+                                                                    it.owner == player.uniqueId &&
+                                                                            it.internalKey ==
+                                                                                    internalKey
+                                                                }
+
+                                                        if (uploaded != null) {
+                                                            val currentSel =
+                                                                    mannequin.selection.selections[
+                                                                                    baseLayer.id]
+                                                            val nextSel =
+                                                                    currentSel?.copy(
+                                                                            option = uploaded
+                                                                    )
+                                                                            ?: LayerSelection(
+                                                                                    baseLayer.id,
+                                                                                    uploaded
+                                                                            )
+                                                            mannequin.selection =
+                                                                    mannequin.selection.copy(
+                                                                            selections =
+                                                                                    mannequin.selection
+                                                                                            .selections +
+                                                                                            (baseLayer.id to
+                                                                                                    nextSel)
+                                                                    )
+                                                            mannequin.slimModel =
+                                                                    (skinModel == SkinModel.SLIM)
+                                                            renderFull(
+                                                                    mannequin,
+                                                                    nearbyViewers(mannequin)
+                                                            )
+                                                            updateStatus(mannequinId, "Copied Skin")
+                                                            refreshDynamicLabels(mannequinId)
+                                                        } else {
+                                                            updateStatus(mannequinId, "Upload failed")
+                                                        }
+                                                    }
+                                            )
+                                        }
+                                        .exceptionally { ex ->
+                                            plugin.server.scheduler.runTask(
+                                                    plugin,
+                                                    Runnable {
+                                                        updateStatus(
+                                                                mannequinId,
+                                                                "Error: ${ex.message}"
+                                                        )
+                                                    }
+                                            )
+                                            null
+                                        }
+                            }
+                    )
+                }.exceptionally { _ ->
+                    plugin.server.scheduler.runTask(
+                            plugin,
+                            Runnable { updateStatus(mannequinId, "Download failed") }
+                    )
+                    null
+                }
+            }
             else -> {
                 if (buttonName.startsWith("color_")) {
                     // Logic for color swatch clicks - usually handled via specialized HUD buttons
@@ -1541,6 +1659,11 @@ class MannequinManager(
             despawnMenu(colorMenuId, player, hud, quiet = true)
             spawnMenu(colorMenuBtn, player, mannequin, state, hud, quiet = true)
         }
+    }
+
+    private fun findBaseLayer(): LayerDefinition? {
+        val definitions = layerManager.definitionsInOrder()
+        return definitions.find { it.isBase } ?: definitions.firstOrNull()
     }
 
     // ── Status & label helpers ──────────────────────────────────────────────────

@@ -133,6 +133,7 @@ class CommandMannequin(
                                                 "info",
                                                 "delete",
                                                 "checkskin",
+                                                "copyme",
                                                 "debug"
                                         )
                                         .filter { hasDebugPermission(stack.sender, it) }
@@ -473,6 +474,10 @@ class CommandMannequin(
                 handleOverlay(player)
                 true
             }
+            "copyme" -> {
+                handleDebugCopyMe(player)
+                true
+            }
             "delete" -> {
                 handleDelete(player, args.drop(1).toTypedArray())
                 true
@@ -492,6 +497,7 @@ class CommandMannequin(
                         "finalize" to "Finalize and export a session",
                         "save" to "Save nearest mannequin session",
                         "apply" to "Apply a session/template",
+                        "copyme" to "Trigger 'Copy Me' for nearest mannequin",
                         "overlay" to "Toggle nearest mannequin overlay",
                         "info" to "Show nearest mannequin info",
                         "delete" to "Delete a session UID"
@@ -1203,5 +1209,20 @@ class CommandMannequin(
                     )
                     null
                 }
+    }
+
+    private fun handleDebugCopyMe(player: Player) {
+        val man =
+                mannequinManager.nearestMannequin(player.location, 5.0)
+                        ?: run {
+                            player.sendMessage(
+                                    TextUtility.convertToComponent("&cNo mannequin nearby.")
+                            )
+                            return
+                        }
+        player.sendMessage(
+                TextUtility.convertToComponent("&eTriggering Copy Me for ${player.name}...")
+        )
+        mannequinManager.handleButtonClick("copyMe", man.id, player, false)
     }
 }
