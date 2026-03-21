@@ -158,7 +158,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
         val jarFile = file // the plugin's JAR file
         val jar = JarFile(jarFile)
         jar.use {
-            for (prefix in listOf("layers/", "textures/", "presets/")) {
+            for (prefix in listOf("layers/", "textures/", "mannequin_presets/")) {
                 val hasDir = jar.entries().asSequence().any { it.name.startsWith(prefix) }
                 if (!hasDir) continue
 
