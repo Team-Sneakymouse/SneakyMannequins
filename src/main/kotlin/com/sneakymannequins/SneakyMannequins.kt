@@ -63,7 +63,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
         styleManager = StyleManager(this).also { it.loadStyles() }
         persistence = MannequinPersistence(this)
         characterManagerBridge = CharacterManagerBridgeFactory.create(this)
-        sessionManager = SessionManager(dataFolder, layerManager, characterManagerBridge)
+        sessionManager = SessionManager(this, dataFolder, layerManager, characterManagerBridge)
         holoController = HoloController(this, HoloHandler1214()).also { it.start() }
         mannequinManager =
                 MannequinManager(

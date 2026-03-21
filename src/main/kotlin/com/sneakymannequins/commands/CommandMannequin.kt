@@ -347,7 +347,9 @@ class CommandMannequin(
         try {
             if (args.size < 2) {
                 player.sendMessage(
-                        TextUtility.convertToComponent("&cUsage: /mannequin add <style> [world,x,y,z,yaw]")
+                        TextUtility.convertToComponent(
+                                "&cUsage: /mannequin add <style> [world,x,y,z,yaw]"
+                        )
                 )
                 return
             }
@@ -367,7 +369,9 @@ class CommandMannequin(
                     val worldName = parts[0]
                     val world =
                             player.server.getWorld(worldName)
-                                    ?: throw IllegalArgumentException("World '$worldName' not found.")
+                                    ?: throw IllegalArgumentException(
+                                            "World '$worldName' not found."
+                                    )
                     val x =
                             parts[1].toDoubleOrNull()
                                     ?: throw IllegalArgumentException("Invalid X coordinate.")

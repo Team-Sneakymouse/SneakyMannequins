@@ -148,7 +148,9 @@ data class LayerOption(
         val internalKey: String? = null,
         val hasArms: Boolean = false,
         val isAlex: Boolean = false,
-        val permissions: List<String>? = null
+        val permissions: List<String>? = null,
+        val isDress: Boolean = false,
+        val dressLength: Int = 0
 )
 
 /**

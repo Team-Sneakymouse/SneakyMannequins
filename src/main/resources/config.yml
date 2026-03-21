@@ -43,11 +43,15 @@ plugin:
 
 # ── Optional Integrations ──────────────────────────────────────────────────────
 integrations:
+  # Enables optional CharacterManager integration for player skin preloading and session finalization.
   character-manager:
-    # Enables optional SneakyCharacterManager integration.
-    # If true but SneakyCharacterManager is not installed, SneakyMannequins will
-    # log a warning and continue without integration.
     enabled: true
+  # Enables optional EntityTextureFeatures integration for blinking eyes and jacket/dress extensions.
+  entity-texture-features:
+    enabled: true
+    # The default style Choice Box #2 value (1-8).
+    # 5: Extension copies from leg overlay but ignores top of leg texture.
+    jacket-dress-style: 5
 
 # ── Control Interaction ────────────────────────────────────────────────────────
 controls:

@@ -658,7 +658,17 @@ class MannequinManager(
                         optionResolver = optionResolver,
                         textureResolver = textureResolver(mannequin),
                         brightnessInfluenceResolver = brightnessInfluenceResolver,
-                        saturationInfluenceResolver = saturationInfluenceResolver
+                        saturationInfluenceResolver = saturationInfluenceResolver,
+                        etfEnabled =
+                        	plugin.config.getBoolean(
+                        		"integrations.entity-texture-features.enabled",
+                        		false
+                        	),
+                        defaultJacketStyle =
+                        	plugin.config.getInt(
+                        		"integrations.entity-texture-features.jacket-dress-style",
+                        		5
+                        	)
                 )
         val nextFrame = PixelFrame.fromImage(composed)
         val diff =
@@ -762,7 +772,17 @@ class MannequinManager(
                         optionResolver = optionResolver,
                         textureResolver = textureResolver(mannequin),
                         brightnessInfluenceResolver = brightnessInfluenceResolver,
-                        saturationInfluenceResolver = saturationInfluenceResolver
+                        saturationInfluenceResolver = saturationInfluenceResolver,
+                        etfEnabled =
+                        	plugin.config.getBoolean(
+                        		"integrations.entity-texture-features.enabled",
+                        		false
+                        	),
+                        defaultJacketStyle =
+                        	plugin.config.getInt(
+                        		"integrations.entity-texture-features.jacket-dress-style",
+                        		5
+                        	)
                 )
         mannequin.lastFrame = PixelFrame.fromImage(composed)
         val changes = mutableListOf<PixelChange>()
@@ -2451,7 +2471,17 @@ class MannequinManager(
                 saturationInfluenceResolver = { layerId, option ->
                     val def = layerManager.definitionsInOrder().find { it.id == layerId }
                     if (def != null) layerManager.resolveSaturationInfluence(def, option) else 1f
-                }
+                },
+                etfEnabled =
+                	plugin.config.getBoolean(
+                		"integrations.entity-texture-features.enabled",
+                		false
+                	),
+                defaultJacketStyle =
+                	plugin.config.getInt(
+                		"integrations.entity-texture-features.jacket-dress-style",
+                		5
+                	)
         )
     }
 

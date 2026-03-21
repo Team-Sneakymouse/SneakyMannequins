@@ -438,7 +438,9 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 directory = agg.directory,
                 hasArms = agg.hasArms,
                 isAlex = agg.isAlex,
-                permissions = optSection?.getStringList("permissions")
+                permissions = optSection?.getStringList("permissions"),
+                isDress = agg.isDress,
+                dressLength = agg.dressLength
         )
     }
 
@@ -446,6 +448,8 @@ class LayerManager(private val plugin: SneakyMannequins) {
         val metadata = loadMetadata(dir)
         agg.hasArms = metadata["hasArms"] as? Boolean ?: false
         agg.isAlex = metadata["isAlex"] as? Boolean ?: false
+        agg.isDress = metadata["isDress"] as? Boolean ?: false
+        agg.dressLength = (metadata["dressLength"] as? Number)?.toInt() ?: 0
 
         @Suppress("UNCHECKED_CAST")
         val mappings = metadata["mappings"] as? Map<String, Any> ?: emptyMap()
@@ -566,7 +570,9 @@ class LayerManager(private val plugin: SneakyMannequins) {
             var masksDefault: MutableMap<Int, Path> = mutableMapOf(),
             var masksSlim: MutableMap<Int, Path> = mutableMapOf(),
             var hasArms: Boolean = false,
-            var isAlex: Boolean = false
+            var isAlex: Boolean = false,
+            var isDress: Boolean = false,
+            var dressLength: Int = 0
     )
 
     private enum class Variant {
@@ -720,6 +726,12 @@ class LayerManager(private val plugin: SneakyMannequins) {
             Regex("\"isAlex\":\\s*(true|false)").find(content)?.let {
                 map["isAlex"] = it.groupValues[1].toBoolean()
             }
+            Regex("\"isDress\":\\s*(true|false)").find(content)?.let {
+                map["isDress"] = it.groupValues[1].toBoolean()
+            }
+            Regex("\"dressLength\":\\s*(\\d+)").find(content)?.let {
+                map["dressLength"] = it.groupValues[1].toInt()
+            }
 
             // Asset Mappings (Manual extraction for consistency)
             val mappings = mutableMapOf<String, Any>()
@@ -760,6 +772,8 @@ class LayerManager(private val plugin: SneakyMannequins) {
 
         val hasArms = hasArmPixels(sanitized)
         val isSlim = if (hasArms) isSlimArmModel(sanitized) else false
+
+        val (isDress, dressLength) = detectDress(sanitized)
 
         // 1. Save Master Sanitized Asset
         val masterPath = targetDir.resolve("$partName.png")
@@ -815,7 +829,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
             }
         }
 
-        writeMetadata(targetDir, partName, hasArms, isSlim)
+        writeMetadata(targetDir, partName, hasArms, isSlim, isDress, dressLength)
     }
 
     private fun hasArmPixels(image: BufferedImage): Boolean {
@@ -1165,12 +1179,20 @@ class LayerManager(private val plugin: SneakyMannequins) {
             }
         }
 
-        writeMetadata(dir, dir.name, hasArms, isSlim)
+        val (isDress, dressLength) = detectDress(sanitized)
+        writeMetadata(dir, dir.name, hasArms, isSlim, isDress, dressLength)
         reloadLayer(layerId)
         return "Remasked '$partId' in '$layerId' using ${strategy.name}: ${clusters.size} mask(s) generated and propagated"
     }
 
-    private fun writeMetadata(dir: Path, partName: String, hasArms: Boolean, isAlex: Boolean) {
+    private fun writeMetadata(
+            dir: Path,
+            partName: String,
+            hasArms: Boolean,
+            isAlex: Boolean,
+            isDress: Boolean,
+            dressLength: Int
+    ) {
         val mappingsMaster = mutableMapOf<Int, String>()
         val mappingsDefault = mutableMapOf<Int, String>()
         val mappingsSlim = mutableMapOf<Int, String>()
@@ -1201,6 +1223,8 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 "internalKey": "${slugify(partName)}",
                 "hasArms": $hasArms,
                 "isAlex": $isAlex,
+                "isDress": $isDress,
+                "dressLength": $dressLength,
                 "mappings": {
                     "master": "$masterFile",
                     "default": "$defaultFile",
@@ -2145,5 +2169,75 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 saturationInfluence = satInf,
                 isBase = getBoolean("base", false)
         )
+    }
+
+    private fun detectDress(image: BufferedImage): Pair<Boolean, Int> {
+        val torsoX = 20..27
+        val torsoYMiddle = 26 // Front torso middle row
+        var torsoOccupied = false
+        for (x in torsoX) {
+            if ((image.getRGB(x, torsoYMiddle) ushr 24) > 0) {
+                torsoOccupied = true
+                break
+            }
+        }
+        if (!torsoOccupied) return false to 0
+
+        val rLegX = 4..7
+        val rLegYTop = 20
+        val lLegX = 20..23
+        val lLegYTop = 52
+
+        var highestLegOccupied = false
+        for (x in rLegX) if ((image.getRGB(x, rLegYTop) ushr 24) > 0) {
+            highestLegOccupied = true
+            break
+        }
+        if (!highestLegOccupied) {
+            for (x in lLegX) if ((image.getRGB(x, lLegYTop) ushr 24) > 0) {
+                highestLegOccupied = true
+                break
+            }
+        }
+        if (!highestLegOccupied) return false to 0
+
+        val rLegYBottom = 31
+        val lLegYBottom = 63
+        var lowestLegOccupied = false
+        for (x in rLegX) if ((image.getRGB(x, rLegYBottom) ushr 24) > 0) {
+            lowestLegOccupied = true
+            break
+        }
+        if (!lowestLegOccupied) {
+            for (x in lLegX) if ((image.getRGB(x, lLegYBottom) ushr 24) > 0) {
+                lowestLegOccupied = true
+                break
+            }
+        }
+        if (lowestLegOccupied) return false to 0
+
+        var maxLen = 0
+        // Check both inner and outer leg regions to find the lowest pixel
+        val legRects =
+                listOf(
+                        SkinUv.Rect(0, 16, 16, 16), // right leg base
+                        SkinUv.Rect(0, 32, 16, 16), // right leg overlay
+                        SkinUv.Rect(16, 48, 16, 16), // left leg base
+                        SkinUv.Rect(0, 48, 16, 16) // left leg overlay
+                )
+        for (r in legRects) {
+            val topY = if (r.y == 16 || r.y == 32) 20 else 52
+            for (y in r.y until r.y + r.h) {
+                if (y < topY || y >= topY + 12) continue
+                for (x in r.x until r.x + r.w) {
+                    if ((image.getRGB(x, y) ushr 24) > 0) {
+                        val len = y - topY + 1
+                        if (len > maxLen) maxLen = len
+                    }
+                }
+            }
+        }
+
+        return true to maxLen
     }
 }

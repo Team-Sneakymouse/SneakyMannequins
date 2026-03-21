@@ -34,7 +34,9 @@ object SkinComposer {
             textureResolver: ((layerId: String) -> TextureDefinition?)? = null,
             brightnessInfluenceResolver: ((layerId: String, option: LayerOption) -> Float)? = null,
             saturationInfluenceResolver: ((layerId: String, option: LayerOption) -> Float)? = null,
-            baseImage: BufferedImage? = null
+            baseImage: BufferedImage? = null,
+            etfEnabled: Boolean = false,
+            defaultJacketStyle: Int = 5
     ): BufferedImage {
         val output =
                 if (baseImage != null) {
@@ -47,14 +49,25 @@ object SkinComposer {
                     BufferedImage(SKIN_SIZE, SKIN_SIZE, BufferedImage.TYPE_INT_ARGB)
                 }
         val graphics = output.createGraphics()
+        var maxDressLength = 0
+        var anyDress = false
 
         layers.forEach { layer ->
             val sel = selection.selections[layer.id] ?: return@forEach
             val selOption = sel.option ?: return@forEach
             // Resolve fresh option (with up-to-date masks) if a resolver is provided
             val chosen = optionResolver?.invoke(layer.id, selOption.id) ?: selOption
-            val sourceImage = if (useSlimModel) chosen.imageSlim else chosen.imageDefault
+            var sourceImage = if (useSlimModel) chosen.imageSlim else chosen.imageDefault
             if (sourceImage == null) return@forEach
+
+            // If this is a dress, we need to perform the ETF shift-and-swap:
+            if (chosen.isDress) {
+                println("[SneakyMannequins] Applying dress transformation for ${chosen.id} (length: ${chosen.dressLength})")
+                anyDress = true
+                if (chosen.dressLength > maxDressLength) maxDressLength = chosen.dressLength
+                shiftOutputOuterToInner(output, chosen.dressLength)
+                sourceImage = convertLegsToDress(sourceImage)
+            }
 
             // Apply each channel's color independently, then composite.
             var source = sourceImage
@@ -138,6 +151,11 @@ object SkinComposer {
 
         graphics.dispose()
         forceInnerLayerOpaque(output)
+
+        if (anyDress && etfEnabled) {
+            encodeEtf(output, defaultJacketStyle, maxDressLength.coerceIn(1, 8))
+        }
+
         return output
     }
 
@@ -481,6 +499,97 @@ object SkinComposer {
                     }
                 }
             }
+        }
+    }
+
+    private fun shiftOutputOuterToInner(output: BufferedImage, dressLength: Int) {
+        // Outer leg regions: Right (0, 32), Left (0, 48)
+        val legOuterRects = listOf(SkinUv.Rect(0, 32, 16, 16), SkinUv.Rect(0, 48, 16, 16))
+        for (r in legOuterRects) {
+            val faceTopY = if (r.y == 32) 36 else 52 // Front/Side/Back faces top Y
+            for (y in r.y until r.y + r.h) {
+                // Only shift if within the rows affected by dress length
+                if (y < faceTopY || y >= faceTopY + dressLength) continue
+
+                for (x in r.x until r.x + r.w) {
+                    val outerArgb = output.getRGB(x, y)
+                    if ((outerArgb ushr 24) == 0) continue
+
+                    val inner = SkinUv.getInnerCorresponding(x, y) ?: continue
+                    val innerArgb = output.getRGB(inner.first, inner.second)
+
+                    // Shift outer to inner, blending it ON TOP of what's already there
+                    val blended = blend(innerArgb, outerArgb)
+                    output.setRGB(inner.first, inner.second, blended)
+
+                    // Clear the outer pixel to make room for the dress
+                    output.setRGB(x, y, 0)
+                }
+            }
+        }
+    }
+
+    private fun blend(bottom: Int, top: Int): Int {
+        val topA = (top ushr 24) and 0xFF
+        if (topA == 0) return bottom
+        if (topA == 255) return top
+
+        val bottomA = (bottom ushr 24) and 0xFF
+        if (bottomA == 0) return top
+
+        // Simple ARGB blending
+        val a1 = topA / 255.0
+        val a2 = (bottomA / 255.0) * (1.0 - a1)
+        val r = (((top shr 16) and 0xFF) * a1 + ((bottom shr 16) and 0xFF) * a2) / (a1 + a2)
+        val g = (((top shr 8) and 0xFF) * a1 + ((bottom shr 8) and 0xFF) * a2) / (a1 + a2)
+        val b = (((top) and 0xFF) * a1 + ((bottom) and 0xFF) * a2) / (a1 + a2)
+        val aOut = (a1 + a2) * 255.0
+
+        return (aOut.toInt() shl 24) or (r.toInt() shl 16) or (g.toInt() shl 8) or b.toInt()
+    }
+
+    private fun convertLegsToDress(image: BufferedImage): BufferedImage {
+        val out = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
+        val g = out.createGraphics()
+        g.drawImage(image, 0, 0, null)
+        g.dispose()
+
+        // Leg inner regions:
+        // Right Leg Base: (0, 16, 16, 16)
+        // Left Leg Base: (16, 48, 16, 16)
+        val legInnerRects = listOf(SkinUv.Rect(0, 16, 16, 16), SkinUv.Rect(16, 48, 16, 16))
+        var clearedCount = 0
+        for (r in legInnerRects) {
+            for (x in r.x until r.x + r.w) {
+                for (y in r.y until r.y + r.h) {
+                    val innerArgb = out.getRGB(x, y)
+                    if ((innerArgb ushr 24) == 0) continue
+
+                    val outer = SkinUv.getOuterCorresponding(x, y) ?: continue
+                    val outerArgb = out.getRGB(outer.first, outer.second)
+
+                    // Put inner UNDER outer. If outer is transparent, inner takes over.
+                    if ((outerArgb ushr 24) == 0) {
+                        out.setRGB(outer.first, outer.second, innerArgb)
+                    }
+                    // Clear the inner pixel
+                    out.setRGB(x, y, 0)
+                    clearedCount++
+                }
+            }
+        }
+        println("[SneakyMannequins] convertLegsToDress cleared $clearedCount pixels.")
+        return out
+    }
+
+    private fun encodeEtf(image: BufferedImage, style: Int, length: Int) {
+        if (style in 1..8) {
+            val color = SkinUv.ETF_COLORS[style - 1]
+            image.setRGB(SkinUv.ETF_CHOICE_STYLE_BOX_X, SkinUv.ETF_CHOICE_STYLE_BOX_Y, color.rgb)
+        }
+        if (length in 1..8) {
+            val color = SkinUv.ETF_COLORS[length - 1]
+            image.setRGB(SkinUv.ETF_CHOICE_LENGTH_BOX_X, SkinUv.ETF_CHOICE_LENGTH_BOX_Y, color.rgb)
         }
     }
 }

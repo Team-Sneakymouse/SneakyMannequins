@@ -2,6 +2,7 @@ package com.sneakymannequins.managers
 
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
+import com.sneakymannequins.SneakyMannequins
 import com.sneakymannequins.integrations.CharacterManagerBridge
 import com.sneakymannequins.model.LayerSelection
 import com.sneakymannequins.model.LayerSessionData
@@ -28,6 +29,7 @@ import org.bukkit.profile.PlayerTextures.SkinModel
 data class FinalizedResult(val file: File, val slim: Boolean)
 
 class SessionManager(
+        private val plugin: SneakyMannequins,
         private val dataFolder: File,
         private val layerManager: LayerManager,
         private val characterManagerBridge: CharacterManagerBridge
@@ -338,7 +340,17 @@ class SessionManager(
                             useSlimModel = slim,
                             optionResolver = { l, o -> layerManager.optionsFor(l).find { it.id == o } },
                             textureResolver = { layerManager.texture(it) },
-                            baseImage = baseSkin
+                            baseImage = baseSkin,
+                            etfEnabled =
+                                    plugin.config.getBoolean(
+                                            "integrations.entity-texture-features.enabled",
+                                            false
+                                    ),
+                            defaultJacketStyle =
+                                    plugin.config.getInt(
+                                            "integrations.entity-texture-features.jacket-dress-style",
+                                            5
+                                    )
                     )
 
             targetDir.mkdirs()

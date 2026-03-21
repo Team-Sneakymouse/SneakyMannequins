@@ -327,6 +327,24 @@ object SkinUv {
         }
     }
 
+    /** ETF Choice Box 1-8 colors (Red, Yellow, Green, Cyan, Blue, Magenta, White, Black). */
+    val ETF_COLORS =
+            listOf(
+                    java.awt.Color(0xb41e1e), // 1
+                    java.awt.Color(0xb4b41e), // 2
+                    java.awt.Color(0x1eb41e), // 3
+                    java.awt.Color(0x1eb4b4), // 4
+                    java.awt.Color(0x1e1eb4), // 5
+                    java.awt.Color(0xb41eb4), // 6
+                    java.awt.Color(0xf0f0f0), // 7
+                    java.awt.Color(0x141414) // 8
+            )
+
+    const val ETF_CHOICE_STYLE_BOX_X = 52
+    const val ETF_CHOICE_STYLE_BOX_Y = 17
+    const val ETF_CHOICE_LENGTH_BOX_X = 52
+    const val ETF_CHOICE_LENGTH_BOX_Y = 18
+
     inline fun forEachInnerBasePixel(block: (x: Int, y: Int) -> Unit) {
         for (r in INNER_BASE_RECTS) {
             for (x in r.x until (r.x + r.w)) {
