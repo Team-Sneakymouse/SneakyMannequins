@@ -442,6 +442,8 @@ layers:
       #     palettes-last:     # overrides default "palettes-last" for this part
       #       - palette: neon
       #         permission: group.admin
+      #     permissions:       # restriction for the part itself (any of)
+      #       - my.part.perm
     
     shirt:
       display-name: "Shirt"

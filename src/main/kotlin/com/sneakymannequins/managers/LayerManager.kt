@@ -102,8 +102,14 @@ class LayerManager(private val plugin: SneakyMannequins) {
         return if (viewer == null) {
             allOptions.filter { it.owner == null }
         } else {
-            allOptions.filter { it.owner == null || it.owner == viewer.uniqueId }
+            allOptions.filter { (it.owner == null || it.owner == viewer.uniqueId) && hasPermission(viewer, it) }
         }
+    }
+
+    private fun hasPermission(player: org.bukkit.entity.Player, option: LayerOption): Boolean {
+        val perms = option.permissions ?: return true
+        if (perms.isEmpty()) return true
+        return perms.any { player.hasPermission(it) }
     }
 
     fun allOptions(layerId: String): List<LayerOption> {
@@ -318,7 +324,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
         val result =
                 grouped.values
                         .mapNotNull { agg ->
-                            createOptionFromAggregate(agg, definition, optionConfig, directory)
+                            createOptionFromAggregate(agg, definition, optionConfig)
                         }
                         .toMutableList()
 
@@ -349,7 +355,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
                                 populateAggregate(agg, partDir)
 
                                 val userOpt =
-                                        createOptionFromAggregate(agg, definition, null, partDir)
+                                        createOptionFromAggregate(agg, definition, null)
                                 if (userOpt != null) {
                                     result.add(
                                             userOpt.copy(
@@ -376,8 +382,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
     private fun createOptionFromAggregate(
             agg: OptionAggregate,
             definition: LayerDefinition,
-            optionConfig: ConfigurationSection?,
-            directory: Path
+            optionConfig: ConfigurationSection?
     ): LayerOption? {
         val optSection = optionConfig?.getConfigurationSection(agg.id)
         val optPaletteSpec = optSection?.let { parsePaletteSpec(it) } ?: PaletteSpec.INHERIT
@@ -432,7 +437,8 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 masksSlim = masksSlim,
                 directory = agg.directory,
                 hasArms = agg.hasArms,
-                isAlex = agg.isAlex
+                isAlex = agg.isAlex,
+                permissions = optSection?.getStringList("permissions")
         )
     }
 
@@ -645,7 +651,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 }
             }
 
-            val opt = createOptionFromAggregate(agg, def, null, partDir)
+            val opt = createOptionFromAggregate(agg, def, null)
             if (opt != null) {
                 val userOpt =
                         opt.copy(

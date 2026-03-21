@@ -147,7 +147,8 @@ data class LayerOption(
         val owner: java.util.UUID? = null,
         val internalKey: String? = null,
         val hasArms: Boolean = false,
-        val isAlex: Boolean = false
+        val isAlex: Boolean = false,
+        val permissions: List<String>? = null
 )
 
 /**
