@@ -62,7 +62,6 @@ object SkinComposer {
 
             // If this is a dress, we need to perform the ETF shift-and-swap:
             if (chosen.isDress) {
-                println("[SneakyMannequins] Applying dress transformation for ${chosen.id} (length: ${chosen.dressLength})")
                 anyDress = true
                 if (chosen.dressLength > maxDressLength) maxDressLength = chosen.dressLength
                 shiftOutputOuterToInner(output, chosen.dressLength)
@@ -578,7 +577,6 @@ object SkinComposer {
                 }
             }
         }
-        println("[SneakyMannequins] convertLegsToDress cleared $clearedCount pixels.")
         return out
     }
 
