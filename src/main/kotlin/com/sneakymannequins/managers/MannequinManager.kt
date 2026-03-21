@@ -8,6 +8,8 @@ import com.sneakymannequins.model.LayerDefinition
 import com.sneakymannequins.model.LayerOption
 import com.sneakymannequins.model.LayerSelection
 import com.sneakymannequins.model.Mannequin
+import com.sneakymannequins.model.MenuLayout
+import com.sneakymannequins.model.HudButton
 import com.sneakymannequins.model.PixelChange
 import com.sneakymannequins.model.PixelFrame
 import com.sneakymannequins.model.SessionData
@@ -64,51 +66,7 @@ private enum class ControlMode {
 
 // ── HUD button layout ───────────────────────────────────────────────────────
 
-private data class MenuLayout(
-        val originX: Float,
-        val originY: Float,
-        val originZ: Float,
-        val pitch: Float,
-        val yaw: Float
-)
 
-private data class HudButton(
-        val name: String,
-        val textMM: String, // raw MiniMessage string (for generating variants)
-        val activeTextJson: String?, // JSON component for part/color active mode
-        val disabledTextJson: String?, // JSON component when button is disabled
-        val confirmTextJson: String?, // JSON component for "confirm?" (random only)
-        val tx: Float,
-        val ty: Float,
-        val tz: Float,
-        val lineWidth: Int,
-        val bgDefault: Int,
-        val bgHighlight: Int,
-        val scaleX: Float? = null,
-        val scaleY: Float? = null,
-        val type: String? = null,
-        val targetLayer: String? = null,
-        val palette: String? = null,
-        val colorHex: String? = null,
-        // Menu specific
-        val openByDefault: Boolean = false,
-        val submenuLayout: MenuLayout? = null,
-        val items: Map<String, HudButton>? = null,
-        // Color Grid specific
-        val maxRows: Int = 4,
-        val cellSpacingX: Float = 0.12f,
-        val cellSpacingY: Float = 0.18f,
-        val cellLineWidth: Int = 18,
-        val cellScaleX: Float = 1f,
-        val cellScaleY: Float = 1f,
-        val headerLineWidth: Int = 80,
-        val headerScale: Float = 0.6f,
-        val headerTextMM: String = "<white>{message}",
-        val bgHeader: Int? = null,
-        val headerPaddingLen: Int = 0,
-        val headerPaddingSide: String = "none",
-        val headerColumn: Int = 0
-)
 
 /** Canonical per-button visual state (shared across all viewers). */
 private data class ButtonVisual(var textJson: String, var bgColor: Int)
@@ -118,6 +76,7 @@ private data class ButtonVisual(var textJson: String, var bgColor: Int)
 class MannequinManager(
         private val plugin: SneakyMannequins,
         private val layerManager: LayerManager,
+        private val styleManager: StyleManager,
         private val handler: VolatileHandler,
         private val persistence: MannequinPersistence,
         private val sessionManager: SessionManager,
@@ -161,13 +120,6 @@ class MannequinManager(
 
     // ── Config-driven radii ─────────────────────────────────────────────────────
 
-    /** Radius at which a mannequin first appears for a player. */
-    private val viewRadius: Double
-        get() = plugin.config.getDouble("rendering.view-radius", 8.0)
-
-    /** Radius within which a player keeps receiving updates. */
-    private val updateRadius: Double
-        get() = plugin.config.getDouble("rendering.update-radius", 30.0)
 
     /** Radius of the mannequin Interaction hitbox (blocks). */
     private val interactRadius: Double
@@ -190,16 +142,6 @@ class MannequinManager(
                         )
                         .coerceIn(0.0, 180.0)
 
-    /** Read [RenderSettings] from config for first-seen or update context. */
-    private fun readRenderSettings(isFirstSeen: Boolean): RenderSettings {
-        val path = if (isFirstSeen) "rendering.first-seen" else "rendering.update"
-        val modeStr = plugin.config.getString("$path.mode", "BUILD")?.uppercase() ?: "INSTANT"
-        val mode = runCatching { RenderMode.valueOf(modeStr) }.getOrDefault(RenderMode.INSTANT)
-        val interval = plugin.config.getInt("$path.tick-interval", 1).coerceAtLeast(1)
-        val skip = plugin.config.getDouble("$path.skip-chance", 0.5).coerceIn(0.0, 1.0)
-        val flyIn = plugin.config.getInt("$path.fly-in-count", 5).coerceAtLeast(0)
-        return RenderSettings(mode, interval, skip, flyIn)
-    }
 
     /** Per-mannequin canonical button visuals. */
     private val buttonVisuals = mutableMapOf<UUID, MutableMap<String, ButtonVisual>>()
@@ -226,23 +168,15 @@ class MannequinManager(
         // from player)
         private const val HUD_FLY_INTERP_TICKS = 10 // interpolation duration (ticks)
         private const val HUD_DISMISS_RANGE = 8.0 // dismiss HUD when player is this far (blocks)
-
-        /** Parse an ARGB hex string (e.g. "B8336699") to an Int. */
-        private fun parseArgb(hex: String?): Int? {
-            if (hex.isNullOrBlank()) return null
-            return hex.removePrefix("#").toLongOrNull(16)?.toInt()
-        }
     }
 
-    /** Buttons loaded from config (refreshed on reload). */
-    private var hudButtons: List<HudButton> = emptyList()
 
     init {
-        hudButtons = loadHudButtons()
+        // Hud buttons now loaded per-style via StyleManager
     }
 
     /** Look up a button config by name. Searches recursively through submenus. */
-    private fun buttonByName(name: String, list: List<HudButton> = hudButtons): HudButton? {
+    private fun buttonByName(name: String, list: List<HudButton>): HudButton? {
         for (btn in list) {
             if (btn.name == name) return btn
             if (btn.items != null) {
@@ -256,7 +190,7 @@ class MannequinManager(
     /** Finds the ID of the menu (the submenu button's ID) containing a button of the given type. */
     private fun findMenuIdForType(
             type: String,
-            list: List<HudButton> = hudButtons,
+            list: List<HudButton>,
             parentId: String? = null
     ): String? {
         for (btn in list) {
@@ -282,128 +216,6 @@ class MannequinManager(
         return layerManager.optionsFor(layerId).firstOrNull()
     }
 
-    /** Parse a single HudButton recursively. */
-    private fun parseHudButton(
-            name: String,
-            sec: org.bukkit.configuration.ConfigurationSection?,
-            globalBgDef: Int,
-            globalBgHi: Int
-    ): HudButton? {
-        if (sec == null) return null
-
-        val type = sec.getString("type") ?: name
-        val textMM = sec.getString("text") ?: "<white>${name.replaceFirstChar { it.uppercase() }}"
-        val activeMM = sec.getString("active-text")
-        val disabledMM = sec.getString("disabled-text")
-        val confirmMM = sec.getString("confirm-text")
-
-        val tx = sec.getDouble("translation.x", 0.0).toFloat()
-        val ty = sec.getDouble("translation.y", 0.0).toFloat()
-        val tz = sec.getDouble("translation.z", 0.0).toFloat()
-
-        val lw = sec.getInt("line-width", 200)
-        val bgDef = parseArgb(sec.getString("bg-default")) ?: globalBgDef
-        val bgHi = parseArgb(sec.getString("bg-highlight")) ?: globalBgHi
-
-        val sx = if (sec.contains("scale-x")) sec.getDouble("scale-x").toFloat() else null
-        val sy = if (sec.contains("scale-y")) sec.getDouble("scale-y").toFloat() else null
-
-        val targetLayer = sec.getString("target-layer")
-        val palette = sec.getString("palette")
-        val colorHex = sec.getString("color")
-
-        val openByDefault = sec.getBoolean("open-by-default", false)
-
-        val submenuLayout =
-                sec.getConfigurationSection("submenu-layout")?.let { layoutSec ->
-                    MenuLayout(
-                            originX = layoutSec.getDouble("origin-x", 0.0).toFloat(),
-                            originY = layoutSec.getDouble("origin-y", 0.0).toFloat(),
-                            originZ = layoutSec.getDouble("origin-z", 0.0).toFloat(),
-                            pitch = layoutSec.getDouble("pitch", 0.0).toFloat(),
-                            yaw = layoutSec.getDouble("yaw", 0.0).toFloat()
-                    )
-                }
-
-        val itemsSec = sec.getConfigurationSection("items")
-        val itemsMap =
-                if (itemsSec != null) {
-                    val map = mutableMapOf<String, HudButton>()
-                    for (key in itemsSec.getKeys(false)) {
-                        val itemBtn =
-                                parseHudButton(
-                                        key,
-                                        itemsSec.getConfigurationSection(key),
-                                        globalBgDef,
-                                        globalBgHi
-                                )
-                        if (itemBtn != null) {
-                            map[key] = itemBtn
-                        }
-                    }
-                    map.ifEmpty { null }
-                } else null
-
-        val bgHeader = parseArgb(sec.getString("bg-header"))
-
-        return HudButton(
-                name = name,
-                textMM = textMM,
-                activeTextJson = activeMM?.let { TextUtility.mmToJson(it) },
-                disabledTextJson = disabledMM?.let { TextUtility.mmToJson(it) },
-                confirmTextJson = confirmMM?.let { TextUtility.mmToJson(it) },
-                tx = tx,
-                ty = ty,
-                tz = tz,
-                lineWidth = lw,
-                bgDefault = bgDef,
-                bgHighlight = bgHi,
-                scaleX = sx,
-                scaleY = sy,
-                type = type,
-                targetLayer = targetLayer,
-                palette = palette,
-                colorHex = colorHex,
-                openByDefault = openByDefault,
-                submenuLayout = submenuLayout,
-                items = itemsMap,
-                maxRows = sec.getInt("max-rows", 4),
-                cellSpacingX = sec.getDouble("cell-spacing-x", 0.12).toFloat(),
-                cellSpacingY = sec.getDouble("cell-spacing-y", 0.18).toFloat(),
-                cellLineWidth = sec.getInt("cell-line-width", 18),
-                cellScaleX = sec.getDouble("cell-scale-x", 1.0).toFloat(),
-                cellScaleY = sec.getDouble("cell-scale-y", 1.0).toFloat(),
-                headerLineWidth = sec.getInt("header-line-width", 80),
-                headerScale = sec.getDouble("header-scale", 0.6).toFloat(),
-                headerTextMM = sec.getString("header-text", "<white>{message}")
-                                ?: "<white>{message}",
-                bgHeader = bgHeader,
-                headerPaddingLen = sec.getInt("header-padding-len", 0),
-                headerPaddingSide = sec.getString("header-padding-side", "none")?.lowercase() ?: "none",
-                headerColumn = sec.getInt("header-column", 0)
-        )
-    }
-
-    /** Read the hud-buttons config section and build the button list. */
-    private fun loadHudButtons(): List<HudButton> {
-        val globalBgDef =
-                parseArgb(plugin.config.getString("hud-buttons.bg-default")) ?: HUD_BG_DEFAULT
-        val globalBgHi =
-                parseArgb(plugin.config.getString("hud-buttons.bg-highlight")) ?: HUD_BG_HIGHLIGHT
-
-        val parentSec = plugin.config.getConfigurationSection("hud-buttons") ?: return emptyList()
-        val keys =
-                parentSec.getKeys(false).filter {
-                    it != "bg-default" &&
-                            it != "bg-highlight" &&
-                            it != "config-menu" &&
-                            it != "color-grid"
-                }
-
-        return keys.mapNotNull { name ->
-            parseHudButton(name, parentSec.getConfigurationSection(name), globalBgDef, globalBgHi)
-        }
-    }
 
     // ── Lifecycle ───────────────────────────────────────────────────────────────
 
@@ -433,9 +245,9 @@ class MannequinManager(
         persistence.save(mannequins.values)
     }
 
-    fun create(location: Location): Mannequin {
+    fun create(location: Location, styleId: String): Mannequin {
         val selection = bootstrapSelection()
-        val mannequin = Mannequin(location = location.clone(), selection = selection)
+        val mannequin = Mannequin(location = location.clone(), selection = selection, styleId = styleId)
         mannequins[mannequin.id] = mannequin
         controlState[mannequin.id] = ControlState()
         randomize(mannequin, randomizeModel = true)
@@ -688,7 +500,7 @@ class MannequinManager(
         partSelectionMemory.clear()
         interactionDebounce.clear()
 
-        hudButtons = loadHudButtons()
+        // StyleManager handles reloading style-based buttons
         loadFromDisk()
         animationManager.start()
         startTickLoop()
@@ -700,11 +512,12 @@ class MannequinManager(
     // ── Rendering ───────────────────────────────────────────────────────────────
 
     fun renderVisibleTo(viewer: Player) {
-        val viewRadiusSq = viewRadius * viewRadius
-        val updateRadiusSq = updateRadius * updateRadius
-
         val seen = sentTo.getOrPut(viewer.uniqueId) { mutableSetOf() }
         for (man in mannequins.values) {
+            val style = styleManager.getStyle(man.styleId) ?: continue
+            val viewRadiusSq = style.rendering.viewRadius * style.rendering.viewRadius
+            val updateRadiusSq = style.rendering.updateRadius * style.rendering.updateRadius
+
             val isSameWorld = man.location.world == viewer.world
             val distSq =
                     if (isSameWorld) man.location.distanceSquared(viewer.location)
@@ -733,10 +546,12 @@ class MannequinManager(
      * a player walks into range.
      */
     private fun checkFirstSeen(viewer: Player) {
-        val viewRadiusSq = viewRadius * viewRadius
-        val updateRadiusSq = updateRadius * updateRadius
         val seen = sentTo.getOrPut(viewer.uniqueId) { mutableSetOf() }
         for (man in mannequins.values) {
+            val style = styleManager.getStyle(man.styleId) ?: continue
+            val viewRadiusSq = style.rendering.viewRadius * style.rendering.viewRadius
+            val updateRadiusSq = style.rendering.updateRadius * style.rendering.updateRadius
+            
             val isSameWorld = man.location.world == viewer.world
             val distSq =
                     if (isSameWorld) man.location.distanceSquared(viewer.location)
@@ -866,9 +681,10 @@ class MannequinManager(
                         showOverlay = mannequin.showOverlay,
                         tPose = poseState[mannequin.id] == true
                 )
+        val style = styleManager.getStyle(mannequin.styleId)
         val settings =
                 if (forceInstant) RenderSettings(RenderMode.INSTANT)
-                else readRenderSettings(isFirstSeen = false)
+                else style?.rendering?.update ?: RenderSettings()
         viewers.forEach { viewer ->
             animationManager.deliver(viewer, mannequin.id, projected, settings)
         }
@@ -962,9 +778,11 @@ class MannequinManager(
                         showOverlay = mannequin.showOverlay,
                         tPose = poseState[mannequin.id] == true
                 )
+        val style = styleManager.getStyle(mannequin.styleId)
         val settings =
                 if (forceInstant) RenderSettings(RenderMode.INSTANT)
-                else readRenderSettings(isFirstSeen)
+                else if (isFirstSeen) style?.rendering?.firstSeen ?: RenderSettings()
+                else style?.rendering?.update ?: RenderSettings()
         viewers.forEach { viewer ->
             animationManager.deliver(viewer, mannequin.id, projected, settings)
         }
@@ -1013,15 +831,16 @@ class MannequinManager(
 
     // ── Virtual HUD management ──────────────────────────────────────────────────
 
-    /** Initialise the canonical button visuals for a mannequin. */
     private fun initButtonVisuals(mannequinId: UUID) {
+        val mannequin = mannequins[mannequinId] ?: return
+        val style = styleManager.getStyle(mannequin.styleId) ?: return
         val visuals = mutableMapOf<String, ButtonVisual>()
-        for (btn in hudButtons) {
+        for (btn in style.hudButtons) {
             val json =
                     if (btn.name == "status") {
-                        formatStatusText(statusText[mannequinId])
+                        formatStatusText(statusText[mannequinId], mannequinId)
                     } else {
-                        TextUtility.mmToJson(btn.textMM)
+                        btn.textJson
                     }
             visuals[btn.name] = ButtonVisual(textJson = json, bgColor = btn.bgDefault)
         }
@@ -1033,8 +852,10 @@ class MannequinManager(
      * `{message}`, the placeholder is substituted; otherwise the message is wrapped in the template
      * formatting.
      */
-    private fun formatStatusText(msg: String?): String {
-        val btn = hudButtons.find { it.type == "status" }
+    private fun formatStatusText(msg: String?, mannequinId: UUID): String {
+        val man = mannequins[mannequinId] ?: return TextUtility.mmToJson(msg ?: "Controls")
+        val style = styleManager.getStyle(man.styleId) ?: return TextUtility.mmToJson(msg ?: "Controls")
+        val btn = style.hudButtons.find { it.type == "status" }
         val template = btn?.textMM ?: "<white>{message}"
         val defaultMsg = plugin.config.getString("hud-buttons.status.default-message") ?: "Controls"
         val text = msg ?: defaultMsg
@@ -1048,12 +869,14 @@ class MannequinManager(
      * (server-side animation).
      */
     private fun buildHoloButtons(mannequin: Mannequin): MutableList<HoloButton> {
-        return hudButtons
+        val style = styleManager.getStyle(mannequin.styleId) ?: return mutableListOf()
+        return style.hudButtons
                 .map { btn ->
                     val isStatus = btn.type == "status"
                     val initialJson =
-                            if (isStatus) formatStatusText(statusText[mannequin.id])
-                            else TextUtility.mmToJson(btn.textMM)
+                            if (isStatus) formatStatusText(statusText[mannequin.id], mannequin.id)
+                            else btn.textJson
+
                     HoloButton(
                             id = btn.name,
                             textJson = initialJson,
@@ -1090,17 +913,19 @@ class MannequinManager(
     }
 
     private fun spawnPlayerHud(player: Player, mannequin: Mannequin) {
+        val style = styleManager.getStyle(mannequin.styleId) ?: return 
         val buttons = buildHoloButtons(mannequin)
-        val frameEnabled = plugin.config.getBoolean("hud-frame.enabled", false)
-        val frameItem = if (frameEnabled) plugin.config.getString("hud-frame.item") else null
-        val frameCmd = plugin.config.getInt("hud-frame.custom-model-data", 0)
-        val frameCtx = plugin.config.getString("hud-frame.display-context", "GUI") ?: "GUI"
-        val frameTx = plugin.config.getDouble("hud-frame.translation.x", 0.0).toFloat()
-        val frameTy = plugin.config.getDouble("hud-frame.translation.y", 2.1).toFloat()
-        val frameTz = plugin.config.getDouble("hud-frame.translation.z", -1.0).toFloat()
-        val frameSx = plugin.config.getDouble("hud-frame.scale.x", 3.0).toFloat()
-        val frameSy = plugin.config.getDouble("hud-frame.scale.y", 3.0).toFloat()
-        val frameSz = plugin.config.getDouble("hud-frame.scale.z", 3.0).toFloat()
+        val frame = style.hudFrame
+        val frameEnabled = frame.enabled
+        val frameItem = if (frameEnabled) frame.item else null
+        val frameCmd = frame.customModelData
+        val frameCtx = frame.displayContext
+        val frameTx = frame.tx
+        val frameTy = frame.ty
+        val frameTz = frame.tz
+        val frameSx = frame.sx
+        val frameSy = frame.sy
+        val frameSz = frame.sz
 
         val hud =
                 HoloHUD(
@@ -1131,7 +956,7 @@ class MannequinManager(
 
         val state = controlState[mannequin.id]
         if (state != null) {
-            hudButtons.forEach { btn ->
+            style.hudButtons.forEach { btn ->
                 if (btn.type == "submenu" && btn.openByDefault) {
                     spawnMenu(btn, player, mannequin, state, hud, quiet = false)
                 }
@@ -1150,7 +975,8 @@ class MannequinManager(
         val layers = layerManager.definitionsInOrder()
         val layer = layers.getOrNull(state.layerIndex % layers.size)
         val hud = holoController.getHud(player.uniqueId) ?: return
-        val configBtn = buttonByName(buttonName) ?: return
+        val style = styleManager.getStyle(mannequin.styleId) ?: return
+        val configBtn = buttonByName(buttonName, style.hudButtons) ?: return
 
         if (configBtn.type != "color" && configBtn.type != "config") {
             plugin.server.pluginManager.callEvent(
@@ -1190,9 +1016,10 @@ class MannequinManager(
                     updateStatus(mannequinId, "Randomized")
                     renderFull(mannequin, nearbyViewers(mannequin), forceInstant = true)
                     refreshDynamicLabels(mannequinId)
-                    val colorMenuId = findMenuIdForType("color_grid")
+                    val mStyle = styleManager.getStyle(mannequin.styleId) ?: return
+                    val colorMenuId = findMenuIdForType("color_grid", mStyle.hudButtons)
                     if (colorMenuId != null) {
-                        val colorMenuBtn = buttonByName(colorMenuId)
+                        val colorMenuBtn = buttonByName(colorMenuId, mStyle.hudButtons)
                         if (colorMenuBtn != null &&
                                         hud.buttons.any { it.id.startsWith("${colorMenuId}_") }
                         ) {
@@ -1225,9 +1052,10 @@ class MannequinManager(
                     updateStatus(mannequinId, "Layer: ${prettyName(nextLayer.id)}")
                 }
                 refreshDynamicLabels(mannequinId)
-                val colorMenuId = findMenuIdForType("color_grid")
+                val mStyle = styleManager.getStyle(mannequin.styleId) ?: return
+                val colorMenuId = findMenuIdForType("color_grid", mStyle.hudButtons)
                 if (colorMenuId != null) {
-                    val colorMenuBtn = buttonByName(colorMenuId)
+                    val colorMenuBtn = buttonByName(colorMenuId, mStyle.hudButtons)
                     if (colorMenuBtn != null &&
                                     hud.buttons.any { it.id.startsWith("${colorMenuId}_") }
                     ) {
@@ -1652,10 +1480,11 @@ class MannequinManager(
             state: ControlState,
             hud: HoloHUD
     ) {
-        val colorMenuId = findMenuIdForType("color_grid") ?: return
+        val style = styleManager.getStyle(mannequin.styleId) ?: return
+        val colorMenuId = findMenuIdForType("color_grid", style.hudButtons) ?: return
         val gridVisible = hud.buttons.any { it.id.startsWith("${colorMenuId}_") }
         if (gridVisible) {
-            val colorMenuBtn = buttonByName(colorMenuId) ?: return
+            val colorMenuBtn = buttonByName(colorMenuId, style.hudButtons) ?: return
             despawnMenu(colorMenuId, player, hud, quiet = true)
             spawnMenu(colorMenuBtn, player, mannequin, state, hud, quiet = true)
         }
@@ -1670,13 +1499,12 @@ class MannequinManager(
 
     private fun updateStatus(mannequinId: UUID, msg: String) {
         statusText[mannequinId] = msg
-        val json = formatStatusText(msg)
+        val json = formatStatusText(msg, mannequinId)
         for (player in plugin.server.onlinePlayers) {
             val hud = holoController.getHud(player.uniqueId) ?: continue
-            if (hud.origin.world == mannequins[mannequinId]?.location?.world &&
-                            hud.origin.distanceSquared(
-                                    mannequins[mannequinId]?.location ?: continue
-                            ) < 0.1
+            val man = mannequins[mannequinId] ?: continue
+            if (hud.origin.world == man.location.world &&
+                            hud.origin.distanceSquared(man.location) < 0.1
             ) {
                 hud.updateButtonText("status", json)
             }
@@ -1780,13 +1608,13 @@ class MannequinManager(
 
                     val textJson =
                             if (btn.type == "status") {
-                                formatStatusText(statusText[mannequinId])
+                                formatStatusText(statusText[mannequinId], mannequinId)
                             } else if (isButtonDisabled && btn.disabledTextJson != null) {
                                 btn.disabledTextJson
                             } else if (isActive && btn.activeTextJson != null) {
                                 btn.activeTextJson
                             } else {
-                                TextUtility.mmToJson(btn.textMM)
+                                btn.textJson
                             }
 
                     hud.updateButtonText(activeId, textJson)
@@ -1801,7 +1629,8 @@ class MannequinManager(
                 }
             }
 
-            for (btn in hudButtons) {
+            val style = styleManager.getStyle(mannequin.styleId) ?: continue
+            for (btn in style.hudButtons) {
                 processBtn(btn)
             }
         }
@@ -2215,11 +2044,12 @@ class MannequinManager(
 
         // Update grid highlights
         val hud = holoController.getHud(player.uniqueId) ?: return
-        val config = loadGridConfig()
+        val style = styleManager.getStyle(mannequin.styleId) ?: return
+        val colorBtn = style.hudButtons.find { it.type == "color_grid" } ?: return
         val allColorIds = hud.buttons.filter { it.id.startsWith("color_") }.map { it.id }
         for (id in allColorIds) {
             if (id == "color_default") {
-                hud.updateButtonBg(id, config.bgHeader)
+                hud.updateButtonBg(id, colorBtn.bgHeader ?: 0x60000000)
                 continue
             }
             val idParts = id.removePrefix("color_").split('_')
@@ -2377,7 +2207,8 @@ class MannequinManager(
                             tPose = poseState[manId] == true
                     )
 
-            val settings = readRenderSettings(isFirstSeen = true).copy(reversed = true)
+            val style = styleManager.getStyle(mannequin.styleId)
+            val settings = (style?.rendering?.firstSeen ?: RenderSettings()).copy(reversed = true)
             viewers.forEach { viewer ->
                 animationManager.deliver(viewer, manId, projected, settings)
             }
@@ -2580,103 +2411,6 @@ class MannequinManager(
         /* No-op, handled by HoloController */
     }
 
-    private data class GridButtonConfig(
-            val text: String?,
-            val activeText: String?,
-            val disabledText: String?,
-            val column: Int,
-            val row: Int,
-            val lineWidth: Int?,
-            val scaleX: Float?,
-            val scaleY: Float?
-    )
-
-    private data class GridConfig(
-            val openByDefault: Boolean,
-            val maxRows: Int,
-            val cellSpacingX: Float,
-            val cellSpacingY: Float,
-            val originX: Float,
-            val originY: Float,
-            val originZ: Float,
-            val pitch: Float,
-            val yawOffset: Float,
-            val cellLineWidth: Int,
-            val cellScaleX: Float,
-            val cellScaleY: Float,
-            val headerLineWidth: Int,
-            val headerScale: Float,
-            val headerTextMM: String,
-            val bgHeader: Int,
-            val defaultBtn: GridButtonConfig?,
-            val textureBtn: GridButtonConfig?,
-            val channelBtn: GridButtonConfig?
-    )
-
-    private fun loadGridConfig(path: String = "hud-buttons.color-grid"): GridConfig {
-        val sec = plugin.config.getConfigurationSection(path)
-        val defaultHeaderText =
-                if (path.contains("config")) "{message}"
-                else "<white><font:minecraft:uniform>{message}"
-
-        fun loadBtn(name: String, defCol: Int): GridButtonConfig? {
-            val bsec = sec?.getConfigurationSection(name)
-            if (bsec == null && sec?.contains(name) == false) return null
-            return GridButtonConfig(
-                    text = bsec?.getString("text"),
-                    activeText = bsec?.getString("active-text"),
-                    disabledText = bsec?.getString("disabled-text"),
-                    column = bsec?.getInt("column", defCol) ?: defCol,
-                    row = bsec?.getInt("row", -1) ?: -1,
-                    lineWidth =
-                            if (bsec?.contains("line-width") == true) bsec.getInt("line-width")
-                            else null,
-                    scaleX =
-                            if (bsec?.contains("scale-x") == true)
-                                    bsec.getDouble("scale-x").toFloat()
-                            else null,
-                    scaleY =
-                            if (bsec?.contains("scale-y") == true)
-                                    bsec.getDouble("scale-y").toFloat()
-                            else null
-            )
-        }
-
-        return GridConfig(
-                openByDefault = sec?.getBoolean("open-by-default", false) ?: false,
-                maxRows = sec?.getInt("max-rows", 6) ?: 6,
-                cellSpacingX = sec?.getDouble("cell-spacing-x", 0.12)?.toFloat() ?: 0.12f,
-                cellSpacingY =
-                        sec
-                                ?.let {
-                                    if (it.contains("item-spacing-y"))
-                                            it.getDouble("item-spacing-y")
-                                    else it.getDouble("cell-spacing-y", 0.18)
-                                }
-                                ?.toFloat()
-                                ?: 0.18f,
-                originX = sec?.getDouble("origin-x", 0.3)?.toFloat() ?: 0.3f,
-                originY = sec?.getDouble("origin-y", -0.3)?.toFloat() ?: -0.3f,
-                originZ = sec?.getDouble("origin-z", -1.8)?.toFloat() ?: -1.8f,
-                pitch = sec?.getDouble("pitch", -0.35)?.toFloat() ?: -0.35f,
-                yawOffset = sec?.getDouble("yaw", 0.0)?.toFloat() ?: 0f,
-                cellLineWidth =
-                        sec?.let {
-                            if (it.contains("item-line-width")) it.getInt("item-line-width")
-                            else it.getInt("cell-line-width", 18)
-                        }
-                                ?: 18,
-                cellScaleX = sec?.getDouble("cell-scale-x", 1.0)?.toFloat() ?: 1f,
-                cellScaleY = sec?.getDouble("cell-scale-y", 1.0)?.toFloat() ?: 1f,
-                headerLineWidth = 80, // Default for label
-                headerScale = sec?.getDouble("header-scale", 1.0)?.toFloat() ?: 1f,
-                headerTextMM = sec?.getString("header-text") ?: defaultHeaderText,
-                bgHeader = parseArgb(sec?.getString("bg-header")) ?: 0x60000000,
-                defaultBtn = loadBtn("default", 0),
-                textureBtn = loadBtn("texture", 8),
-                channelBtn = loadBtn("channel", 12)
-        )
-    }
 
     private fun composeCurrentSkin(mannequin: Mannequin): java.awt.image.BufferedImage {
         val definitions = layerManager.definitionsInOrder()
@@ -2698,7 +2432,9 @@ class MannequinManager(
     }
 
     fun nearbyViewers(mannequin: Mannequin): List<Player> {
-        val radiusSq = viewRadius * viewRadius
+        val style = styleManager.getStyle(mannequin.styleId)
+        val radius = style?.rendering?.viewRadius ?: 8.0
+        val radiusSq = radius * radius
         return plugin.server.onlinePlayers.filter {
             it.world == mannequin.location.world &&
                     it.location.distanceSquared(mannequin.location) <= radiusSq

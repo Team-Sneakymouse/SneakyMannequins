@@ -1,0 +1,260 @@
+# Default Mannequin Style Preset
+# This file controls the rendering, HUD buttons, and HUD frame for mannequins using the 'default' style.
+
+# ── Rendering & Animation ─────────────────────────────────────────────────────
+rendering:
+  # Scale of the mannequin. Can be "auto" (matches player scale) or a number (e.g. 1.0).
+  # The final scale is always multiplied by 0.9 to ensure mannequins are slightly smaller than players.
+  scale: "auto"
+  
+  # Radius (blocks) at which a mannequin first appears for a player.
+  view-radius: 8
+  # Radius (blocks) within which a player continues to receive updates.
+  # Players beyond this distance stop getting updates but the mannequin
+  # remains visible until vanilla tracking distance despawns it.
+  update-radius: 30
+
+  # Should clicking an 'apply' button hide the mannequin?
+  apply-hides-mannequin: true
+
+  # Settings for the first time a player sees a mannequin.
+  first-seen:
+    # INSTANT – all pixels in one burst.
+    # BUILD   – bottom-to-top column animation (staggered, chaotic).
+    mode: BUILD
+    # Ticks between each column advance (BUILD mode only, 1 = every tick).
+    tick-interval: 2
+    # Per-column chance (0.0–1.0) to do nothing on a given tick,
+    # adding organic randomness to the build-up.
+    skip-chance: 0.5
+    # Max pixels per build step that "fly in" from a random distant position.
+    # Each fly-in pixel starts 2–5 blocks away and interpolates to its target
+    # over tick-interval ticks.  Set to 0 to disable.
+    fly-in-count: 5
+
+  # Settings for when an already-visible mannequin is updated.
+  update:
+    mode: BUILD
+    tick-interval: 1
+    skip-chance: 0.5
+    fly-in-count: 5
+  
+# HUD button configuration – controls the look and layout of each button.
+# Text supports MiniMessage format codes: <white>, <yellow>, <bold>, <italic>,
+# <font:minecraft:uniform>, <gradient:#AABB00:#CCDD00>, etc.
+# Background colours are ARGB hex strings.
+hud-buttons:
+  # Global defaults (can be overridden per button)
+  bg-default: "78000000"
+  bg-highlight: "B8336699"
+
+  status:
+    type: "status"
+    # Use {message} as a placeholder for the dynamic status text.
+    # The default message ("Controls") is shown when no action has occurred yet.
+    text: "<white>{message}"
+    default-message: "Controls"
+    translation:
+      x: 0.0
+      y: 2.8
+      z: -2.0
+    line-width: 256
+
+  # Left column
+  model:
+    type: "model"
+    text: "<white>Model"
+    translation:
+      x: -1.1
+      y: 1.7
+      z: -2.0
+
+  random:
+    type: "random"
+    text: "<white>Random"
+    confirm-text: "<yellow>Confirm?"
+    translation:
+      x: -1.1
+      y: 1.2
+      z: -2.0
+
+  # Config submenu
+  config:
+    type: "submenu"
+    text: "<white>Config"
+    active-text: "<yellow>Config"
+    open-by-default: false
+    submenu-layout:
+      origin-x: 1
+      origin-y: 1
+      origin-z: -3
+      pitch: -0.35
+      yaw: 1
+    items:
+      save:
+        type: "save"
+        text: "<white>Save"
+        translation:
+          x: -0.5
+          y: 0.3
+          z: 0.0
+        line-width: 200
+      load:
+        type: "load"
+        text: "<white>Load"
+        translation:
+          x: -0.5
+          y: 0.0
+          z: 0.0
+        line-width: 200
+      apply:
+        type: "apply"
+        text: "<white>Apply"
+        translation:
+          x: 0.5
+          y: 0.3
+          z: 0.0
+        line-width: 200
+      copyMe:
+        type: "copyMe"
+        text: "<white>Copy Me"
+        translation:
+          x: 0.5
+          y: 0.0
+          z: 0.0
+        line-width: 200
+    translation:
+      x: -1.1
+      y: 0.7
+      z: -2.0
+
+  # Right column
+  layer:
+    type: "layer"
+    text: "<white>Layer"
+    translation:
+      x: 1.1
+      y: 1.7
+      z: -2.0
+
+  # Color picker submenu
+  color:
+    type: "submenu"
+    text: "<white>Color"
+    active-text: "<yellow>Color"
+    open-by-default: false
+    submenu-layout:
+      origin-x: -1.3
+      origin-y: 1
+      origin-z: -2
+      pitch: -0.35
+      yaw: -1
+    items:
+      picker:
+        type: "color_grid"
+        max-rows: 4
+        cell-spacing-x: 0.12
+        cell-spacing-y: 0.18
+        cell-line-width: 18
+        cell-scale-x: 1.0
+        cell-scale-y: 0.66
+        header-line-width: 80
+        header-scale: 0.6
+        header-gap: 0.35
+        header-text: "<white>{message}"
+        header-padding-len: 15
+        header-padding-side: "right"
+        header-column: 13
+        bg-header: "90000000"
+      default:
+        type: "default_color"
+        text: "<white>Default"
+        translation:
+          x: 0.25
+          y: 0.2
+          z: 0.0
+        scale-x: 0.6
+        scale-y: 0.6
+      channel:
+        type: "channel"
+        text: "<white>Channel"
+        disabled-text: null # Set to "<gray>Channel" to show while disabled, or null to hide
+        translation:
+          x: 0.85
+          y: 0.2
+          z: 0.0
+        scale-x: 0.6
+        scale-y: 0.6
+      texture:
+        type: "texture"
+        text: "<white>Texture"
+        disabled-text: null # Set to "<gray>Texture" to show while disabled, or null to hide
+        translation:
+          x: 1.48
+          y: 0.2
+          z: 0.0
+        scale-x: 0.6
+        scale-y: 0.6
+    translation:
+      x: 1.1
+      y: 1.2
+      z: -2.0
+
+  pose:
+    type: "pose"
+    text: "<white>Pose"
+    translation:
+      x: 1.1
+      y: 0.7
+      z: -2.0
+
+  # ── Examples of Optional HUD Variants (commented out) ──────────────────────
+  # These are optional custom buttons you can add to the main HUD.
+  
+  # A "Tab-pane" style toggle for a specific layer.
+  # Automatically highlights when the 'hair' layer is selected.
+  # If the character doesn't have a 'hair' layer, it hides (if disabled-text is null).
+  # hair_tab:
+  #   text: "<white>Hair"
+  #   active-text: "<yellow>Hair"
+  #   type: "layer"
+  #   target-layer: "hair"
+  #   translation: {x: 2.0, y: 1.7, z: -2.0}
+  
+  # A dedicated texture cycle button in the main HUD.
+  # Cycles textures for the *current* active layer.
+  # next_texture:
+  #   text: "<white>Texture+"
+  #   type: "texture"
+  #   translation: {x: 2.0, y: 1.2, z: -2.0}
+  
+  # A button that applies the first color of a specific palette to the current channel.
+  # reset_color:
+  #   text: "<white>Reset Color"
+  #   type: "default_color"
+  #   palette: "primary"    # Optional: defaults to "standard" if omitted
+  #   translation: {x: 2.0, y: 0.7, z: -2.0}
+
+# HUD frame – optional ItemDisplay rendered as a backdrop behind the HUD buttons.
+# Rotates together with the rest of the HUD.  Disabled by default.
+hud-frame:
+  enabled: true
+  # Minecraft item to display (any valid item ID, e.g. minecraft:glass_pane)
+  item: "minecraft:glass_pane"
+  # Custom model data (integer). Set to 0 or remove to use the default model.
+  custom-model-data: 0
+  # Item model transform context:
+  #   NONE, THIRDPERSON_LEFTHAND, THIRDPERSON_RIGHTHAND,
+  #   FIRSTPERSON_LEFTHAND, FIRSTPERSON_RIGHTHAND,
+  #   HEAD, GUI, GROUND, FIXED
+  display-context: "FIXED"
+  # Translation offset (entity-local space, Y-rotated with the HUD)
+  translation:
+    x: 0.0
+    y: 1.7
+    z: -2.0
+  # Scale
+  scale:
+    x: 3.0
+    y: 3.0
+    z: 0.05

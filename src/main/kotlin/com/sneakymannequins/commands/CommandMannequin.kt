@@ -6,6 +6,7 @@ import com.sneakymannequins.managers.LayerManager.MaskStrategy
 import com.sneakymannequins.managers.MannequinManager
 import com.sneakymannequins.managers.RemaskManager
 import com.sneakymannequins.managers.SessionManager
+import com.sneakymannequins.managers.StyleManager
 import com.sneakymouse.sneakyholos.util.TextUtility
 import io.papermc.paper.command.brigadier.CommandSourceStack
 import java.io.File
@@ -20,6 +21,7 @@ class CommandMannequin(
         private val plugin: SneakyMannequins,
         private val mannequinManager: MannequinManager,
         private val layerManager: LayerManager,
+        private val styleManager: StyleManager,
         private val sessionManager: SessionManager,
         private val remaskManager: RemaskManager
 ) : CommandBase("mannequin") {
@@ -75,7 +77,7 @@ class CommandMannequin(
         sender.sendMessage(TextUtility.convertToComponent("&6&lSneakyMannequins Help"))
         val commands =
                 linkedMapOf(
-                        "add" to "Create a new mannequin",
+                        "add <style>" to "Create a new mannequin",
                         "remove" to "Remove nearest mannequin",
                         "reload" to "Reload plugin configuration",
                         "history" to "View your session history",
@@ -123,7 +125,7 @@ class CommandMannequin(
                                         .toMutableList()
                             }
                         }
-                        "add" -> mutableListOf("<world,x,y,z,yaw>")
+                        "add" -> styleManager.listStyleIds().toMutableList()
                         "debug" ->
                                 listOf(
                                                 "merge",
@@ -343,18 +345,29 @@ class CommandMannequin(
 
     private fun create(player: Player, args: Array<out String> = emptyArray()) {
         try {
+            if (args.size < 2) {
+                player.sendMessage(
+                        TextUtility.convertToComponent("&cUsage: /mannequin add <style> [world,x,y,z,yaw]")
+                )
+                return
+            }
+
+            val styleId = args[1]
+            if (styleManager.getStyle(styleId) == null) {
+                player.sendMessage(TextUtility.convertToComponent("&cStyle '$styleId' not found."))
+                return
+            }
+
             var location = player.location.clone()
 
-            if (args.size > 1) {
-                val input = args[1]
+            if (args.size > 2) {
+                val input = args[2]
                 val parts = input.split(",")
                 if (parts.size >= 4) {
                     val worldName = parts[0]
                     val world =
                             player.server.getWorld(worldName)
-                                    ?: throw IllegalArgumentException(
-                                            "World '$worldName' not found."
-                                    )
+                                    ?: throw IllegalArgumentException("World '$worldName' not found.")
                     val x =
                             parts[1].toDoubleOrNull()
                                     ?: throw IllegalArgumentException("Invalid X coordinate.")
@@ -377,17 +390,16 @@ class CommandMannequin(
                 }
             }
 
-            val mannequin = mannequinManager.create(location)
+            val mannequin = mannequinManager.create(location, styleId)
             player.sendMessage(
                     TextUtility.convertToComponent(
-                            "&aMannequin created at (${location.world.name}, ${location.x.toInt()}, ${location.y.toInt()}, ${location.z.toInt()}) with id ${mannequin.id}"
+                            "&aMannequin created with style '$styleId' at (${location.world.name}, ${location.x.toInt()}, ${location.y.toInt()}, ${location.z.toInt()}) with id ${mannequin.id}"
                     )
             )
         } catch (e: Exception) {
             player.sendMessage(
                     TextUtility.convertToComponent("&cFailed to create mannequin: ${e.message}")
             )
-            // e.printStackTrace() // Reducing log noise unless necessary
         }
     }
 

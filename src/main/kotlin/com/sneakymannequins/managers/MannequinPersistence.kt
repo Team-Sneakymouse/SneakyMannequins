@@ -14,7 +14,8 @@ class MannequinPersistence(private val plugin: SneakyMannequins) {
             val id: UUID,
             val location: Location,
             val slim: Boolean,
-            val savedUid: String?
+            val savedUid: String?,
+            val styleId: String
     )
 
     private val file: File = File(plugin.dataFolder, "mannequins.yml")
@@ -40,9 +41,10 @@ class MannequinPersistence(private val plugin: SneakyMannequins) {
                 val yaw = manSection.getDouble("$key.yaw", 0.0).toFloat()
                 val slim = manSection.getBoolean("$key.slim", false)
                 val savedUid = manSection.getString("$key.savedUid")
+                val styleId = manSection.getString("$key.styleId", "default") ?: "default"
                 if (world != null) {
                     mannequins +=
-                            MannequinData(id, Location(world, x, y, z, yaw, 0f), slim, savedUid)
+                            MannequinData(id, Location(world, x, y, z, yaw, 0f), slim, savedUid, styleId)
                 }
             }
         }
@@ -67,6 +69,7 @@ class MannequinPersistence(private val plugin: SneakyMannequins) {
             config.set("$path.yaw", man.location.yaw.toDouble())
             config.set("$path.slim", man.slimModel)
             config.set("$path.savedUid", man.savedUid)
+            config.set("$path.styleId", man.styleId)
         }
         config.save(file)
     }

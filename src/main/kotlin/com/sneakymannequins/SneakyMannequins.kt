@@ -9,6 +9,7 @@ import com.sneakymannequins.managers.MannequinManager
 import com.sneakymannequins.managers.MannequinPersistence
 import com.sneakymannequins.managers.RemaskManager
 import com.sneakymannequins.managers.SessionManager
+import com.sneakymannequins.managers.StyleManager
 import com.sneakymannequins.nms.VolatileHandler
 import com.sneakymannequins.nms.VolatileHandlerRegistry
 import com.sneakymouse.sneakyholos.HoloController
@@ -41,6 +42,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
 
     private lateinit var handler: VolatileHandler
     private lateinit var layerManager: LayerManager
+    private lateinit var styleManager: StyleManager
     private lateinit var mannequinManager: MannequinManager
     private lateinit var persistence: MannequinPersistence
     private lateinit var sessionManager: SessionManager
@@ -58,6 +60,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
         saveDefaultConfig()
         handler = VolatileHandlerRegistry.resolve(this)
         layerManager = LayerManager(this).also { it.reload() }
+        styleManager = StyleManager(this).also { it.loadStyles() }
         persistence = MannequinPersistence(this)
         characterManagerBridge = CharacterManagerBridgeFactory.create(this)
         sessionManager = SessionManager(dataFolder, layerManager, characterManagerBridge)
@@ -66,6 +69,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
                 MannequinManager(
                                 this,
                                 layerManager,
+                                styleManager,
                                 handler,
                                 persistence,
                                 sessionManager,
@@ -85,6 +89,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
                         this,
                         mannequinManager,
                         layerManager,
+                        styleManager,
                         sessionManager,
                         remaskManager
                 )
@@ -143,6 +148,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
 
     fun reloadPlugin() {
         reloadConfig()
+        styleManager.loadStyles()
         layerManager.reload()
         mannequinManager.reloadAll()
     }
@@ -152,7 +158,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
         val jarFile = file // the plugin's JAR file
         val jar = JarFile(jarFile)
         jar.use {
-            for (prefix in listOf("layers/", "textures/")) {
+            for (prefix in listOf("layers/", "textures/", "presets/")) {
                 val hasDir = jar.entries().asSequence().any { it.name.startsWith(prefix) }
                 if (!hasDir) continue
 
