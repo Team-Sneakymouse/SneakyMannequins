@@ -36,7 +36,8 @@ object SkinComposer {
             saturationInfluenceResolver: ((layerId: String, option: LayerOption) -> Float)? = null,
             baseImage: BufferedImage? = null,
             etfEnabled: Boolean = false,
-            defaultJacketStyle: Int = 5
+            defaultJacketStyle: Int = 5,
+            showOverlay: Boolean = true
     ): BufferedImage {
         val output =
                 if (baseImage != null) {
@@ -153,6 +154,10 @@ object SkinComposer {
 
         if (anyDress && etfEnabled) {
             encodeEtf(output, defaultJacketStyle, maxDressLength.coerceIn(1, 8))
+        }
+
+        if (!showOverlay) {
+            removeOverlay(output)
         }
 
         return output
@@ -557,7 +562,6 @@ object SkinComposer {
         // Right Leg Base: (0, 16, 16, 16)
         // Left Leg Base: (16, 48, 16, 16)
         val legInnerRects = listOf(SkinUv.Rect(0, 16, 16, 16), SkinUv.Rect(16, 48, 16, 16))
-        var clearedCount = 0
         for (r in legInnerRects) {
             for (x in r.x until r.x + r.w) {
                 for (y in r.y until r.y + r.h) {
@@ -573,11 +577,19 @@ object SkinComposer {
                     }
                     // Clear the inner pixel
                     out.setRGB(x, y, 0)
-                    clearedCount++
                 }
             }
         }
         return out
+    }
+
+    private fun removeOverlay(image: BufferedImage) {
+        val g = image.createGraphics()
+        g.composite = java.awt.AlphaComposite.Clear
+        for (r in SkinUv.OUTER_OVERLAY_RECTS) {
+            g.fillRect(r.x, r.y, r.w, r.h)
+        }
+        g.dispose()
     }
 
     private fun encodeEtf(image: BufferedImage, style: Int, length: Int) {

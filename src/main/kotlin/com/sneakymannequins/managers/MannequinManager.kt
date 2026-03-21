@@ -664,7 +664,7 @@ class MannequinManager(
                         		"integrations.entity-texture-features.enabled",
                         		false
                         	),
-                        defaultJacketStyle =
+                        showOverlay = mannequin.showOverlay, defaultJacketStyle =
                         	plugin.config.getInt(
                         		"integrations.entity-texture-features.jacket-dress-style",
                         		5
@@ -778,7 +778,7 @@ class MannequinManager(
                         		"integrations.entity-texture-features.enabled",
                         		false
                         	),
-                        defaultJacketStyle =
+                        showOverlay = mannequin.showOverlay, defaultJacketStyle =
                         	plugin.config.getInt(
                         		"integrations.entity-texture-features.jacket-dress-style",
                         		5
@@ -2481,7 +2481,8 @@ class MannequinManager(
                 	plugin.config.getInt(
                 		"integrations.entity-texture-features.jacket-dress-style",
                 		5
-                	)
+                	),
+                showOverlay = mannequin.showOverlay
         )
     }
 
