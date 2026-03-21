@@ -150,7 +150,10 @@ data class LayerOption(
         val isAlex: Boolean = false,
         val permissions: List<String>? = null,
         val isDress: Boolean = false,
-        val dressLength: Int = 0
+        val dressLength: Int = 0,
+        val isBlink: Boolean = false,
+        val blinkStyle: Int = 0,
+        val blinkHeight: Int = 0
 )
 
 /**

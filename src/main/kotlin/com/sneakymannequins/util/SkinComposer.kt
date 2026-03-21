@@ -52,6 +52,8 @@ object SkinComposer {
         val graphics = output.createGraphics()
         var maxDressLength = 0
         var anyDress = false
+        var maxBlinkStyle = 0
+        var maxBlinkHeight = 0
 
         layers.forEach { layer ->
             val sel = selection.selections[layer.id] ?: return@forEach
@@ -67,6 +69,11 @@ object SkinComposer {
                 if (chosen.dressLength > maxDressLength) maxDressLength = chosen.dressLength
                 shiftOutputOuterToInner(output, chosen.dressLength)
                 sourceImage = convertLegsToDress(sourceImage)
+            }
+
+            if (chosen.isBlink) {
+                maxBlinkStyle = chosen.blinkStyle
+                maxBlinkHeight = chosen.blinkHeight
             }
 
             // Apply each channel's color independently, then composite.
@@ -152,8 +159,8 @@ object SkinComposer {
         graphics.dispose()
         forceInnerLayerOpaque(output)
 
-        if (anyDress && etfEnabled) {
-            encodeEtf(output, defaultJacketStyle, maxDressLength.coerceIn(1, 8))
+        if ((anyDress || maxBlinkStyle != 0) && etfEnabled) {
+            encodeEtf(output, if (anyDress) defaultJacketStyle else 0, maxDressLength.coerceIn(1, 8), maxBlinkStyle, maxBlinkHeight)
         }
 
         if (!showOverlay) {
@@ -592,7 +599,34 @@ object SkinComposer {
         g.dispose()
     }
 
-    private fun encodeEtf(image: BufferedImage, style: Int, length: Int) {
+    private fun encodeEtf(image: BufferedImage, style: Int, length: Int, blinkStyle: Int, blinkHeight: Int) {
+        // ETF features marker handshake (Full 11-pixel sequence from ETF source)
+        // This includes the left (0,16) and right (12,16) marker blocks.
+        image.setRGB(1, 16, Color(255, 0, 0).rgb)     // Red
+        image.setRGB(0, 16, Color(127, 0, 0).rgb)     // Dark Red
+        image.setRGB(0, 17, Color(255, 0, 0).rgb)     // Red
+        image.setRGB(12, 16, Color(255, 0, 0).rgb)    // Red
+        image.setRGB(13, 16, Color(127, 0, 0).rgb)    // Dark Red
+        image.setRGB(13, 17, Color(255, 0, 0).rgb)    // Red
+        image.setRGB(0, 18, Color(0, 0, 255).rgb)     // Blue
+        image.setRGB(0, 19, Color(0, 0, 127).rgb)     // Dark Blue
+        image.setRGB(1, 19, Color(0, 0, 255).rgb)     // Blue
+        image.setRGB(13, 18, Color(255, 255, 255).rgb) // White
+        image.setRGB(12, 19, Color(255, 255, 255).rgb) // White
+        
+        // ETF Color Palette (Optional reference pixels at bottom-right corner)
+        // Row 48: Pink, Cyan, Red, Green
+        image.setRGB(60, 48, SkinUv.ETF_COLORS[0].rgb)
+        image.setRGB(61, 48, SkinUv.ETF_COLORS[1].rgb)
+        image.setRGB(62, 48, SkinUv.ETF_COLORS[2].rgb)
+        image.setRGB(63, 48, SkinUv.ETF_COLORS[3].rgb)
+        // Row 50: Brown, Blue, Orange, Yellow
+        image.setRGB(60, 50, SkinUv.ETF_COLORS[4].rgb)
+        image.setRGB(61, 50, SkinUv.ETF_COLORS[5].rgb)
+        image.setRGB(62, 50, SkinUv.ETF_COLORS[6].rgb)
+        image.setRGB(63, 50, SkinUv.ETF_COLORS[7].rgb)
+
+        // Choice Boxes at column 52
         if (style in 1..8) {
             val color = SkinUv.ETF_COLORS[style - 1]
             image.setRGB(SkinUv.ETF_CHOICE_STYLE_BOX_X, SkinUv.ETF_CHOICE_STYLE_BOX_Y, color.rgb)
@@ -600,6 +634,14 @@ object SkinComposer {
         if (length in 1..8) {
             val color = SkinUv.ETF_COLORS[length - 1]
             image.setRGB(SkinUv.ETF_CHOICE_LENGTH_BOX_X, SkinUv.ETF_CHOICE_LENGTH_BOX_Y, color.rgb)
+        }
+        if (blinkStyle in 1..8) {
+            val color = SkinUv.ETF_COLORS[blinkStyle - 1]
+            image.setRGB(SkinUv.ETF_CHOICE_BLINK_STYLE_X, SkinUv.ETF_CHOICE_BLINK_STYLE_Y, color.rgb)
+        }
+        if (blinkHeight in 1..8) {
+            val color = SkinUv.ETF_COLORS[blinkHeight - 1]
+            image.setRGB(SkinUv.ETF_CHOICE_BLINK_HEIGHT_X, SkinUv.ETF_CHOICE_BLINK_HEIGHT_Y, color.rgb)
         }
     }
 }

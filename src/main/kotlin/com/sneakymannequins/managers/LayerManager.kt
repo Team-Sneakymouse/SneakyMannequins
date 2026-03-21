@@ -440,7 +440,10 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 isAlex = agg.isAlex,
                 permissions = optSection?.getStringList("permissions"),
                 isDress = agg.isDress,
-                dressLength = agg.dressLength
+                dressLength = agg.dressLength,
+                isBlink = agg.isBlink,
+                blinkStyle = agg.blinkStyle,
+                blinkHeight = agg.blinkHeight
         )
     }
 
@@ -450,6 +453,9 @@ class LayerManager(private val plugin: SneakyMannequins) {
         agg.isAlex = metadata["isAlex"] as? Boolean ?: false
         agg.isDress = metadata["isDress"] as? Boolean ?: false
         agg.dressLength = (metadata["dressLength"] as? Number)?.toInt() ?: 0
+        agg.isBlink = metadata["isBlink"] as? Boolean ?: false
+        agg.blinkStyle = (metadata["blinkStyle"] as? Number)?.toInt() ?: 0
+        agg.blinkHeight = (metadata["blinkHeight"] as? Number)?.toInt() ?: 0
 
         @Suppress("UNCHECKED_CAST")
         val mappings = metadata["mappings"] as? Map<String, Any> ?: emptyMap()
@@ -572,7 +578,10 @@ class LayerManager(private val plugin: SneakyMannequins) {
             var hasArms: Boolean = false,
             var isAlex: Boolean = false,
             var isDress: Boolean = false,
-            var dressLength: Int = 0
+            var dressLength: Int = 0,
+            var isBlink: Boolean = false,
+            var blinkStyle: Int = 0,
+            var blinkHeight: Int = 0
     )
 
     private enum class Variant {
@@ -732,6 +741,15 @@ class LayerManager(private val plugin: SneakyMannequins) {
             Regex("\"dressLength\":\\s*(\\d+)").find(content)?.let {
                 map["dressLength"] = it.groupValues[1].toInt()
             }
+            Regex("\"isBlink\":\\s*(true|false)").find(content)?.let {
+                map["isBlink"] = it.groupValues[1].toBoolean()
+            }
+            Regex("\"blinkStyle\":\\s*(\\d+)").find(content)?.let {
+                map["blinkStyle"] = it.groupValues[1].toInt()
+            }
+            Regex("\"blinkHeight\":\\s*(\\d+)").find(content)?.let {
+                map["blinkHeight"] = it.groupValues[1].toInt()
+            }
 
             // Asset Mappings (Manual extraction for consistency)
             val mappings = mutableMapOf<String, Any>()
@@ -768,6 +786,10 @@ class LayerManager(private val plugin: SneakyMannequins) {
         if (!targetDir.exists()) Files.createDirectories(targetDir)
 
         val image = ImageIO.read(sourcePath.toFile()) ?: return
+
+        // Detect blinking on RAW image to prevent stripping markers
+        val (isBlink, blinkStyle, blinkHeight) = detectBlink(image)
+
         val sanitized = sanitizeUv(image)
 
         val hasArms = hasArmPixels(sanitized)
@@ -829,7 +851,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
             }
         }
 
-        writeMetadata(targetDir, partName, hasArms, isSlim, isDress, dressLength)
+        writeMetadata(targetDir, partName, hasArms, isSlim, isDress, dressLength, isBlink, blinkStyle, blinkHeight)
     }
 
     private fun hasArmPixels(image: BufferedImage): Boolean {
@@ -1092,7 +1114,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
         // Load metadata to check if the asset is natively Slim
         val dir = sourcePath.parent
         val metadata = loadMetadata(dir)
-        val isSlimAsset = metadata["isAlex"] as? Boolean ?: false
+        val isAlexAsset = metadata["isAlex"] as? Boolean ?: false
         val hasArms = metadata["hasArms"] as? Boolean ?: false
 
         val clusters = clusterColors(sanitized, strategy, distanceOrChannels, params)
@@ -1104,8 +1126,8 @@ class LayerManager(private val plugin: SneakyMannequins) {
         }
 
         // Apply shared conversion logic if mismatch found
-        return if (hasArms && isSlimAsset != targetSlim) {
-            if (isSlimAsset) generateDefaultFromSlim(preview) else generateSlimFromDefault(preview)
+        return if (hasArms && isAlexAsset != targetSlim) {
+            if (isAlexAsset) generateDefaultFromSlim(preview) else generateSlimFromDefault(preview)
         } else {
             preview
         }
@@ -1140,6 +1162,10 @@ class LayerManager(private val plugin: SneakyMannequins) {
 
         // 2. Remask Master
         val masterImg = ImageIO.read(masterPath.toFile()) ?: return "Failed to read master asset"
+
+        // Detect blink on raw image
+        val (isBlink, blinkStyle, blinkHeight) = detectBlink(masterImg)
+
         val sanitized = sanitizeUv(masterImg)
         val clusters = clusterColors(sanitized, strategy, distanceOrChannels, params)
         writeMasks(masterPath, sanitized, clusters)
@@ -1147,7 +1173,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
 
         // 3. Propagate to Variants if this part has arms
         val hasArms = metadataMap["hasArms"] as? Boolean ?: false
-        val isSlim = metadataMap["isAlex"] as? Boolean ?: false
+        val isAlexAsset = metadataMap["isAlex"] as? Boolean ?: false
 
         if (hasArms) {
             // Re-read master masks just generated
@@ -1158,7 +1184,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
                     val maskIdx = masterMaskPath.nameWithoutExtension.substringAfterLast("_mask_")
 
                     val (defMask, slimMask) =
-                            if (isAlexMatch(isSlim)) { // Helper for clarity
+                            if (isAlexMatch(isAlexAsset)) { // Helper for clarity
                                 generateDefaultFromSlim(maskImg) to maskImg
                             } else {
                                 maskImg to generateSlimFromDefault(maskImg)
@@ -1180,7 +1206,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
         }
 
         val (isDress, dressLength) = detectDress(sanitized)
-        writeMetadata(dir, dir.name, hasArms, isSlim, isDress, dressLength)
+        writeMetadata(dir, dir.name, hasArms, isAlexAsset, isDress, dressLength, isBlink, blinkStyle, blinkHeight)
         reloadLayer(layerId)
         return "Remasked '$partId' in '$layerId' using ${strategy.name}: ${clusters.size} mask(s) generated and propagated"
     }
@@ -1191,7 +1217,10 @@ class LayerManager(private val plugin: SneakyMannequins) {
             hasArms: Boolean,
             isAlex: Boolean,
             isDress: Boolean,
-            dressLength: Int
+            dressLength: Int,
+            isBlink: Boolean = false,
+            blinkStyle: Int = 0,
+            blinkHeight: Int = 0
     ) {
         val mappingsMaster = mutableMapOf<Int, String>()
         val mappingsDefault = mutableMapOf<Int, String>()
@@ -1225,6 +1254,9 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 "isAlex": $isAlex,
                 "isDress": $isDress,
                 "dressLength": $dressLength,
+                "isBlink": $isBlink,
+                "blinkStyle": $blinkStyle,
+                "blinkHeight": $blinkHeight,
                 "mappings": {
                     "master": "$masterFile",
                     "default": "$defaultFile",
@@ -1400,6 +1432,104 @@ class LayerManager(private val plugin: SneakyMannequins) {
                                 .toFloat(),
                 neutralThresholdPercent = neutralThresholdPercent()
         )
+    }
+
+    private fun colorDistance(rgb1: Int, rgb2: Int): Double {
+        val r1 = (rgb1 shr 16) and 0xFF
+        val g1 = (rgb1 shr 8) and 0xFF
+        val b1 = rgb1 and 0xFF
+        val r2 = (rgb2 shr 16) and 0xFF
+        val g2 = (rgb2 shr 8) and 0xFF
+        val b2 = rgb2 and 0xFF
+        return Math.sqrt(((r1 - r2) * (r1 - r2) + (g1 - g2) * (g1 - g2) + (b1 - b2) * (b1 - b2)).toDouble())
+    }
+
+    private fun detectBlink(image: BufferedImage): Triple<Boolean, Int, Int> {
+        // 1. Check if Choice Box 0 (52, 16) already has a blink color
+        if (image.width >= 64 && image.height >= 64) {
+            val blinkChoiceArgb = image.getRGB(SkinUv.ETF_CHOICE_BLINK_STYLE_X, SkinUv.ETF_CHOICE_BLINK_STYLE_Y)
+            if ((blinkChoiceArgb ushr 24) != 0) {
+                val blinkChoice = getSkinPixelColourToNumber(blinkChoiceArgb)
+                if (blinkChoice in 1..5) {
+                    val heightChoiceArgb = image.getRGB(SkinUv.ETF_CHOICE_BLINK_HEIGHT_X, SkinUv.ETF_CHOICE_BLINK_HEIGHT_Y)
+                    val height = if ((heightChoiceArgb ushr 24) != 0) getSkinPixelColourToNumber(heightChoiceArgb) else 1
+                    return Triple(true, blinkChoice, height)
+                }
+            }
+
+            // 2. Auto-detect from marker regions
+            // Scan for the overall best horizontal offset and row
+            for (rows in listOf(4, 2, 1)) {
+                var bestX = -1
+                var bestH = -1
+                var bestScore = -1.0
+                val style = when (rows) {
+                    1 -> 3; 2 -> 4; 4 -> 5; else -> 0
+                }
+
+                // 1. Identify rows with potential eye markers at FIXED offset 12
+                // (Optimized eye regions are hardcoded at x=12 in ETF source)
+                val xOffset = 12
+                val markerRect = SkinUv.Rect(xOffset, 16, 8, rows)
+                var opaqueCount = 0
+                for (x in 0 until 8) {
+                    if ((image.getRGB(xOffset + x, 16) ushr 24) != 0) opaqueCount++
+                }
+                
+                if (opaqueCount >= 4) {
+                    for (h in 1..8) {
+                        val faceY = 8 + (h - 1)
+                        var matches = 0
+                        var opaqueInMarker = 0
+                        for (x in 0 until 8) {
+                            val facePixel = image.getRGB(8 + x, faceY)
+                            val markerPixel = image.getRGB(xOffset + x, 16)
+                            
+                            if ((markerPixel ushr 24) == 0) continue
+                            opaqueInMarker++
+                            
+                            if (colorDistance(facePixel, markerPixel) < 60.0) {
+                                matches++
+                            }
+                        }
+                        
+                        if (matches >= 4 && opaqueInMarker >= 4) {
+                            val score = matches.toDouble() + (if (h in 6..7) 2.0 else 0.0)
+                            if (score > bestScore) {
+                                bestScore = score
+                                bestX = xOffset
+                                bestH = h
+                            }
+                        }
+                    }
+                }
+                
+                if (bestX != -1) {
+                    return Triple(true, style, bestH)
+                }
+            }
+        }
+        return Triple(false, 0, 0)
+    }
+
+    private fun hasPixelsIn(image: BufferedImage, rect: SkinUv.Rect): Boolean {
+        for (x in rect.x until rect.x + rect.w) {
+            for (y in rect.y until rect.y + rect.h) {
+                if ((image.getRGB(x, y) ushr 24) != 0) return true
+            }
+        }
+        return false
+    }
+
+    private fun getSkinPixelColourToNumber(argb: Int): Int {
+        val color = java.awt.Color(argb, true)
+        // Match against SkinUv.ETF_COLORS
+        SkinUv.ETF_COLORS.forEachIndexed { index, etfColor ->
+            if (etfColor.red == color.red && etfColor.green == color.green && etfColor.blue == color.blue) {
+                return index + 1
+            }
+        }
+        return 0
     }
 
     private fun collectPixels(
@@ -2238,6 +2368,6 @@ class LayerManager(private val plugin: SneakyMannequins) {
             }
         }
 
-        return true to maxLen
+        return true to maxLen.coerceAtMost(8)
     }
 }

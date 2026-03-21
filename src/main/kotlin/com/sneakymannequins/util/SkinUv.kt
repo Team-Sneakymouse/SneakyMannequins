@@ -242,7 +242,8 @@ object SkinUv {
                     Rect(0, 16, 16, 16), // right leg base
                     Rect(0, 32, 16, 16), // right leg overlay
                     Rect(16, 48, 16, 16), // left leg base
-                    Rect(0, 48, 16, 16) // left leg overlay
+                    Rect(0, 48, 16, 16), // left leg overlay
+                    Rect(0, 16, 64, 4) // ETF Blinking Markers (Row 16-19, full width)
             )
 
     /**
@@ -330,20 +331,29 @@ object SkinUv {
     /** ETF Choice Box 1-8 colors (Red, Yellow, Green, Cyan, Blue, Magenta, White, Black). */
     val ETF_COLORS =
             listOf(
-                    java.awt.Color(0xb41e1e), // 1
-                    java.awt.Color(0xb4b41e), // 2
-                    java.awt.Color(0x1eb41e), // 3
-                    java.awt.Color(0x1eb4b4), // 4
-                    java.awt.Color(0x1e1eb4), // 5
-                    java.awt.Color(0xb41eb4), // 6
-                    java.awt.Color(0xf0f0f0), // 7
-                    java.awt.Color(0x141414) // 8
+                    java.awt.Color(255, 0, 255), // 1: Pink
+                    java.awt.Color(0, 255, 255), // 2: Cyan
+                    java.awt.Color(255, 0, 0),   // 3: Red
+                    java.awt.Color(0, 255, 0),   // 4: Green
+                    java.awt.Color(127, 64, 0),  // 5: Brown
+                    java.awt.Color(0, 0, 255),   // 6: Blue
+                    java.awt.Color(255, 127, 0), // 7: Orange
+                    java.awt.Color(255, 255, 34)  // 8: Yellow
             )
 
+    const val ETF_CHOICE_BLINK_STYLE_X = 52
+    const val ETF_CHOICE_BLINK_STYLE_Y = 16
     const val ETF_CHOICE_STYLE_BOX_X = 52
     const val ETF_CHOICE_STYLE_BOX_Y = 17
     const val ETF_CHOICE_LENGTH_BOX_X = 52
     const val ETF_CHOICE_LENGTH_BOX_Y = 18
+    const val ETF_CHOICE_BLINK_HEIGHT_X = 52
+    const val ETF_CHOICE_BLINK_HEIGHT_Y = 19
+
+    /** 8-pixel horizontal strips below the head used as closed-eye copies for blinking. */
+    val BLINK_MARKER_1_ROW = Rect(12, 16, 8, 1)
+    val BLINK_MARKER_2_ROWS = Rect(12, 16, 8, 2)
+    val BLINK_MARKER_4_ROWS = Rect(12, 16, 8, 4)
 
     inline fun forEachInnerBasePixel(block: (x: Int, y: Int) -> Unit) {
         for (r in INNER_BASE_RECTS) {
