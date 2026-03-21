@@ -27,6 +27,7 @@ data class HudButton(
         val scaleY: Float? = null,
         val type: String? = null,
         val targetLayer: String? = null,
+        val allowedLayers: List<String>? = null,
         val palette: String? = null,
         val colorHex: String? = null,
         val openByDefault: Boolean = false,
@@ -75,5 +76,6 @@ data class MannequinStyle(
     val hudButtons: List<HudButton>,
     val hudFrame: HudFrameConfig,
     val configMenu: MenuLayout,
-    val colorGrid: MenuLayout
+    val colorGrid: MenuLayout,
+    val availableLayers: List<String>
 )

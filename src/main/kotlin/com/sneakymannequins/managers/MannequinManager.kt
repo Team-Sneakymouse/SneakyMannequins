@@ -223,14 +223,15 @@ class MannequinManager(
         partSelectionMemory.clear()
         val loaded = persistence.load()
         loaded.forEach { data ->
-            val selection = bootstrapSelection()
+            val selection = bootstrapSelection(data.styleId)
             val mannequin =
                     Mannequin(
                             id = data.id,
                             location = data.location.clone(),
                             selection = selection,
                             slimModel = data.slim,
-                            savedUid = data.savedUid
+                            savedUid = data.savedUid,
+                            styleId = data.styleId
                     )
             mannequins[data.id] = mannequin
             controlState[data.id] = ControlState()
@@ -246,7 +247,7 @@ class MannequinManager(
     }
 
     fun create(location: Location, styleId: String): Mannequin {
-        val selection = bootstrapSelection()
+        val selection = bootstrapSelection(styleId)
         val mannequin = Mannequin(location = location.clone(), selection = selection, styleId = styleId)
         mannequins[mannequin.id] = mannequin
         controlState[mannequin.id] = ControlState()
@@ -263,8 +264,13 @@ class MannequinManager(
                 sentTo.getOrPut(viewer.uniqueId) { mutableSetOf() }.add(mannequin.id)
             }
         }
-
         return mannequin
+    }
+
+    private fun getAvailableLayers(mannequin: Mannequin): List<LayerDefinition> {
+        val style = styleManager.getStyle(mannequin.styleId) ?: return layerManager.definitionsInOrder()
+        val allDefs = layerManager.definitionsInOrder()
+        return allDefs.filter { it.id in style.availableLayers }
     }
 
     fun get(id: UUID): Mannequin? = mannequins[id]
@@ -972,7 +978,7 @@ class MannequinManager(
     ) {
         val mannequin = mannequins[mannequinId] ?: return
         val state = controlState[mannequinId] ?: return
-        val layers = layerManager.definitionsInOrder()
+        val layers = getAvailableLayers(mannequin)
         val layer = layers.getOrNull(state.layerIndex % layers.size)
         val hud = holoController.getHud(player.uniqueId) ?: return
         val style = styleManager.getStyle(mannequin.styleId) ?: return
@@ -1038,18 +1044,36 @@ class MannequinManager(
                 }
             }
             "layer" -> {
+                val styleLayers = getAvailableLayers(mannequin)
                 if (configBtn.targetLayer != null) {
-                    val targetIdx = layers.indexOfFirst { it.id == configBtn.targetLayer }
+                    val targetIdx = styleLayers.indexOfFirst { it.id == configBtn.targetLayer }
                     if (targetIdx != -1) {
                         state.layerIndex = targetIdx
                         updateStatus(mannequinId, "Layer: ${prettyName(configBtn.targetLayer)}")
                     }
                 } else {
-                    state.layerIndex =
-                            if (backwards) (state.layerIndex - 1 + layers.size) % layers.size
-                            else (state.layerIndex + 1) % layers.size
-                    val nextLayer = layers.getOrNull(state.layerIndex % layers.size) ?: return
-                    updateStatus(mannequinId, "Layer: ${prettyName(nextLayer.id)}")
+                    val cyclingLayers =
+                            if (configBtn.allowedLayers != null) {
+                                styleLayers.filter { it.id in configBtn.allowedLayers }
+                            } else {
+                                styleLayers
+                            }
+                    if (cyclingLayers.isNotEmpty()) {
+                        val currentLayerId =
+                                styleLayers.getOrNull(state.layerIndex % styleLayers.size)?.id
+                        val currentCyclingIdx =
+                                cyclingLayers.indexOfFirst { it.id == currentLayerId }
+
+                        val nextCyclingIdx =
+                                if (backwards)
+                                        (currentCyclingIdx - 1 + cyclingLayers.size) %
+                                                cyclingLayers.size
+                                else (currentCyclingIdx + 1) % cyclingLayers.size
+
+                        val nextLayer = cyclingLayers[nextCyclingIdx]
+                        state.layerIndex = styleLayers.indexOfFirst { it.id == nextLayer.id }
+                        updateStatus(mannequinId, "Layer: ${prettyName(nextLayer.id)}")
+                    }
                 }
                 refreshDynamicLabels(mannequinId)
                 val mStyle = styleManager.getStyle(mannequin.styleId) ?: return
@@ -1064,7 +1088,7 @@ class MannequinManager(
                 }
 
                 // Flash the newly selected layer white for 10 ticks
-                val nextLayerDef = layers.getOrNull(state.layerIndex % layers.size)
+                val nextLayerDef = styleLayers.getOrNull(state.layerIndex % styleLayers.size)
                 if (nextLayerDef != null) {
                     val option = freshOption(nextLayerDef.id, mannequin)
                     if (option != null) {
@@ -1516,7 +1540,7 @@ class MannequinManager(
         val mode = state.mode
         val mannequin = mannequins[mannequinId] ?: return
 
-        val layers = layerManager.definitionsInOrder()
+        val layers = getAvailableLayers(mannequin)
         val layersOnMannequin = layers.filter { it.id in mannequin.selection.selections.keys }
         val layerCount = layersOnMannequin.size
         val layerDisabled = layerCount <= 1
@@ -1795,7 +1819,7 @@ class MannequinManager(
         // Note: we clear any previously generated menu buttons with this prefix
         despawnMenu(menuBtn.name, player, hud, quiet = true)
 
-        val layers = layerManager.definitionsInOrder()
+        val layers = getAvailableLayers(mannequin)
         val layersOnMannequin = layers.filter { it.id in mannequin.selection.selections.keys }
         val layerDisabled = layersOnMannequin.size <= 1
         val currentLayer = layers.getOrNull(state.layerIndex % layers.size)
@@ -1865,7 +1889,7 @@ class MannequinManager(
             mannequin: Mannequin,
             state: ControlState
     ) {
-        val layers = layerManager.definitionsInOrder()
+        val layers = getAvailableLayers(mannequin)
         val layer = layers.getOrNull(state.layerIndex % layers.size) ?: return
         val option = freshOption(layer.id, mannequin) ?: return
         val rawPaletteIds = layerManager.resolvePalettes(layer, option, player)
@@ -1980,7 +2004,7 @@ class MannequinManager(
             state: ControlState,
             player: Player
     ) {
-        val layers = layerManager.definitionsInOrder()
+        val layers = getAvailableLayers(mannequin)
         val layer = layers.getOrNull(state.layerIndex % layers.size) ?: return
         val option = freshOption(layer.id, mannequin) ?: return
         val current = mannequin.selection.selections[layer.id]
@@ -2074,7 +2098,7 @@ class MannequinManager(
             mannequin: Mannequin,
             state: ControlState
     ): java.awt.Color? {
-        val layers = layerManager.definitionsInOrder()
+        val layers = getAvailableLayers(mannequin)
         val layer = layers.getOrNull(state.layerIndex % layers.size) ?: return null
         val option = freshOption(layer.id, mannequin) ?: return null
         val slots =
@@ -2369,7 +2393,7 @@ class MannequinManager(
             if (!hover && tolerance) {
                 val state = controlState[mannequinId] ?: return
                 // Bug 3: Interacting with mannequin cycles parts, not layers
-                val layers = layerManager.definitionsInOrder()
+                val layers = getAvailableLayers(mannequin)
                 val layer = layers.getOrNull(state.layerIndex % layers.size)
                 if (layer != null) {
                     val chosen = cyclePart(layer, mannequin, state, player, backwards)
@@ -2540,8 +2564,10 @@ class MannequinManager(
         return migrateColors(def, chosen, sel, selectedTexture, player)
     }
 
-    private fun bootstrapSelection(): SkinSelection {
-        val definitions = layerManager.definitionsInOrder()
+    private fun bootstrapSelection(styleId: String? = null): SkinSelection {
+        val style = styleManager.getStyle(styleId)
+        val allDefs = layerManager.definitionsInOrder()
+        val definitions = if (style != null) allDefs.filter { it.id in style.availableLayers } else allDefs
         val selections =
                 definitions.associate { def ->
                     val options = layerManager.optionsFor(def.id)
@@ -2559,7 +2585,7 @@ class MannequinManager(
     }
 
     private fun randomize(mannequin: Mannequin, randomizeModel: Boolean = false) {
-        val definitions = layerManager.definitionsInOrder()
+        val definitions = getAvailableLayers(mannequin)
         val rng = java.util.concurrent.ThreadLocalRandom.current()
         val newSelections = mutableMapOf<String, LayerSelection>()
 

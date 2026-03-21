@@ -70,7 +70,29 @@ class StyleManager(private val plugin: SneakyMannequins) {
                 )
         val hudFrame = parseHudFrame(config.getConfigurationSection("hud-frame"))
 
-        return MannequinStyle(id, rendering, hudButtons, hudFrame, configMenu, colorGrid)
+        val layersSet = mutableSetOf<String>()
+        collectLayers(hudButtons, layersSet)
+
+        val globalOrder = plugin.config.getStringList("layers.order")
+        val availableLayers = layersSet.toList().sortedBy { globalOrder.indexOf(it) }
+
+        return MannequinStyle(
+                id,
+                rendering,
+                hudButtons,
+                hudFrame,
+                configMenu,
+                colorGrid,
+                availableLayers
+        )
+    }
+
+    private fun collectLayers(buttons: List<HudButton>, layers: MutableSet<String>) {
+        for (btn in buttons) {
+            btn.targetLayer?.let { layers.add(it) }
+            btn.allowedLayers?.let { layers.addAll(it) }
+            btn.items?.values?.let { collectLayers(it.toList(), layers) }
+        }
     }
 
     private fun parseRendering(sec: ConfigurationSection?): RenderingConfig {
@@ -177,6 +199,7 @@ class StyleManager(private val plugin: SneakyMannequins) {
         val sy = if (sec.contains("scale-y")) sec.getDouble("scale-y").toFloat() else null
 
         val targetLayer = sec.getString("target-layer")
+        val allowedLayers = sec.getStringList("allowed-layers").ifEmpty { null }
         val palette = sec.getString("palette")
         val colorHex = sec.getString("color")
 
@@ -238,6 +261,7 @@ class StyleManager(private val plugin: SneakyMannequins) {
                 scaleY = sy,
                 type = type,
                 targetLayer = targetLayer,
+                allowedLayers = allowedLayers,
                 palette = palette,
                 colorHex = colorHex,
                 openByDefault = openByDefault,
