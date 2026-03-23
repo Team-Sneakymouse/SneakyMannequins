@@ -600,48 +600,125 @@ object SkinComposer {
     }
 
     private fun encodeEtf(image: BufferedImage, style: Int, length: Int, blinkStyle: Int, blinkHeight: Int) {
-        // ETF features marker handshake (Full 11-pixel sequence from ETF source)
-        // This includes the left (0,16) and right (12,16) marker blocks.
-        image.setRGB(1, 16, Color(255, 0, 0).rgb)     // Red
-        image.setRGB(0, 16, Color(127, 0, 0).rgb)     // Dark Red
-        image.setRGB(0, 17, Color(255, 0, 0).rgb)     // Red
-        image.setRGB(12, 16, Color(255, 0, 0).rgb)    // Red
-        image.setRGB(13, 16, Color(127, 0, 0).rgb)    // Dark Red
-        image.setRGB(13, 17, Color(255, 0, 0).rgb)    // Red
-        image.setRGB(0, 18, Color(0, 0, 255).rgb)     // Blue
-        image.setRGB(0, 19, Color(0, 0, 127).rgb)     // Dark Blue
-        image.setRGB(1, 19, Color(0, 0, 255).rgb)     // Blue
-        image.setRGB(13, 18, Color(255, 255, 255).rgb) // White
-        image.setRGB(12, 19, Color(255, 255, 255).rgb) // White
-        
-        // ETF Color Palette (Optional reference pixels at bottom-right corner)
-        // Row 48: Pink, Cyan, Red, Green
-        image.setRGB(60, 48, SkinUv.ETF_COLORS[0].rgb)
-        image.setRGB(61, 48, SkinUv.ETF_COLORS[1].rgb)
-        image.setRGB(62, 48, SkinUv.ETF_COLORS[2].rgb)
-        image.setRGB(63, 48, SkinUv.ETF_COLORS[3].rgb)
-        // Row 50: Brown, Blue, Orange, Yellow
-        image.setRGB(60, 50, SkinUv.ETF_COLORS[4].rgb)
-        image.setRGB(61, 50, SkinUv.ETF_COLORS[5].rgb)
-        image.setRGB(62, 50, SkinUv.ETF_COLORS[6].rgb)
-        image.setRGB(63, 50, SkinUv.ETF_COLORS[7].rgb)
+        // 1. Check if assets already provided blink pixels (Column 12-19, Rows 16-19)
+        // We do this BEFORE the Power Wash so we don't delete them.
+        var assetsHadBlink = false
+        val savedBlink = BufferedImage(8, 4, BufferedImage.TYPE_INT_ARGB)
+        for (y in 16..19) {
+            for (x in 12..19) {
+                val rgb = image.getRGB(x, y)
+                if (rgb != 0) assetsHadBlink = true
+                savedBlink.setRGB(x - 12, y - 16, rgb)
+            }
+        }
 
-        // Choice Boxes at column 52
-        if (style in 1..8) {
-            val color = SkinUv.ETF_COLORS[style - 1]
-            image.setRGB(SkinUv.ETF_CHOICE_STYLE_BOX_X, SkinUv.ETF_CHOICE_STYLE_BOX_Y, color.rgb)
+        // 2. Power Wash (Clear ETF reserved zones of any junk)
+        for (y in 16..19) {
+            for (x in 0..3) image.setRGB(x, y, 0)   // Handshake
+            for (x in 12..19) image.setRGB(x, y, 0)  // Blink
+            for (x in 52..53) image.setRGB(x, y, 0)  // Choice Boxes
         }
-        if (length in 1..8) {
-            val color = SkinUv.ETF_COLORS[length - 1]
-            image.setRGB(SkinUv.ETF_CHOICE_LENGTH_BOX_X, SkinUv.ETF_CHOICE_LENGTH_BOX_Y, color.rgb)
+        for (y in 48..51) {
+            for (x in 60..63) image.setRGB(x, y, 0)  // Palette Area
         }
-        if (blinkStyle in 1..8) {
-            val color = SkinUv.ETF_COLORS[blinkStyle - 1]
-            image.setRGB(SkinUv.ETF_CHOICE_BLINK_STYLE_X, SkinUv.ETF_CHOICE_BLINK_STYLE_Y, color.rgb)
+
+        // 3. Restore or Auto-Generate Blink Pixels
+        if (assetsHadBlink) {
+            val g = image.createGraphics()
+            g.drawImage(savedBlink, 12, 16, null)
+            g.dispose()
+        } else if (blinkStyle > 0 && blinkHeight >= 0) {
+            autoGenerateBlinkPixels(image, blinkStyle, blinkHeight)
         }
-        if (blinkHeight in 1..8) {
-            val color = SkinUv.ETF_COLORS[blinkHeight - 1]
-            image.setRGB(SkinUv.ETF_CHOICE_BLINK_HEIGHT_X, SkinUv.ETF_CHOICE_BLINK_HEIGHT_Y, color.rgb)
+
+        // 4. Handshake Marker (Exact bit-match to ETFPlayerTexture.java)
+        image.setRGB(0, 16, Color(127, 0, 0).rgb)     // Dark Red (-16777089)
+        image.setRGB(1, 16, Color(255, 0, 0).rgb)     // Red (-16776961)
+        image.setRGB(2, 16, Color(0, 255, 0).rgb)     // Green (-16711936)
+        image.setRGB(3, 16, Color(0, 127, 0).rgb)     // Dark Green (-16744704)
+        image.setRGB(0, 17, Color(255, 0, 0).rgb)     // Red (-16776961)
+        image.setRGB(1, 17, Color(0, 0, 0).rgb)
+        image.setRGB(2, 17, Color(0, 0, 0).rgb)
+        image.setRGB(3, 17, Color(0, 255, 0).rgb)
+        image.setRGB(0, 18, Color(0, 0, 255).rgb)     // Blue (-65536)
+        image.setRGB(1, 18, Color(0, 0, 0).rgb)
+        image.setRGB(2, 18, Color(0, 0, 0).rgb)
+        image.setRGB(3, 18, Color(255, 255, 255).rgb) // White (-1)
+        image.setRGB(0, 19, Color(0, 0, 127).rgb)     // Dark Blue (-8454144)
+        image.setRGB(1, 19, Color(0, 0, 255).rgb)     // Blue (-65536)
+        image.setRGB(2, 19, Color(255, 255, 255).rgb) // White (-1)
+        image.setRGB(3, 19, Color(127, 127, 127).rgb) // Gray
+
+        // 5. Choice Boxes (Column 52)
+        // Default blink style to 4 (Green) if not specified, matching working reference.
+        val finalBlinkStyle = if (blinkStyle > 0) blinkStyle else 4
+        image.setRGB(SkinUv.ETF_CHOICE_BLINK_STYLE_X, SkinUv.ETF_CHOICE_BLINK_STYLE_Y, SkinUv.ETF_COLORS[finalBlinkStyle - 1].rgb)
+
+        if (style > 0) {
+            image.setRGB(SkinUv.ETF_CHOICE_STYLE_BOX_X, SkinUv.ETF_CHOICE_STYLE_BOX_Y, SkinUv.ETF_COLORS[style - 1].rgb)
+        }
+        if (length > 0) {
+            image.setRGB(SkinUv.ETF_CHOICE_LENGTH_BOX_X, SkinUv.ETF_CHOICE_LENGTH_BOX_Y, SkinUv.ETF_COLORS[length - 1].rgb)
+        }
+        if (blinkHeight >= 0) {
+            image.setRGB(SkinUv.ETF_CHOICE_BLINK_HEIGHT_X, SkinUv.ETF_CHOICE_BLINK_HEIGHT_Y, SkinUv.ETF_COLORS[blinkHeight - 1].rgb)
+        }
+    }
+
+    private fun autoGenerateBlinkPixels(image: BufferedImage, style: Int, height: Int) {
+        // Only generate if the target area is empty (all transparent)
+        val checkY = 16
+        var hasPixels = false
+        for (x in 12..19) {
+            if ((image.getRGB(x, checkY) ushr 24) != 0) {
+                hasPixels = true
+                break
+            }
+        }
+        if (hasPixels) return
+
+        // 1. Get the eye row from the Front face of the head (Y=8+height, X=8..15)
+        val headEyeY = 8 + height
+        if (headEyeY >= 16) return
+
+        val eyeRow = IntArray(8)
+        val colors = mutableListOf<Int>()
+        for (i in 0..7) {
+            val rgb = image.getRGB(8 + i, headEyeY)
+            eyeRow[i] = rgb
+            if ((rgb ushr 24) != 0) colors.add(rgb and 0xFFFFFF)
+        }
+        if (colors.isEmpty()) return
+
+        // 2. Simple "close the eyes" heuristic: pick brightest pixel as skin color
+        val skinRgb = colors.maxByOrNull {
+            val r = (it shr 16) and 0xFF
+            val g = (it shr 8) and 0xFF
+            val b = it and 0xFF
+            r + g + b 
+        } ?: colors[0]
+
+        // Create a "closed eye" row by replacing dark pixels with skin color
+        val closedRow = IntArray(8)
+        for (i in 0..7) {
+            val rgb = eyeRow[i]
+            val r = (rgb shr 16) and 0xFF
+            val g = (rgb shr 8) and 0xFF
+            val b = (rgb) and 0xFF
+            val brightness = (r + g + b) / 765.0
+            if (brightness < 0.4) {
+                closedRow[i] = (0xFF shl 24) or skinRgb
+            } else {
+                closedRow[i] = rgb
+            }
+        }
+
+        // 3. Write to 12..19, 16..19
+        val numRows = if (style == 5) 4 else if (style == 4) 2 else 1
+        for (y in 16 until 16 + numRows) {
+            for (i in 0..7) {
+                image.setRGB(12 + i, y, closedRow[i])
+            }
         }
     }
 }
