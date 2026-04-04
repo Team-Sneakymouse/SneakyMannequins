@@ -234,17 +234,32 @@ class SessionManager(
     fun isValid(session: SessionData, slim: Boolean): Boolean {
         for ((layerId, layerData) in session.layers) {
             val optionId = layerData.option ?: continue
-            val options = layerManager.optionsFor(layerId)
-            val option = options.find { it.id == optionId } ?: return false
+            val options = layerManager.allOptions(layerId)
+            val option = options.find { it.id == optionId }
+            if (option == null) {
+                plugin.logger.warning("Session validation failed: Option $optionId not found for layer $layerId")
+                return false
+            }
+
+            if (optionId == "none") continue
 
             if (slim) {
-                if (option.imageSlim == null) return false
+                if (option.imageSlim == null) {
+                    plugin.logger.warning("Session validation failed: Option $optionId for layer $layerId has no slim image")
+                    return false
+                }
             } else {
-                if (option.imageDefault == null) return false
+                if (option.imageDefault == null) {
+                    plugin.logger.warning("Session validation failed: Option $optionId for layer $layerId has no default image")
+                    return false
+                }
             }
 
             if (layerData.selectedTexture != null) {
-                if (layerManager.texture(layerData.selectedTexture) == null) return false
+                if (layerManager.texture(layerData.selectedTexture) == null) {
+                    plugin.logger.warning("Session validation failed: Texture ${layerData.selectedTexture} not found for layer $layerId")
+                    return false
+                }
             }
         }
         return true
@@ -255,7 +270,7 @@ class SessionManager(
 
         for ((layerId, layerData) in session.layers) {
             val optionId = layerData.option ?: continue
-            val options = layerManager.optionsFor(layerId)
+            val options = layerManager.allOptions(layerId)
             val option = options.find { it.id == optionId } ?: continue
 
             val image = if (slim) option.imageSlim else option.imageDefault
@@ -283,7 +298,8 @@ class SessionManager(
             requester: Player,
             man: Mannequin,
             sessionOverride: SessionData? = null,
-            contextPlayer: Player = requester
+            contextPlayer: Player = requester,
+            craig: Boolean = false
     ): CompletableFuture<FinalizedResult> {
         val playerSkinModel = contextPlayer.playerProfile.textures.skinModel
         val playerSkinUrl = contextPlayer.playerProfile.textures.skin
@@ -338,7 +354,7 @@ class SessionManager(
                             layers = layersDef,
                             selection = selection,
                             useSlimModel = slim,
-                            optionResolver = { l, o -> layerManager.optionsFor(l).find { it.id == o } },
+                            optionResolver = { l, o -> layerManager.allOptions(l).find { it.id == o } },
                             textureResolver = { layerManager.texture(it) },
                             baseImage = baseSkin,
                             blinkEnabled =
@@ -357,11 +373,13 @@ class SessionManager(
                                             5
                                     )
                     )
+            
+            val finalImage = if (craig) com.sneakymannequins.util.SkinTransform.craig(sessionImage) else sessionImage
 
             targetDir.mkdirs()
-            encodeUidToImage(sessionImage, merged.uid)
+            encodeUidToImage(finalImage, merged.uid)
             val f = File(targetDir, "finalized_${merged.uid}.png")
-            ImageIO.write(sessionImage, "PNG", f)
+            ImageIO.write(finalImage, "PNG", f)
             FinalizedResult(f, slim)
         }
     }
@@ -369,7 +387,7 @@ class SessionManager(
     private fun sessionToSelection(session: SessionData): SkinSelection {
         val selections =
                 session.layers.mapValues { (layerId, data) ->
-                    val option = layerManager.optionsFor(layerId).find { it.id == data.option }
+                    val option = layerManager.allOptions(layerId).find { it.id == data.option }
                     LayerSelection(
                             layerId = layerId,
                             option = option,

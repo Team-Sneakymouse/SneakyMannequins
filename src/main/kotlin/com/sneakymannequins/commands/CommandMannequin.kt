@@ -181,9 +181,14 @@ class CommandMannequin(
                                                         it.startsWith(args[2], ignoreCase = true)
                                                     }
                                                     .toMutableList()
+                                    "copyme" ->
+                                            listOf("uncraig").filter {
+                                                it.startsWith(args[2], ignoreCase = true)
+                                            }.toMutableList()
                                     "apply", "delete" ->
                                             (sessionManager.listTemplateNames() +
-                                                            sessionManager.listSessionUids())
+                                                            sessionManager.listSessionUids() +
+                                                            listOf("craig"))
                                                     .filter {
                                                         it.startsWith(args[2], ignoreCase = true)
                                                     }
@@ -227,9 +232,10 @@ class CommandMannequin(
                         "debug" ->
                                 when (args[1].lowercase()) {
                                     "merge", "finalize", "apply" ->
-                                            plugin.server
-                                                    .onlinePlayers
-                                                    .map { it.name }
+                                            (plugin.server
+                                                            .onlinePlayers
+                                                            .map { it.name } +
+                                                            listOf("craig"))
                                                     .filter {
                                                         it.startsWith(args[3], ignoreCase = true)
                                                     }
@@ -492,7 +498,7 @@ class CommandMannequin(
                 true
             }
             "copyme" -> {
-                handleDebugCopyMe(player)
+                handleDebugCopyMe(player, args)
                 true
             }
             "delete" -> {
@@ -513,8 +519,8 @@ class CommandMannequin(
                         "merge" to "Merge two sessions",
                         "finalize" to "Finalize and export a session",
                         "save" to "Save nearest mannequin session",
-                        "apply" to "Apply a session/template",
-                        "copyme" to "Trigger 'Copy Me' for nearest mannequin",
+                        "apply" to "Apply a session/template [player] [craig]",
+                        "copyme" to "Trigger 'Copy Me' [uncraig]",
                         "overlay" to "Toggle nearest mannequin overlay",
                         "info" to "Show nearest mannequin info",
                         "delete" to "Delete a session UID"
@@ -532,20 +538,31 @@ class CommandMannequin(
         if (args.size < 3) {
             requester.sendMessage(
                     TextUtility.convertToComponent(
-                            "&cUsage: /mannequin debug apply <uid/template/nearest> [player]"
+                            "&cUsage: /mannequin debug apply <uid/template/nearest> [player] [craig]"
                     )
             )
             return
         }
 
         val sessionInput = args[2]
-        val targetPlayerName = if (args.size >= 4) args[3] else requester.name
+        var targetPlayerName: String? = null
+        var craig = false
+
+        for (i in 3 until args.size) {
+            val arg = args[i].lowercase()
+            if (arg == "craig") {
+                craig = true
+            } else if (targetPlayerName == null) {
+                targetPlayerName = arg
+            }
+        }
+
         val targetPlayer =
-                plugin.server.getPlayer(targetPlayerName)
+                plugin.server.getPlayer(targetPlayerName ?: requester.name)
                         ?: run {
                             requester.sendMessage(
                                     TextUtility.convertToComponent(
-                                            "&cPlayer '$targetPlayerName' not found."
+                                            "&cPlayer '${targetPlayerName ?: requester.name}' not found."
                                     )
                             )
                             return
@@ -575,10 +592,10 @@ class CommandMannequin(
 
         requester.sendMessage(
                 TextUtility.convertToComponent(
-                        "&eApplying finalized skin to ${targetPlayer.name}..."
+                        "&eApplying finalized skin to ${targetPlayer.name}${if (craig) " (craiged)" else ""}..."
                 )
         )
-        mannequinManager.finalizeAndApply(requester, man, targetPlayer, sessionOverride = session)
+        mannequinManager.finalizeAndApply(requester, man, targetPlayer, sessionOverride = session, craig = craig)
     }
 
     private fun handleInfo(player: Player) {
@@ -1228,7 +1245,8 @@ class CommandMannequin(
                 }
     }
 
-    private fun handleDebugCopyMe(player: Player) {
+    private fun handleDebugCopyMe(player: Player, args: Array<out String>) {
+        val uncraig = args.size >= 3 && args[2].lowercase() == "uncraig"
         val man =
                 mannequinManager.nearestMannequin(player.location, 5.0)
                         ?: run {
@@ -1238,8 +1256,8 @@ class CommandMannequin(
                             return
                         }
         player.sendMessage(
-                TextUtility.convertToComponent("&eTriggering Copy Me for ${player.name}...")
+                TextUtility.convertToComponent("&eTriggering Copy Me for ${player.name}${if (uncraig) " (uncraiged)" else ""}...")
         )
-        mannequinManager.handleButtonClick("copyMe", man.id, player, false)
+        mannequinManager.handleButtonClick("copyMe", man.id, player, false, uncraig = uncraig)
     }
 }

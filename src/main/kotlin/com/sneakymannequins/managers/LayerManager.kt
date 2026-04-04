@@ -304,8 +304,8 @@ class LayerManager(private val plugin: SneakyMannequins) {
         val entries = Files.list(directory).use { it.toList() }
         val grouped = mutableMapOf<String, OptionAggregate>()
 
-        // 1. Identify preprocessed directories
-        entries.filter { it.isDirectory() }.forEach { dir ->
+        // 1. Identify preprocessed directories (excluding the 'uploads' folder)
+        entries.filter { it.isDirectory() && it.name != "uploads" }.forEach { dir ->
             val id = slugify(dir.name)
             val metadata = loadMetadata(dir)
             val displayName = metadata["displayName"] as? String ?: toDisplayName(dir.name)
@@ -653,7 +653,8 @@ class LayerManager(private val plugin: SneakyMannequins) {
             layerId: String,
             url: URL,
             name: String? = null,
-            sessionManager: SessionManager
+            sessionManager: SessionManager,
+            uncraig: Boolean = false
     ): CompletableFuture<String> {
         val entry =
                 loadedLayers[layerId]
@@ -664,7 +665,11 @@ class LayerManager(private val plugin: SneakyMannequins) {
         val partId = name?.let { slugify(it) } ?: "upload_${System.currentTimeMillis()}"
         val targetDir = def.directory.resolve("uploads").resolve(player.uniqueId.toString())
 
-        return sessionManager.downloadSkin(url).thenApplyAsync { image ->
+        return sessionManager.downloadSkin(url).thenApplyAsync { rawImage ->
+            var image = rawImage
+            if (uncraig) {
+                image = com.sneakymannequins.util.SkinTransform.uncraig(image)
+            }
             if (image.width != 64 || image.height != 64) {
                 throw Exception("Image must be 64x64")
             }

@@ -672,7 +672,7 @@ object SkinComposer {
         if (length > 0) {
             image.setRGB(SkinUv.ETF_CHOICE_LENGTH_BOX_X, SkinUv.ETF_CHOICE_LENGTH_BOX_Y, SkinUv.ETF_COLORS[length - 1].rgb)
         }
-        if (blinkHeight >= 0) {
+        if (blinkHeight > 0) {
             image.setRGB(SkinUv.ETF_CHOICE_BLINK_HEIGHT_X, SkinUv.ETF_CHOICE_BLINK_HEIGHT_Y, SkinUv.ETF_COLORS[blinkHeight - 1].rgb)
         }
     }

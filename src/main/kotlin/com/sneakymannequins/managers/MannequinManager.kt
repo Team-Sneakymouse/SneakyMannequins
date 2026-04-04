@@ -1004,7 +1004,8 @@ class MannequinManager(
             buttonName: String,
             mannequinId: UUID,
             player: Player,
-            backwards: Boolean
+            backwards: Boolean,
+            uncraig: Boolean = false
     ) {
         val mannequin = mannequins[mannequinId] ?: return
         val state = controlState[mannequinId] ?: return
@@ -1439,7 +1440,8 @@ class MannequinManager(
                                                 baseLayer.id,
                                                 skinUrl,
                                                 partName,
-                                                sessionManager
+                                                sessionManager,
+                                                uncraig = uncraig
                                         )
                                         .thenAccept { _ ->
                                             plugin.server.scheduler.runTask(
@@ -2292,7 +2294,8 @@ class MannequinManager(
             requester: Player,
             mannequin: Mannequin,
             contextPlayer: Player,
-            sessionOverride: SessionData? = null
+            sessionOverride: SessionData? = null,
+            craig: Boolean = false
     ) {
         var actualSessionOverride = sessionOverride
 
@@ -2319,7 +2322,8 @@ class MannequinManager(
                         requester,
                         mannequin,
                         sessionOverride = actualSessionOverride,
-                        contextPlayer = contextPlayer
+                        contextPlayer = contextPlayer,
+                        craig = craig
                 )
                 .thenAccept { result ->
                     val url = ConfigManager.instance.getImageUrl(result.file.name)
