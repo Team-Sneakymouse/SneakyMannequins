@@ -380,6 +380,9 @@ class MannequinManager(
      * Apply a loaded [SessionData] to the specified mannequin and re-render. Layers in the session
      * that don't match a current definition are silently skipped. Layers not present in the session
      * keep their current selection (partial load).
+     *
+     * Sets the mannequin's saved UID and in-memory save fingerprint to this session so an immediate
+     * save (HUD, chat load, Copy Me, or `/mannequin debug save`) correctly reports "Session unchanged".
      */
     fun applySession(mannequinId: UUID, session: SessionData) {
         val mannequin = mannequins[mannequinId] ?: return
@@ -439,6 +442,11 @@ class MannequinManager(
         syncControlState(mannequin, state)
         for (def in definitions) rememberCurrentPartSelection(mannequin, def)
         mannequin.lastFrame = PixelFrame.blank()
+
+        // Treat loaded session as the new save baseline so "save" right after load reports unchanged + UID.
+        mannequin.savedUid = session.uid
+        lastSavedFingerprint[mannequinId] = sessionManager.fingerprint(mannequin)
+        persist()
 
         state.mode = ControlMode.NONE
         refreshDynamicLabels(mannequinId)
