@@ -310,26 +310,24 @@ class EtfConfigManager(
                 // blinkHeight 1-8 maps to headY 8-15
                 val headY = 8 + (session.blinkHeight - 1)
 
-                g.color = Color.RED
-                for (col in session.blinkEyeColumns) {
-                    if (col in 1..8) {
-                        val x = 8 + col - 1
-                        g.fillRect(x, headY, 1, 1)
+                fun fillFaceColumnPixels(y: Int, color: Color) {
+                    if (y !in 8..15) return
+                    g.color = color
+                    for (col in session.blinkEyeColumns) {
+                        if (col in 1..8) {
+                            g.fillRect(8 + col - 1, y, 1, 1)
+                        }
                     }
                 }
 
-                // Draw blue lines based on style
-                g.color = Color.BLUE
-                if (session.blinkStyle == 4) {
-                    if (headY + 1 <= 15) {
-                        g.fillRect(8, headY + 1, 8, 1)
-                    }
-                } else if (session.blinkStyle == 5) {
-                    if (headY + 1 <= 15) {
-                        g.fillRect(8, headY + 1, 8, 1)
-                    }
-                    if (headY + 2 <= 15) {
-                        g.fillRect(8, headY + 2, 8, 1)
+                fillFaceColumnPixels(headY, Color.RED)
+
+                // Blue: extra eye rows implied by blink style — same columns as red, not full 8-wide.
+                when (session.blinkStyle) {
+                    4 -> fillFaceColumnPixels(headY + 1, Color.BLUE)
+                    5 -> {
+                        fillFaceColumnPixels(headY + 1, Color.BLUE)
+                        fillFaceColumnPixels(headY + 2, Color.BLUE)
                     }
                 }
             }
