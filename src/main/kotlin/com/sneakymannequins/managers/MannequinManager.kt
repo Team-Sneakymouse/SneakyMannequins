@@ -2640,14 +2640,16 @@ class MannequinManager(
         for (def in definitions) {
             val options = layerManager.optionsFor(def.id)
             if (options.isEmpty()) continue
-            val viable =
+            val allViable =
                     options.filter { opt ->
                         val pal = layerManager.resolvePalettes(def, opt, null)
                         val tex = layerManager.resolveTextures(def, opt, null)
                         pal.isNotEmpty() && tex.isNotEmpty()
                     }
+            val nonNoneViable = allViable.filter { it.id != "none" }
             val chosen =
-                    if (viable.isNotEmpty()) viable[rng.nextInt(viable.size)]
+                    if (nonNoneViable.isNotEmpty()) nonNoneViable[rng.nextInt(nonNoneViable.size)]
+                    else if (allViable.isNotEmpty()) allViable[rng.nextInt(allViable.size)]
                     else options[rng.nextInt(options.size)]
             newSelections[def.id] = buildInitialSelection(def, chosen)
         }
