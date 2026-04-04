@@ -75,7 +75,26 @@ The full config lives at `plugins/SneakyMannequins/config.yml` (auto-generated f
 
 ### Adding Content
 
-Place 64×64 RGBA PNGs in `plugins/SneakyMannequins/layers/<Layer>/`. On load, the plugin will automatically generate `*_mask_1.png` and `*_mask_2.png` colour-channel files alongside each source image. For the body layer, if no PNGs exist, `default.png` and `default_slim.png` are seeded automatically.
+Place 64×64 RGBA PNGs in `plugins/SneakyMannequins/layers/<Layer>/`. On load, the plugin will automatically generate `*_mask_1.png` and `*_mask_2.png` colour-channel files alongside each source image. To organize variants (like Slim/Alex and Classic), create a subdirectory for the part and place its image files there.
+
+### Part Metadata
+
+Each skin part directory can contain a `metadata.json` file to override auto-detected properties and configure specialized behaviors (like Entity Texture Features):
+
+| Field | Type | Description |
+|---|---|---|
+| `displayName` | String | The human-readable name shown in the holographic UI. |
+| `internalKey` | String | Unique ID for the part (e.g., used in templates and sessions). |
+| `hasArms` | Boolean | `true` if the asset includes 1.8+ skin arm overlays. |
+| `isAlex` | Boolean | `true` if the asset is designed for the slim (3-pixel) arm model. |
+| `isDress` | Boolean | `true` if this part should trigger the jacket/dress extension. |
+| `dressLength` | Int (1-8)| How many pixels to extend the "outer" layer down the legs. |
+| `isBlink` | Boolean | `true` if this part contains eye pixels (auto-detected). |
+| `blinkStyle` | Int (1-8)| ETF blink animation style (**3**: 1-row, **4**: 2-row, **5**: 4-row). |
+| `blinkHeight` | Int (1-8)| Vertical row of the eyes (top to bottom). |
+| `jacketStyle` | Int (1-8)| ETF Choice Box #2 value (1-8) for jacket extension logic. |
+
+The plugin automatically generates this file during the initial scan/upload of a PNG, but you can manually edit it to fine-tune the auto-detection results.
 
 ## Development
 
