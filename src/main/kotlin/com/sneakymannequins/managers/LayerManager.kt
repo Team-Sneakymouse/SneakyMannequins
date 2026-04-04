@@ -10,6 +10,7 @@ import com.sneakymannequins.model.PaletteSpec
 import com.sneakymannequins.model.TextureDefinition
 import com.sneakymannequins.model.TextureRef
 import com.sneakymannequins.model.TextureSpec
+import com.sneakymannequins.util.BlinkEyeGeometry
 import com.sneakymannequins.util.SkinUv
 import java.awt.Color
 import java.awt.image.BufferedImage
@@ -466,6 +467,15 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 isBlink = agg.isBlink,
                 blinkStyle = agg.blinkStyle,
                 blinkHeight = agg.blinkHeight,
+                blinkEyeColumns =
+                        when {
+                            !agg.isBlink -> emptyList()
+                            agg.blinkEyeColumns.isNotEmpty() ->
+                                    agg.blinkEyeColumns.sorted().distinct()
+                            else -> listOf(3, 6)
+                        },
+                blinkEyelidX = agg.blinkEyelidX,
+                blinkEyelidY = agg.blinkEyelidY,
                 jacketStyle = agg.jacketStyle
         )
     }
@@ -479,6 +489,12 @@ class LayerManager(private val plugin: SneakyMannequins) {
         agg.isBlink = metadata["isBlink"] as? Boolean ?: false
         agg.blinkStyle = (metadata["blinkStyle"] as? Number)?.toInt() ?: 0
         agg.blinkHeight = (metadata["blinkHeight"] as? Number)?.toInt() ?: 0
+        @Suppress("UNCHECKED_CAST")
+        val cols = metadata["blinkEyeColumns"] as? List<*>
+        agg.blinkEyeColumns =
+                cols?.mapNotNull { (it as? Number)?.toInt() }?.sorted()?.distinct() ?: emptyList()
+        agg.blinkEyelidX = (metadata["blinkEyelidX"] as? Number)?.toInt()
+        agg.blinkEyelidY = (metadata["blinkEyelidY"] as? Number)?.toInt()
         agg.jacketStyle = (metadata["jacketStyle"] as? Number)?.toInt() ?: 0
 
         @Suppress("UNCHECKED_CAST")
@@ -606,6 +622,9 @@ class LayerManager(private val plugin: SneakyMannequins) {
             var isBlink: Boolean = false,
             var blinkStyle: Int = 0,
             var blinkHeight: Int = 0,
+            var blinkEyeColumns: List<Int> = emptyList(),
+            var blinkEyelidX: Int? = null,
+            var blinkEyelidY: Int? = null,
             var jacketStyle: Int = 0
     )
 
@@ -787,6 +806,20 @@ class LayerManager(private val plugin: SneakyMannequins) {
             Regex("\"blinkHeight\":\\s*(\\d+)").find(content)?.let {
                 map["blinkHeight"] = it.groupValues[1].toInt()
             }
+            Regex("\"blinkEyeColumns\":\\s*\\[([^]]*)\\]").find(content)?.let { m ->
+                val nums =
+                        Regex("\\d+")
+                                .findAll(m.groupValues[1])
+                                .map { it.value.toInt() }
+                                .toList()
+                if (nums.isNotEmpty()) map["blinkEyeColumns"] = nums
+            }
+            Regex("\"blinkEyelidX\":\\s*(\\d+)").find(content)?.let {
+                map["blinkEyelidX"] = it.groupValues[1].toInt()
+            }
+            Regex("\"blinkEyelidY\":\\s*(\\d+)").find(content)?.let {
+                map["blinkEyelidY"] = it.groupValues[1].toInt()
+            }
             Regex("\"jacketStyle\":\\s*(\\d+)").find(content)?.let {
                 map["jacketStyle"] = it.groupValues[1].toInt()
             }
@@ -828,7 +861,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
         val image = ImageIO.read(sourcePath.toFile()) ?: return
 
         // Detect blinking on RAW image to prevent stripping markers
-        val (isBlink, blinkStyle, blinkHeight) = detectBlink(image)
+        val blink = detectBlink(image)
 
         val sanitized = sanitizeUv(image)
 
@@ -891,7 +924,20 @@ class LayerManager(private val plugin: SneakyMannequins) {
             }
         }
 
-        writeMetadata(targetDir, partName, hasArms, isSlim, isDress, dressLength, isBlink, blinkStyle, blinkHeight)
+        writeMetadata(
+                targetDir,
+                partName,
+                hasArms,
+                isSlim,
+                isDress,
+                dressLength,
+                blink.isBlink,
+                blink.blinkStyle,
+                blink.blinkHeight,
+                blink.blinkEyeColumns,
+                blink.blinkEyelidX,
+                blink.blinkEyelidY
+        )
     }
 
     private fun hasArmPixels(image: BufferedImage): Boolean {
@@ -1182,6 +1228,9 @@ class LayerManager(private val plugin: SneakyMannequins) {
         partId: String,
         blinkHeight: Int? = null,
         blinkStyle: Int? = null,
+        blinkEyeColumns: List<Int>? = null,
+        blinkEyelidX: Int? = null,
+        blinkEyelidY: Int? = null,
         dressLength: Int? = null,
         jacketStyle: Int? = null
     ): String {
@@ -1231,17 +1280,54 @@ class LayerManager(private val plugin: SneakyMannequins) {
             }
         }
 
+        fun updateIntArrayField(key: String, values: List<Int>?) {
+            if (values == null) return
+            val sorted = values.sorted().distinct()
+            val rendered = sorted.joinToString(", ")
+            val regex = Regex("\"$key\":\\s*\\[[^]]*\\]")
+            if (regex.containsMatchIn(newJson)) {
+                newJson = regex.replace(newJson, "\"$key\": [$rendered]")
+            } else {
+                val lastBrace = newJson.lastIndexOf('}')
+                if (lastBrace != -1) {
+                    val leadingComma = if (newJson.trim().dropLast(1).trim().last() == ',') "" else ","
+                    newJson =
+                            newJson.substring(0, lastBrace).trimEnd() +
+                                    "$leadingComma\n    \"$key\": [$rendered]\n" +
+                                    newJson.substring(lastBrace)
+                }
+            }
+        }
+
         if (blinkHeight != null) {
             if (blinkHeight > 0) {
                 updateField("blinkHeight", blinkHeight)
                 updateField("blinkStyle", blinkStyle)
                 updateBooleanField("isBlink", true)
+                if (blinkEyeColumns != null) {
+                    updateIntArrayField("blinkEyeColumns", blinkEyeColumns)
+                }
+                if (blinkEyelidX != null) {
+                    updateField("blinkEyelidX", blinkEyelidX)
+                }
+                if (blinkEyelidY != null) {
+                    updateField("blinkEyelidY", blinkEyelidY)
+                }
             } else {
                 updateBooleanField("isBlink", false)
             }
         } else {
             // If only style was provided (though unlikely from our current UI)
             updateField("blinkStyle", blinkStyle)
+            if (blinkEyeColumns != null) {
+                updateIntArrayField("blinkEyeColumns", blinkEyeColumns)
+            }
+            if (blinkEyelidX != null) {
+                updateField("blinkEyelidX", blinkEyelidX)
+            }
+            if (blinkEyelidY != null) {
+                updateField("blinkEyelidY", blinkEyelidY)
+            }
         }
 
         if (dressLength != null) {
@@ -1295,7 +1381,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
         val masterImg = ImageIO.read(masterPath.toFile()) ?: return "Failed to read master asset"
 
         // Detect blink on raw image
-        val (isBlink, blinkStyle, blinkHeight) = detectBlink(masterImg)
+        val blink = detectBlink(masterImg)
 
         val sanitized = sanitizeUv(masterImg)
         val clusters = clusterColors(sanitized, strategy, distanceOrChannels, params)
@@ -1337,7 +1423,20 @@ class LayerManager(private val plugin: SneakyMannequins) {
         }
 
         val (isDress, dressLength) = detectDress(sanitized)
-        writeMetadata(dir, dir.name, hasArms, isAlexAsset, isDress, dressLength, isBlink, blinkStyle, blinkHeight)
+        writeMetadata(
+                dir,
+                dir.name,
+                hasArms,
+                isAlexAsset,
+                isDress,
+                dressLength,
+                blink.isBlink,
+                blink.blinkStyle,
+                blink.blinkHeight,
+                blink.blinkEyeColumns,
+                blink.blinkEyelidX,
+                blink.blinkEyelidY
+        )
         reloadLayer(layerId)
         return "Remasked '$partId' in '$layerId' using ${strategy.name}: ${clusters.size} mask(s) generated and propagated"
     }
@@ -1351,7 +1450,10 @@ class LayerManager(private val plugin: SneakyMannequins) {
             dressLength: Int,
             isBlink: Boolean = false,
             blinkStyle: Int = 0,
-            blinkHeight: Int = 0
+            blinkHeight: Int = 0,
+            blinkEyeColumns: List<Int> = emptyList(),
+            blinkEyelidX: Int? = null,
+            blinkEyelidY: Int? = null
     ) {
         val mappingsMaster = mutableMapOf<Int, String>()
         val mappingsDefault = mutableMapOf<Int, String>()
@@ -1376,6 +1478,17 @@ class LayerManager(private val plugin: SneakyMannequins) {
         fun mapToJson(m: Map<Int, String>) =
                 m.entries.sortedBy { it.key }.joinToString(",") { "\"${it.key}\": \"${it.value}\"" }
 
+        val blinkExtras =
+                if (isBlink) {
+                    val cols = blinkEyeColumns.sorted().distinct().ifEmpty { listOf(3, 6) }
+                    val ex = blinkEyelidX ?: 11
+                    val ey = blinkEyelidY ?: (8 + blinkHeight - 1)
+                    """,
+                "blinkEyeColumns": [${cols.joinToString(", ")}],
+                "blinkEyelidX": $ex,
+                "blinkEyelidY": $ey"""
+                } else ""
+
         val json =
                 """
             {
@@ -1387,7 +1500,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 "dressLength": $dressLength,
                 "isBlink": $isBlink,
                 "blinkStyle": $blinkStyle,
-                "blinkHeight": $blinkHeight,
+                "blinkHeight": $blinkHeight$blinkExtras,
                 "mappings": {
                     "master": "$masterFile",
                     "default": "$defaultFile",
@@ -1577,7 +1690,35 @@ class LayerManager(private val plugin: SneakyMannequins) {
         return Math.sqrt(((r1 - r2) * (r1 - r2) + (g1 - g2) * (g1 - g2) + (b1 - b2) * (b1 - b2)).toDouble())
     }
 
-    private fun detectBlink(image: BufferedImage): Triple<Boolean, Int, Int> {
+    private data class BlinkDetectResult(
+            val isBlink: Boolean,
+            val blinkStyle: Int = 0,
+            val blinkHeight: Int = 0,
+            val blinkEyeColumns: List<Int> = emptyList(),
+            val blinkEyelidX: Int? = null,
+            val blinkEyelidY: Int? = null
+    )
+
+    private fun detectBlinkEyeColumns(image: BufferedImage, faceY: Int, skinRef: Int): List<Int> {
+        val neutralSat = plugin.config.getDouble("plugin.preprocessing.neutral-saturation", 0.15)
+        return BlinkEyeGeometry.detectEyeColumns(image, faceY, skinRef, neutralSat)
+    }
+
+    private fun blinkWithEyeGeometry(image: BufferedImage, style: Int, height: Int): BlinkDetectResult {
+        val h = height.coerceIn(1, 8)
+        val faceY = 8 + h - 1
+        val skinRef =
+                BlinkEyeGeometry.dominantNoseSkinColor(image)
+                        ?: run {
+                            val bridge = image.getRGB(11, faceY)
+                            if ((bridge ushr 24) != 0) bridge else null
+                        }
+                        ?: 0xFFE0C0.toInt()
+        val cols = detectBlinkEyeColumns(image, faceY, skinRef)
+        return BlinkDetectResult(true, style, h, cols, 11, faceY)
+    }
+
+    private fun detectBlink(image: BufferedImage): BlinkDetectResult {
         // 1. Check if Choice Box 0 (52, 16) already has a blink color
         if (image.width >= 64 && image.height >= 64) {
             val blinkChoiceArgb = image.getRGB(SkinUv.ETF_CHOICE_BLINK_STYLE_X, SkinUv.ETF_CHOICE_BLINK_STYLE_Y)
@@ -1585,8 +1726,13 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 val blinkChoice = getSkinPixelColourToNumber(blinkChoiceArgb)
                 if (blinkChoice in 1..5) {
                     val heightChoiceArgb = image.getRGB(SkinUv.ETF_CHOICE_BLINK_HEIGHT_X, SkinUv.ETF_CHOICE_BLINK_HEIGHT_Y)
-                    val height = if ((heightChoiceArgb ushr 24) != 0) getSkinPixelColourToNumber(heightChoiceArgb) else 1
-                    return Triple(true, blinkChoice, height)
+                    val height =
+                            if ((heightChoiceArgb ushr 24) != 0) {
+                                getSkinPixelColourToNumber(heightChoiceArgb).coerceIn(1, 8)
+                            } else {
+                                1
+                            }
+                    return blinkWithEyeGeometry(image, blinkChoice, height)
                 }
             }
 
@@ -1596,13 +1742,17 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 var bestX = -1
                 var bestH = -1
                 var bestScore = -1.0
-                val style = when (rows) {
-                    1 -> 3; 2 -> 4; 4 -> 5; else -> 0
-                }
+                val style =
+                        when (rows) {
+                            1 -> 3
+                            2 -> 4
+                            4 -> 5
+                            else -> 0
+                        }
 
                 // 1. Identify rows with potential eye markers at FIXED offset 12
                 val xOffset = 12
-                
+
                 // First verify that this marker ACTUALLY has `rows` height by checking the bottom row of the expected marker
                 var markerHeightValid = true
                 for (r in 0 until rows) {
@@ -1615,7 +1765,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
                         break
                     }
                 }
-                
+
                 // Also verify that the row AFTER this marker is empty to avoid false positives (e.g. classifying a 4-row marker as 2-row)
                 if (markerHeightValid && rows < 4) {
                     if (16 + rows <= 19) {
@@ -1638,15 +1788,15 @@ class LayerManager(private val plugin: SneakyMannequins) {
                             val facePixel = image.getRGB(8 + x, faceY)
                             // Compare with the top row of the marker (index 16)
                             val markerPixel = image.getRGB(xOffset + x, 16)
-                            
+
                             if ((markerPixel ushr 24) == 0) continue
                             opaqueInMarker++
-                            
+
                             if (colorDistance(facePixel, markerPixel) < 60.0) {
                                 matches++
                             }
                         }
-                        
+
                         if (matches >= 4 && opaqueInMarker >= 4) {
                             val score = matches.toDouble() + (if (h in 6..7) 2.0 else 0.0)
                             if (score > bestScore) {
@@ -1657,71 +1807,26 @@ class LayerManager(private val plugin: SneakyMannequins) {
                         }
                     }
                 }
-                
+
                 if (bestX != -1) {
-                    return Triple(true, style, bestH)
+                    return blinkWithEyeGeometry(image, style, bestH)
                 }
             }
 
-            // 3. Auto-detect from face pixels (fallback)
-            // Calculate dominant skin tone by finding the brightest common cluster in the lower center face
-            val colorCounts = mutableMapOf<Int, Int>()
-            for (y in 12..15) {
-                for (x in 11..12) {
-                    val c = image.getRGB(x, y)
-                    if ((c ushr 24) == 0) continue
-                    
-                    // Group similar colors together to handle shading
-                    var found = false
-                    for (entry in colorCounts) {
-                        if (colorDistance(c, entry.key) < 30.0) {
-                            colorCounts[entry.key] = entry.value + 1
-                            found = true
-                            break
-                        }
-                    }
-                    if (!found) {
-                        colorCounts[c] = 1
-                    }
-                }
-            }
-            
-            val bestSkinColor = colorCounts.maxByOrNull { it.value }?.key
-
-            if (bestSkinColor != null) {
-                var bottomEyeY = -1
-                var eyePixelCount = 0
-                // Scan from bottom up to find the lowest eye pixel
-                for (y in 15 downTo 8) {
-                    var mismatchCount = 0
-                    for (x in listOf(9, 10, 13, 14)) {
-                        val c = image.getRGB(x, y)
-                        // A threshold of 60 is better balanced for fair skins
-                        if ((c ushr 24) != 0 && colorDistance(c, bestSkinColor) > 60.0) {
-                            mismatchCount++
-                        }
-                    }
-                    if (mismatchCount >= 2) { // At least 2 non-skin pixels across the eyes
-                        if (bottomEyeY == -1) bottomEyeY = y
-                        eyePixelCount++
-                    } else if (bottomEyeY != -1) {
-                        break // Stop at the top of the eye row cluster
-                    }
-                }
-
-                if (bottomEyeY != -1) {
-                    // h is the 1-based index from the top (y=8 is row 1)
-                    val h = bottomEyeY - 8 + 1
-                    val fallbackStyle = when {
-                        eyePixelCount <= 1 -> 3 // 1-row blink
-                        eyePixelCount in 2..3 -> 4 // 2-row blink
-                        else -> 5 // 4-row blink
-                    }
-                    return Triple(true, fallbackStyle, h)
-                }
+            // 3. Auto-detect from face pixels (fallback) — see [BlinkEyeGeometry.detectFaceFallbackBlink]
+            val neutralSat = plugin.config.getDouble("plugin.preprocessing.neutral-saturation", 0.15)
+            BlinkEyeGeometry.detectFaceFallbackBlink(image, neutralSat)?.let { fb ->
+                return BlinkDetectResult(
+                        true,
+                        fb.blinkStyle,
+                        fb.blinkHeight,
+                        fb.blinkEyeColumns,
+                        11,
+                        fb.primaryFaceY
+                )
             }
         }
-        return Triple(false, 0, 0)
+        return BlinkDetectResult(false)
     }
 
     private fun hasPixelsIn(image: BufferedImage, rect: SkinUv.Rect): Boolean {

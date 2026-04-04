@@ -92,9 +92,14 @@ Each skin part directory can contain a `metadata.json` file to override auto-det
 | `isBlink` | Boolean | `true` if this part contains eye pixels (auto-detected). |
 | `blinkStyle` | Int (1-8)| ETF blink animation style (**3**: 1-row, **4**: 2-row, **5**: 4-row). |
 | `blinkHeight` | Int (1-8)| Vertical row of the eyes (top to bottom). |
+| `blinkEyeColumns` | Array of int | 1-based columns on the **front head face** (width 8) whose pixels are replaced with the eyelid sample when generating the ETF blink strip (e.g. `[3,6]`, `[2,3,6,7]`, `[1,2,3,6,7,8]`). Omitted or empty defaults to `[3, 6]` when `isBlink` is true. |
+| `blinkEyelidX` | Int | Absolute skin texture X (0–63) sampled for closed-lid colour. Defaults to column **4** of the face (`11`) when omitted. |
+| `blinkEyelidY` | Int | Absolute skin texture Y (0–63) for that sample; defaults to the eye row implied by `blinkHeight` when omitted. |
 | `jacketStyle` | Int (1-8)| ETF Choice Box #2 value (1-8) for jacket extension logic. |
 
 The plugin automatically generates this file during the initial scan/upload of a PNG, but you can manually edit it to fine-tune the auto-detection results.
+
+**Interactive ETF (blink mode):** After `/mannequin etf <layer> blink`, use mannequin **left/right click** to change the eye row, **jump / sneak** to cycle blink style (3–5), **swap hand** to cycle eye-width presets (`[3,6]` → `[2,3,6,7]` → `[1,2,3,6,7,8]`), and **drop** (Q) to cycle backwards. Swap and drop are cancelled while in this mode so items are not moved or dropped. Re-run the command with `confirm` to save.
 
 ## Development
 

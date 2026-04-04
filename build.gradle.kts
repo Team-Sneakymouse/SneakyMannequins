@@ -10,6 +10,9 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.21")
     implementation("com.google.code.gson:gson:2.10.1")
     compileOnly("io.github.team-sneakymouse:sneakycharactermanager-paper:1.4.0")
+
+    testImplementation(kotlin("test"))
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
 }
 
 kotlin {
@@ -17,6 +20,10 @@ kotlin {
 }
 
 tasks {
+    test {
+        useJUnitPlatform()
+    }
+
     compileKotlin {
         kotlinOptions {
             jvmTarget = "21"

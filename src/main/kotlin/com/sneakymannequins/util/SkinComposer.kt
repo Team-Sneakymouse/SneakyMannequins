@@ -55,6 +55,9 @@ object SkinComposer {
         var anyDress = false
         var maxBlinkStyle = 0
         var maxBlinkHeight = 0
+        var blinkEyeColumns = listOf(3, 6)
+        var blinkEyelidX: Int? = null
+        var blinkEyelidY: Int? = null
         var activeJacketStyle = 0
 
         layers.forEach { layer ->
@@ -76,6 +79,10 @@ object SkinComposer {
             if (chosen.isBlink) {
                 maxBlinkStyle = chosen.blinkStyle
                 maxBlinkHeight = chosen.blinkHeight
+                blinkEyeColumns =
+                        chosen.blinkEyeColumns.sorted().distinct().ifEmpty { listOf(3, 6) }
+                blinkEyelidX = chosen.blinkEyelidX
+                blinkEyelidY = chosen.blinkEyelidY
             }
 
             if (chosen.jacketStyle > 0) {
@@ -168,11 +175,16 @@ object SkinComposer {
         val finalJacketStyle = if (activeJacketStyle > 0) activeJacketStyle else defaultJacketStyle
 
         if ((anyDress && jacketEnabled) || (maxBlinkStyle != 0 && blinkEnabled)) {
-            encodeEtf(output, 
-                      if (anyDress && jacketEnabled) finalJacketStyle else 0, 
-                      maxDressLength.coerceIn(1, 8), 
-                      if (blinkEnabled) maxBlinkStyle else 0, 
-                      if (blinkEnabled) maxBlinkHeight else 0)
+            encodeEtf(
+                    output,
+                    if (anyDress && jacketEnabled) finalJacketStyle else 0,
+                    maxDressLength.coerceIn(1, 8),
+                    if (blinkEnabled) maxBlinkStyle else 0,
+                    if (blinkEnabled) maxBlinkHeight else 0,
+                    if (blinkEnabled) blinkEyeColumns else listOf(3, 6),
+                    if (blinkEnabled) blinkEyelidX else null,
+                    if (blinkEnabled) blinkEyelidY else null
+            )
         }
 
         if (!showOverlay) {
@@ -611,7 +623,16 @@ object SkinComposer {
         g.dispose()
     }
 
-    private fun encodeEtf(image: BufferedImage, style: Int, length: Int, blinkStyle: Int, blinkHeight: Int) {
+    private fun encodeEtf(
+            image: BufferedImage,
+            style: Int,
+            length: Int,
+            blinkStyle: Int,
+            blinkHeight: Int,
+            blinkEyeColumns: List<Int> = listOf(3, 6),
+            blinkEyelidX: Int? = null,
+            blinkEyelidY: Int? = null
+    ) {
         // 1. Check if assets already provided blink pixels (Column 12-19, Rows 16-19)
         // We do this BEFORE the Power Wash so we don't delete them.
         var assetsHadBlink = false
@@ -639,8 +660,15 @@ object SkinComposer {
             val g = image.createGraphics()
             g.drawImage(savedBlink, 12, 16, null)
             g.dispose()
-        } else if (blinkStyle > 0 && blinkHeight >= 0) {
-            autoGenerateBlinkPixels(image, blinkStyle, blinkHeight)
+        } else if (blinkStyle > 0 && blinkHeight > 0) {
+            autoGenerateBlinkPixels(
+                    image,
+                    blinkStyle,
+                    blinkHeight,
+                    blinkEyeColumns,
+                    blinkEyelidX,
+                    blinkEyelidY
+            )
         }
 
         // 4. Handshake Marker (Exact bit-match to ETFPlayerTexture.java)
@@ -677,7 +705,14 @@ object SkinComposer {
         }
     }
 
-    private fun autoGenerateBlinkPixels(image: BufferedImage, style: Int, height: Int) {
+    private fun autoGenerateBlinkPixels(
+            image: BufferedImage,
+            style: Int,
+            height: Int,
+            blinkEyeColumns: List<Int>,
+            blinkEyelidX: Int?,
+            blinkEyelidY: Int?
+    ) {
         // Only generate if the target area is empty (all transparent)
         val checkY = 16
         var hasPixels = false
@@ -689,43 +724,32 @@ object SkinComposer {
         }
         if (hasPixels) return
 
-        // 1. Get the eye row from the Front face of the head (Y=8+height, X=8..15)
-        val headEyeY = 8 + height
-        if (headEyeY >= 16) return
+        // blinkHeight in metadata is 1–8 (top of head = 1); front face Y = 8 .. 15
+        val headEyeY = 8 + height - 1
+        if (headEyeY < 8 || headEyeY >= 16) return
 
         val eyeRow = IntArray(8)
-        val colors = mutableListOf<Int>()
         for (i in 0..7) {
-            val rgb = image.getRGB(8 + i, headEyeY)
-            eyeRow[i] = rgb
-            if ((rgb ushr 24) != 0) colors.add(rgb and 0xFFFFFF)
+            eyeRow[i] = image.getRGB(8 + i, headEyeY)
         }
-        if (colors.isEmpty()) return
+        if (eyeRow.none { (it ushr 24) != 0 }) return
 
-        // 2. Simple "close the eyes" heuristic: pick brightest pixel as skin color
-        val skinRgb = colors.maxByOrNull {
-            val r = (it shr 16) and 0xFF
-            val g = (it shr 8) and 0xFF
-            val b = it and 0xFF
-            r + g + b 
-        } ?: colors[0]
+        val lidX = blinkEyelidX ?: 11
+        val lidY = blinkEyelidY ?: headEyeY
+        val lidSample =
+                if (lidX in 0 until image.width && lidY in 0 until image.height) {
+                    image.getRGB(lidX, lidY)
+                } else {
+                    eyeRow[3]
+                }
+        val lidOpaque = (0xFF shl 24) or (lidSample and 0xFFFFFF)
 
-        // Create a "closed eye" row by replacing dark pixels with skin color
-        val closedRow = IntArray(8)
-        for (i in 0..7) {
-            val rgb = eyeRow[i]
-            val r = (rgb shr 16) and 0xFF
-            val g = (rgb shr 8) and 0xFF
-            val b = (rgb) and 0xFF
-            val brightness = (r + g + b) / 765.0
-            if (brightness < 0.4) {
-                closedRow[i] = (0xFF shl 24) or skinRgb
-            } else {
-                closedRow[i] = rgb
-            }
+        val cols = blinkEyeColumns.filter { it in 1..8 }.toSet()
+        val closedRow = IntArray(8) { eyeRow[it] }
+        for (c in cols) {
+            closedRow[c - 1] = lidOpaque
         }
 
-        // 3. Write to 12..19, 16..19
         val numRows = if (style == 5) 4 else if (style == 4) 2 else 1
         for (y in 16 until 16 + numRows) {
             for (i in 0..7) {

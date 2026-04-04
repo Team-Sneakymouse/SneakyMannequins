@@ -155,6 +155,11 @@ data class LayerOption(
         val isBlink: Boolean = false,
         val blinkStyle: Int = 0,
         val blinkHeight: Int = 0,
+        /** 1-based columns on the front head face (8 wide); empty when not a blink part. */
+        val blinkEyeColumns: List<Int> = emptyList(),
+        /** Absolute skin UV X for eyelid/bridge colour sample; null = column 4 of the eye row. */
+        val blinkEyelidX: Int? = null,
+        val blinkEyelidY: Int? = null,
         val jacketStyle: Int = 0
 )
 
