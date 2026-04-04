@@ -341,9 +341,14 @@ class SessionManager(
                             optionResolver = { l, o -> layerManager.optionsFor(l).find { it.id == o } },
                             textureResolver = { layerManager.texture(it) },
                             baseImage = baseSkin,
-                            etfEnabled =
+                            blinkEnabled =
                                     plugin.config.getBoolean(
-                                            "integrations.entity-texture-features.enabled",
+                                            "integrations.entity-texture-features.blink-enabled",
+                                            false
+                                    ),
+                            jacketEnabled =
+                                    plugin.config.getBoolean(
+                                            "integrations.entity-texture-features.jacket-enabled",
                                             false
                                     ),
                             defaultJacketStyle =

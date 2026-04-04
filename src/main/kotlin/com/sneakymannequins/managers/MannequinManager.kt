@@ -659,11 +659,16 @@ class MannequinManager(
                         textureResolver = textureResolver(mannequin),
                         brightnessInfluenceResolver = brightnessInfluenceResolver,
                         saturationInfluenceResolver = saturationInfluenceResolver,
-                        etfEnabled =
+                        blinkEnabled =
                         	plugin.config.getBoolean(
-                        		"integrations.entity-texture-features.enabled",
+                        		"integrations.entity-texture-features.blink-enabled",
                         		false
                         	),
+                        jacketEnabled =
+			plugin.config.getBoolean(
+				"integrations.entity-texture-features.jacket-enabled", 
+				false
+			),
                         showOverlay = mannequin.showOverlay, defaultJacketStyle =
                         	plugin.config.getInt(
                         		"integrations.entity-texture-features.jacket-dress-style",
@@ -773,11 +778,16 @@ class MannequinManager(
                         textureResolver = textureResolver(mannequin),
                         brightnessInfluenceResolver = brightnessInfluenceResolver,
                         saturationInfluenceResolver = saturationInfluenceResolver,
-                        etfEnabled =
+                        blinkEnabled =
                         	plugin.config.getBoolean(
-                        		"integrations.entity-texture-features.enabled",
+                        		"integrations.entity-texture-features.blink-enabled",
                         		false
                         	),
+                        jacketEnabled =
+			plugin.config.getBoolean(
+				"integrations.entity-texture-features.jacket-enabled", 
+				false
+			),
                         showOverlay = mannequin.showOverlay, defaultJacketStyle =
                         	plugin.config.getInt(
                         		"integrations.entity-texture-features.jacket-dress-style",
@@ -2472,9 +2482,14 @@ class MannequinManager(
                     val def = layerManager.definitionsInOrder().find { it.id == layerId }
                     if (def != null) layerManager.resolveSaturationInfluence(def, option) else 1f
                 },
-                etfEnabled =
+                blinkEnabled =
                 	plugin.config.getBoolean(
-                		"integrations.entity-texture-features.enabled",
+                		"integrations.entity-texture-features.blink-enabled",
+                		false
+                	),
+                jacketEnabled =
+                	plugin.config.getBoolean(
+                		"integrations.entity-texture-features.jacket-enabled",
                 		false
                 	),
                 defaultJacketStyle =

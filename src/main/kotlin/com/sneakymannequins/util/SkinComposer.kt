@@ -35,7 +35,8 @@ object SkinComposer {
             brightnessInfluenceResolver: ((layerId: String, option: LayerOption) -> Float)? = null,
             saturationInfluenceResolver: ((layerId: String, option: LayerOption) -> Float)? = null,
             baseImage: BufferedImage? = null,
-            etfEnabled: Boolean = false,
+            blinkEnabled: Boolean = false,
+            jacketEnabled: Boolean = false,
             defaultJacketStyle: Int = 5,
             showOverlay: Boolean = true
     ): BufferedImage {
@@ -54,6 +55,7 @@ object SkinComposer {
         var anyDress = false
         var maxBlinkStyle = 0
         var maxBlinkHeight = 0
+        var activeJacketStyle = 0
 
         layers.forEach { layer ->
             val sel = selection.selections[layer.id] ?: return@forEach
@@ -74,6 +76,10 @@ object SkinComposer {
             if (chosen.isBlink) {
                 maxBlinkStyle = chosen.blinkStyle
                 maxBlinkHeight = chosen.blinkHeight
+            }
+
+            if (chosen.jacketStyle > 0) {
+                activeJacketStyle = chosen.jacketStyle
             }
 
             // Apply each channel's color independently, then composite.
@@ -158,9 +164,15 @@ object SkinComposer {
 
         graphics.dispose()
         forceInnerLayerOpaque(output)
+        
+        val finalJacketStyle = if (activeJacketStyle > 0) activeJacketStyle else defaultJacketStyle
 
-        if ((anyDress || maxBlinkStyle != 0) && etfEnabled) {
-            encodeEtf(output, if (anyDress) defaultJacketStyle else 0, maxDressLength.coerceIn(1, 8), maxBlinkStyle, maxBlinkHeight)
+        if ((anyDress && jacketEnabled) || (maxBlinkStyle != 0 && blinkEnabled)) {
+            encodeEtf(output, 
+                      if (anyDress && jacketEnabled) finalJacketStyle else 0, 
+                      maxDressLength.coerceIn(1, 8), 
+                      if (blinkEnabled) maxBlinkStyle else 0, 
+                      if (blinkEnabled) maxBlinkHeight else 0)
         }
 
         if (!showOverlay) {

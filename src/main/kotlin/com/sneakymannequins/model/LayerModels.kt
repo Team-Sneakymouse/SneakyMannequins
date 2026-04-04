@@ -153,7 +153,8 @@ data class LayerOption(
         val dressLength: Int = 0,
         val isBlink: Boolean = false,
         val blinkStyle: Int = 0,
-        val blinkHeight: Int = 0
+        val blinkHeight: Int = 0,
+        val jacketStyle: Int = 0
 )
 
 /**

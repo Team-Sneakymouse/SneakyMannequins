@@ -443,7 +443,8 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 dressLength = agg.dressLength,
                 isBlink = agg.isBlink,
                 blinkStyle = agg.blinkStyle,
-                blinkHeight = agg.blinkHeight
+                blinkHeight = agg.blinkHeight,
+                jacketStyle = agg.jacketStyle
         )
     }
 
@@ -456,6 +457,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
         agg.isBlink = metadata["isBlink"] as? Boolean ?: false
         agg.blinkStyle = (metadata["blinkStyle"] as? Number)?.toInt() ?: 0
         agg.blinkHeight = (metadata["blinkHeight"] as? Number)?.toInt() ?: 0
+        agg.jacketStyle = (metadata["jacketStyle"] as? Number)?.toInt() ?: 0
 
         @Suppress("UNCHECKED_CAST")
         val mappings = metadata["mappings"] as? Map<String, Any> ?: emptyMap()
@@ -581,7 +583,8 @@ class LayerManager(private val plugin: SneakyMannequins) {
             var dressLength: Int = 0,
             var isBlink: Boolean = false,
             var blinkStyle: Int = 0,
-            var blinkHeight: Int = 0
+            var blinkHeight: Int = 0,
+            var jacketStyle: Int = 0
     )
 
     private enum class Variant {
@@ -749,6 +752,9 @@ class LayerManager(private val plugin: SneakyMannequins) {
             }
             Regex("\"blinkHeight\":\\s*(\\d+)").find(content)?.let {
                 map["blinkHeight"] = it.groupValues[1].toInt()
+            }
+            Regex("\"jacketStyle\":\\s*(\\d+)").find(content)?.let {
+                map["jacketStyle"] = it.groupValues[1].toInt()
             }
 
             // Asset Mappings (Manual extraction for consistency)
