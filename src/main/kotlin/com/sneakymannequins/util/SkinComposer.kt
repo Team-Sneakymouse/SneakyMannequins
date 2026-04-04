@@ -655,20 +655,25 @@ object SkinComposer {
             for (x in 60..63) image.setRGB(x, y, 0)  // Palette Area
         }
 
-        // 3. Restore or Auto-Generate Blink Pixels
-        if (assetsHadBlink) {
-            val g = image.createGraphics()
-            g.drawImage(savedBlink, 12, 16, null)
-            g.dispose()
-        } else if (blinkStyle > 0 && blinkHeight > 0) {
-            autoGenerateBlinkPixels(
-                    image,
-                    blinkStyle,
-                    blinkHeight,
-                    blinkEyeColumns,
-                    blinkEyelidX,
-                    blinkEyelidY
-            )
+        // 3. Restore or auto-generate blink strip (x 12–19, y 16–19)
+        // Metadata-driven blink must always regenerate: a previous export (or stray pixels) can set
+        // assetsHadBlink and would otherwise restore an old strip (e.g. duplicated row 6) forever.
+        when {
+            blinkStyle > 0 && blinkHeight > 0 -> {
+                autoGenerateBlinkPixels(
+                        image,
+                        blinkStyle,
+                        blinkHeight,
+                        blinkEyeColumns,
+                        blinkEyelidX,
+                        blinkEyelidY
+                )
+            }
+            assetsHadBlink -> {
+                val g = image.createGraphics()
+                g.drawImage(savedBlink, 12, 16, null)
+                g.dispose()
+            }
         }
 
         // 4. Handshake Marker (Exact bit-match to ETFPlayerTexture.java)
@@ -705,6 +710,11 @@ object SkinComposer {
         }
     }
 
+    /**
+     * Fills ETF blink template under the head (x 12–19). Copies face scanlines (x 8–15), then paints
+     * the eyelid sample on `blinkEyeColumns`. For multi-row eyes, **every** copied eye row in the strip
+     * gets the lid. **Style 4** only fills **y=16–17** (8×2 closed copy). **Style 5** fills y=16–19.
+     */
     private fun autoGenerateBlinkPixels(
             image: BufferedImage,
             style: Int,
@@ -728,11 +738,19 @@ object SkinComposer {
         val headEyeY = 8 + height - 1
         if (headEyeY < 8 || headEyeY >= 16) return
 
-        val eyeRow = IntArray(8)
-        for (i in 0..7) {
-            eyeRow[i] = image.getRGB(8 + i, headEyeY)
+        fun copyFaceRow(faceY: Int): IntArray {
+            val y = faceY.coerceIn(8, 15)
+            return IntArray(8) { i -> image.getRGB(8 + i, y) }
         }
-        if (eyeRow.none { (it ushr 24) != 0 }) return
+
+        fun writeBlinkRow(dstY: Int, row: IntArray) {
+            for (i in 0..7) {
+                image.setRGB(12 + i, dstY, row[i])
+            }
+        }
+
+        val topRow = copyFaceRow(headEyeY)
+        if (topRow.none { (it ushr 24) != 0 }) return
 
         val lidX = blinkEyelidX ?: 11
         val lidY = blinkEyelidY ?: headEyeY
@@ -740,20 +758,54 @@ object SkinComposer {
                 if (lidX in 0 until image.width && lidY in 0 until image.height) {
                     image.getRGB(lidX, lidY)
                 } else {
-                    eyeRow[3]
+                    topRow[3]
                 }
         val lidOpaque = (0xFF shl 24) or (lidSample and 0xFFFFFF)
 
-        val cols = blinkEyeColumns.filter { it in 1..8 }.toSet()
-        val closedRow = IntArray(8) { eyeRow[it] }
-        for (c in cols) {
-            closedRow[c - 1] = lidOpaque
+        fun applyLid(row: IntArray, columns: Set<Int>): IntArray {
+            val out = row.copyOf()
+            for (c in columns) {
+                if (c in 1..8) {
+                    out[c - 1] = lidOpaque
+                }
+            }
+            return out
         }
 
-        val numRows = if (style == 5) 4 else if (style == 4) 2 else 1
-        for (y in 16 until 16 + numRows) {
-            for (i in 0..7) {
-                image.setRGB(12 + i, y, closedRow[i])
+        val cols = blinkEyeColumns.filter { it in 1..8 }.toSet()
+
+        when (style) {
+            3 -> {
+                writeBlinkRow(16, applyLid(topRow, cols))
+            }
+            4 -> {
+                val secondFaceY = (headEyeY + 1).coerceAtMost(15)
+                val bottomRow = copyFaceRow(secondFaceY)
+                // 8×2 only; y=18–19 stay cleared by the ETF power wash.
+                writeBlinkRow(16, applyLid(topRow, cols))
+                writeBlinkRow(17, applyLid(bottomRow, cols))
+            }
+            5 -> {
+                val y1 = (headEyeY + 1).coerceAtMost(15)
+                val y2 = (headEyeY + 2).coerceAtMost(15)
+                val y3 =
+                        if (headEyeY + 3 <= 15) {
+                            headEyeY + 3
+                        } else {
+                            y2
+                        }
+                val r0 = copyFaceRow(headEyeY)
+                val r1 = copyFaceRow(y1)
+                val r2 = copyFaceRow(y2)
+                val r3 = copyFaceRow(y3)
+                // Closed template: lid colour on iris columns for every row in the 8×4 strip.
+                writeBlinkRow(16, applyLid(r0, cols))
+                writeBlinkRow(17, applyLid(r1, cols))
+                writeBlinkRow(18, applyLid(r2, cols))
+                writeBlinkRow(19, applyLid(r3, cols))
+            }
+            else -> {
+                writeBlinkRow(16, applyLid(topRow, cols))
             }
         }
     }
