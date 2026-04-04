@@ -630,21 +630,28 @@ class LayerManager(private val plugin: SneakyMannequins) {
     fun nextBasePartName(player: Player, layerId: String): String {
         val entry = loadedLayers[layerId] ?: return "Base 1"
         val def = entry.first
-        val targetDir = def.directory.resolve("uploads").resolve(player.uniqueId.toString())
-        if (!Files.exists(targetDir)) return "Base 1"
+        val globalDir = def.directory
+        val userDir = globalDir.resolve("uploads").resolve(player.uniqueId.toString())
 
         var maxIndex = 0
-        val regex = Regex("^base_(\\d+)(?:\\.png)?$")
-        Files.list(targetDir).use { stream ->
-            stream.forEach { path ->
-                val name = path.fileName.toString().lowercase()
-                val match = regex.find(name)
-                if (match != null) {
-                    val idx = match.groupValues[1].toIntOrNull() ?: 0
-                    if (idx > maxIndex) maxIndex = idx
+        val regex = Regex("^base[ _](\\d+)(?:\\.png)?$")
+
+        fun scan(dir: java.nio.file.Path) {
+            if (!Files.exists(dir)) return
+            Files.list(dir).use { stream ->
+                stream.forEach { path ->
+                    val name = path.fileName.toString().lowercase()
+                    val match = regex.find(name)
+                    if (match != null) {
+                        val idx = match.groupValues[1].toIntOrNull() ?: 0
+                        if (idx > maxIndex) maxIndex = idx
+                    }
                 }
             }
         }
+
+        scan(globalDir)
+        scan(userDir)
         return "Base ${maxIndex + 1}"
     }
 
