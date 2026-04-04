@@ -56,7 +56,7 @@ hud-buttons:
     default-message: "Controls"
     translation:
       x: 0.0
-      y: 2.8
+      y: 2.3
       z: -2.0
     line-width: 256
 
@@ -257,7 +257,7 @@ hud-frame:
   translation:
     x: 0.0
     y: 1.7
-    z: -2.0
+    z: -2.10
   # Scale
   scale:
     x: 3.0
