@@ -1042,13 +1042,12 @@ class MannequinManager(
             }
             "random" -> {
                 val now = System.currentTimeMillis()
-                val cooldownExpires = randomCooldown[mannequinId] ?: 0L
-                if (now < cooldownExpires) return
-                randomCooldown[mannequinId] = now + 500L
-
                 val expires = randomConfirm[player.uniqueId] ?: 0L
+
+                // Extend confirmation window on every click
+                randomConfirm[player.uniqueId] = now + 5000L
+
                 if (now < expires) {
-                    randomConfirm[player.uniqueId] = 0L
                     randomize(mannequin, randomizeModel = true)
                     updateStatus(mannequinId, "Randomized")
                     renderFull(mannequin, nearbyViewers(mannequin), forceInstant = true)
@@ -1064,7 +1063,6 @@ class MannequinManager(
                         }
                     }
                 } else {
-                    randomConfirm[player.uniqueId] = now + 5000L
                     val btn = hud.buttons.find { it.id == buttonName }
                     if (btn != null) {
                         btn.textJson =
