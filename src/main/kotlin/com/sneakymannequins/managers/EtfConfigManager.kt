@@ -105,7 +105,7 @@ class EtfConfigManager(
         // Clean up visual override
         val mannequin = mannequinManager.getMannequin(session.mannequinId)
         if (mannequin != null) {
-            mannequinManager.render(mannequin, mannequinManager.nearbyViewers(mannequin), forceAll = true)
+            mannequinManager.clearOverride(mannequin)
         }
     }
 

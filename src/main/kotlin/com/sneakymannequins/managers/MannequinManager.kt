@@ -97,6 +97,7 @@ class MannequinManager(
             mutableMapOf<UUID, MutableMap<String, MutableMap<String, LayerSelection>>>()
     private val interactionDebounce = mutableMapOf<Pair<UUID, String>, Long>()
     /** playerId → expiry timestamp for random confirmation */
+    private val overrideFrames = mutableMapOf<UUID, PixelFrame>()
     private val randomConfirm = mutableMapOf<UUID, Long>()
 
     /** mannequinId → expiry timestamp for random cooldown */
@@ -723,16 +724,14 @@ class MannequinManager(
             force: Boolean = false
     ) {
         val nextFrame = PixelFrame.fromImage(image)
-        // Diff against current canonical state
-        val diff =
-                if (force) {
-                    mannequin.lastFrame.diff(nextFrame) { x, y ->
-                        (nextFrame.get(x, y) ushr 24) != 0
-                    }
-                } else {
-                    mannequin.lastFrame.diff(nextFrame)
-                }
+        val lastOverride = overrideFrames[mannequin.id]
+        
+        // If we have a last override, diff against it to find what changed since then.
+        // Otherwise diff against the canonical frame.
+        val diff = (lastOverride ?: mannequin.lastFrame).diff(nextFrame)
+        
         if (diff.isEmpty()) return
+        overrideFrames[mannequin.id] = nextFrame
 
         val projected =
                 PixelProjector.project(
@@ -746,6 +745,28 @@ class MannequinManager(
                 )
         val settings = RenderSettings(RenderMode.INSTANT)
         viewers.forEach { viewer ->
+            animationManager.deliver(viewer, mannequin.id, projected, settings)
+        }
+    }
+
+    /** Clears any active override for a mannequin and reverts to canonical state. */
+    fun clearOverride(mannequin: Mannequin) {
+        val lastOverride = overrideFrames.remove(mannequin.id) ?: return
+        val diff = lastOverride.diff(mannequin.lastFrame)
+        if (diff.isEmpty()) return
+
+        val projected =
+                PixelProjector.project(
+                        origin = mannequin.location,
+                        changes = diff,
+                        pixelScale = 1.0 / 16.0,
+                        scaleMultiplier = handler.pixelScaleMultiplier(),
+                        slimArms = isSlimModel(mannequin),
+                        showOverlay = mannequin.showOverlay,
+                        tPose = poseState[mannequin.id] == true
+                )
+        val settings = RenderSettings(RenderMode.INSTANT)
+        nearbyViewers(mannequin).forEach { viewer ->
             animationManager.deliver(viewer, mannequin.id, projected, settings)
         }
     }
