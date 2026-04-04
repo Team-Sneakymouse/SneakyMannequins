@@ -2657,29 +2657,40 @@ class MannequinManager(
     }
 
     private fun randomize(mannequin: Mannequin, randomizeModel: Boolean = false) {
-        val definitions = getAvailableLayers(mannequin)
+        val allDefinitions = layerManager.definitionsInOrder()
+        val availableDefs = getAvailableLayers(mannequin).map { it.id }.toSet()
         val rng = java.util.concurrent.ThreadLocalRandom.current()
         val newSelections = mutableMapOf<String, LayerSelection>()
 
-        for (def in definitions) {
-            val options = layerManager.optionsFor(def.id)
-            if (options.isEmpty()) continue
-            val allViable =
-                    options.filter { opt ->
-                        val pal = layerManager.resolvePalettes(def, opt, null)
-                        val tex = layerManager.resolveTextures(def, opt, null)
-                        pal.isNotEmpty() && tex.isNotEmpty()
-                    }
-            val nonNoneViable = allViable.filter { it.id != "none" }
-            val chosen =
-                    if (nonNoneViable.isNotEmpty()) nonNoneViable[rng.nextInt(nonNoneViable.size)]
-                    else if (allViable.isNotEmpty()) allViable[rng.nextInt(allViable.size)]
-                    else options[rng.nextInt(options.size)]
-            newSelections[def.id] = buildInitialSelection(def, chosen)
+        for (def in allDefinitions) {
+            if (def.id in availableDefs) {
+                val options = layerManager.optionsFor(def.id)
+                if (options.isEmpty()) continue
+                val allViable =
+                        options.filter { opt ->
+                            val pal = layerManager.resolvePalettes(def, opt, null)
+                            val tex = layerManager.resolveTextures(def, opt, null)
+                            pal.isNotEmpty() && tex.isNotEmpty()
+                        }
+                val nonNoneViable = allViable.filter { it.id != "none" }
+                val chosen =
+                        when {
+                            nonNoneViable.isNotEmpty() -> nonNoneViable[rng.nextInt(nonNoneViable.size)]
+                            allViable.isNotEmpty() -> allViable[rng.nextInt(allViable.size)]
+                            else -> options[rng.nextInt(options.size)]
+                        }
+                newSelections[def.id] = buildInitialSelection(def, chosen)
+            } else {
+                // Keep current selection for unavailable layers
+                val current = mannequin.selection.selections[def.id]
+                if (current != null) {
+                    newSelections[def.id] = current
+                }
+            }
         }
 
         mannequin.selection = SkinSelection(newSelections)
-        for (def in definitions) rememberCurrentPartSelection(mannequin, def)
+        for (def in allDefinitions) rememberCurrentPartSelection(mannequin, def)
         if (randomizeModel) mannequin.slimModel = rng.nextBoolean()
 
         val state = controlState[mannequin.id]
