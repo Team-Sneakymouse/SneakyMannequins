@@ -1295,7 +1295,9 @@ class LayerManager(private val plugin: SneakyMannequins) {
             for (y in 0 until image.height) {
                 val argb = image.getRGB(x, y)
                 if ((argb ushr 24) == 0) continue
-                if (SkinUv.isInAnyUv(x, y)) {
+                // Also preserve ETF Blink marker region (12..19, 16..19)
+                val inBlinkRegion = x in 12..19 && y in 16..19
+                if (SkinUv.isInAnyUv(x, y) || inBlinkRegion) {
                     out.setRGB(x, y, argb)
                 }
             }
@@ -1468,21 +1470,42 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 }
 
                 // 1. Identify rows with potential eye markers at FIXED offset 12
-                // (Optimized eye regions are hardcoded at x=12 in ETF source)
                 val xOffset = 12
-                val markerRect = SkinUv.Rect(xOffset, 16, 8, rows)
-                var opaqueCount = 0
-                for (x in 0 until 8) {
-                    if ((image.getRGB(xOffset + x, 16) ushr 24) != 0) opaqueCount++
+                
+                // First verify that this marker ACTUALLY has `rows` height by checking the bottom row of the expected marker
+                var markerHeightValid = true
+                for (r in 0 until rows) {
+                    var opaqueInRow = 0
+                    for (x in 0 until 8) {
+                        if ((image.getRGB(xOffset + x, 16 + r) ushr 24) != 0) opaqueInRow++
+                    }
+                    if (opaqueInRow < 4) {
+                        markerHeightValid = false
+                        break
+                    }
                 }
                 
-                if (opaqueCount >= 4) {
+                // Also verify that the row AFTER this marker is empty to avoid false positives (e.g. classifying a 4-row marker as 2-row)
+                if (markerHeightValid && rows < 4) {
+                    if (16 + rows <= 19) {
+                        var opaqueInRow = 0
+                        for (x in 0 until 8) {
+                            if ((image.getRGB(xOffset + x, 16 + rows) ushr 24) != 0) opaqueInRow++
+                        }
+                        if (opaqueInRow >= 4) {
+                            markerHeightValid = false
+                        }
+                    }
+                }
+
+                if (markerHeightValid) {
                     for (h in 1..8) {
                         val faceY = 8 + (h - 1)
                         var matches = 0
                         var opaqueInMarker = 0
                         for (x in 0 until 8) {
                             val facePixel = image.getRGB(8 + x, faceY)
+                            // Compare with the top row of the marker (index 16)
                             val markerPixel = image.getRGB(xOffset + x, 16)
                             
                             if ((markerPixel ushr 24) == 0) continue
@@ -1506,6 +1529,64 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 
                 if (bestX != -1) {
                     return Triple(true, style, bestH)
+                }
+            }
+
+            // 3. Auto-detect from face pixels (fallback)
+            // Calculate dominant skin tone by finding the brightest common cluster in the lower center face
+            val colorCounts = mutableMapOf<Int, Int>()
+            for (y in 12..15) {
+                for (x in 11..12) {
+                    val c = image.getRGB(x, y)
+                    if ((c ushr 24) == 0) continue
+                    
+                    // Group similar colors together to handle shading
+                    var found = false
+                    for (entry in colorCounts) {
+                        if (colorDistance(c, entry.key) < 30.0) {
+                            colorCounts[entry.key] = entry.value + 1
+                            found = true
+                            break
+                        }
+                    }
+                    if (!found) {
+                        colorCounts[c] = 1
+                    }
+                }
+            }
+            
+            val bestSkinColor = colorCounts.maxByOrNull { it.value }?.key
+
+            if (bestSkinColor != null) {
+                var bottomEyeY = -1
+                var eyePixelCount = 0
+                // Scan from bottom up to find the lowest eye pixel
+                for (y in 15 downTo 8) {
+                    var mismatchCount = 0
+                    for (x in listOf(9, 10, 13, 14)) {
+                        val c = image.getRGB(x, y)
+                        // A threshold of 60 is better balanced for fair skins
+                        if ((c ushr 24) != 0 && colorDistance(c, bestSkinColor) > 60.0) {
+                            mismatchCount++
+                        }
+                    }
+                    if (mismatchCount >= 2) { // At least 2 non-skin pixels across the eyes
+                        if (bottomEyeY == -1) bottomEyeY = y
+                        eyePixelCount++
+                    } else if (bottomEyeY != -1) {
+                        break // Stop at the top of the eye row cluster
+                    }
+                }
+
+                if (bottomEyeY != -1) {
+                    // h is the 1-based index from the top (y=8 is row 1)
+                    val h = bottomEyeY - 8 + 1
+                    val fallbackStyle = when {
+                        eyePixelCount <= 1 -> 3 // 1-row blink
+                        eyePixelCount in 2..3 -> 4 // 2-row blink
+                        else -> 5 // 4-row blink
+                    }
+                    return Triple(true, fallbackStyle, h)
                 }
             }
         }
