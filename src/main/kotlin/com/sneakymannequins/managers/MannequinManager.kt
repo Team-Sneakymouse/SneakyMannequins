@@ -1464,25 +1464,23 @@ class MannequinManager(
                                                                 }
 
                                                         if (uploaded != null) {
-                                                            val currentSel =
-                                                                    mannequin.selection.selections[
-                                                                                    baseLayer.id]
-                                                            val nextSel =
-                                                                    currentSel?.copy(
-                                                                            option = uploaded
-                                                                    )
-                                                                            ?: LayerSelection(
-                                                                                    baseLayer.id,
-                                                                                    uploaded
-                                                                            )
-                                                            mannequin.selection =
-                                                                    mannequin.selection.copy(
-                                                                            selections =
-                                                                                    mannequin.selection
-                                                                                            .selections +
-                                                                                            (baseLayer.id to
-                                                                                                    nextSel)
-                                                                    )
+                                                            val newSelections = mannequin.selection.selections.toMutableMap()
+                                                            val currentBaseSel = newSelections[baseLayer.id]
+                                                            newSelections[baseLayer.id] = currentBaseSel?.copy(option = uploaded)
+                                                                ?: LayerSelection(baseLayer.id, uploaded)
+
+                                                            layerManager.definitionsInOrder().forEach { otherDef ->
+                                                                if (otherDef.id != baseLayer.id && otherDef.allowEmpty) {
+                                                                    val noneOpt = layerManager.allOptions(otherDef.id).find { it.id == "none" }
+                                                                    if (noneOpt != null) {
+                                                                        val oldSel = newSelections[otherDef.id]
+                                                                        newSelections[otherDef.id] = oldSel?.copy(option = noneOpt)
+                                                                            ?: LayerSelection(otherDef.id, noneOpt)
+                                                                    }
+                                                                }
+                                                            }
+
+                                                            mannequin.selection = mannequin.selection.copy(selections = newSelections)
                                                             mannequin.slimModel =
                                                                     (skinModel == SkinModel.SLIM)
                                                             renderFull(
