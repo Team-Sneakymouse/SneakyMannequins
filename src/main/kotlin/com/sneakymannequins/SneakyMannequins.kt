@@ -4,6 +4,7 @@ import com.sneakymannequins.commands.CommandMannequin
 import com.sneakymannequins.integrations.CharacterManagerBridge
 import com.sneakymannequins.integrations.CharacterManagerBridgeFactory
 import com.sneakymannequins.listeners.TriggerListener
+import com.sneakymannequins.managers.EtfConfigManager
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymannequins.managers.MannequinManager
 import com.sneakymannequins.managers.MannequinPersistence
@@ -47,6 +48,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
     private lateinit var persistence: MannequinPersistence
     private lateinit var sessionManager: SessionManager
     private lateinit var remaskManager: RemaskManager
+    private lateinit var etfConfigManager: EtfConfigManager
     lateinit var characterManagerBridge: CharacterManagerBridge
     lateinit var holoController: HoloController
         private set
@@ -81,6 +83,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
                             it.startTickLoop()
                         }
         remaskManager = RemaskManager(this, mannequinManager, layerManager).also { it.start() }
+        etfConfigManager = EtfConfigManager(this, mannequinManager, layerManager)
 
         // Register commands
         registerCommand(
@@ -91,11 +94,13 @@ class SneakyMannequins : JavaPlugin(), Listener {
                         layerManager,
                         styleManager,
                         sessionManager,
-                        remaskManager
+                        remaskManager,
+                        etfConfigManager
                 )
         )
         server.pluginManager.registerEvents(this, this)
         server.pluginManager.registerEvents(TriggerListener(this), this)
+        server.pluginManager.registerEvents(etfConfigManager, this)
         if (characterManagerBridge.active) {
             logger.info("CharacterManager integration enabled.")
         }

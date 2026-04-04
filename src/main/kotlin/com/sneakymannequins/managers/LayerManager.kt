@@ -1173,6 +1173,97 @@ class LayerManager(private val plugin: SneakyMannequins) {
         }
     }
 
+    /**
+     * Updates ETF-related settings for a specific part and persists them to metadata.json.
+     * Use null for values that shouldn't be changed.
+     */
+    fun updateEtfSettings(
+        layerId: String,
+        partId: String,
+        blinkHeight: Int? = null,
+        blinkStyle: Int? = null,
+        dressLength: Int? = null,
+        jacketStyle: Int? = null
+    ): String {
+        val (def, options) = loadedLayers[layerId] ?: return "Layer '$layerId' not found."
+        val opt = options.find { it.id == partId } ?: return "Part '$partId' not found in '$layerId'."
+        val dir = opt.directory ?: return "Part '$partId' has no directory (synthetic?)"
+
+        val metaFile = dir.resolve("metadata.json")
+        if (!metaFile.exists()) return "metadata.json not found for '$partId'."
+
+        val content = Files.readString(metaFile)
+        
+        // Update values in JSON string (using regex for simplicity and consistency with loadMetadata)
+        var newJson = content
+        
+        fun updateField(key: String, value: Int?) {
+            if (value == null) return
+            val regex = Regex("\"$key\":\\s*\\d+")
+            if (regex.containsMatchIn(newJson)) {
+                newJson = regex.replace(newJson, "\"$key\": $value")
+            } else {
+                // Insert before the last closing brace if it doesn't exist
+                val lastBrace = newJson.lastIndexOf('}')
+                if (lastBrace != -1) {
+                    val leadingComma = if (newJson.trim().dropLast(1).trim().last() == ',') "" else ","
+                    newJson = newJson.substring(0, lastBrace).trimEnd() + 
+                              "$leadingComma\n    \"$key\": $value\n" + 
+                              newJson.substring(lastBrace)
+                }
+            }
+        }
+
+        fun updateBooleanField(key: String, value: Boolean?) {
+            if (value == null) return
+            val regex = Regex("\"$key\":\\s*(true|false)")
+            if (regex.containsMatchIn(newJson)) {
+                newJson = regex.replace(newJson, "\"$key\": $value")
+            } else {
+                // Insert before the last closing brace
+                val lastBrace = newJson.lastIndexOf('}')
+                if (lastBrace != -1) {
+                    val leadingComma = if (newJson.trim().dropLast(1).trim().last() == ',') "" else ","
+                    newJson = newJson.substring(0, lastBrace).trimEnd() + 
+                              "$leadingComma\n    \"$key\": $value\n" + 
+                              newJson.substring(lastBrace)
+                }
+            }
+        }
+
+        if (blinkHeight != null) {
+            if (blinkHeight > 0) {
+                updateField("blinkHeight", blinkHeight)
+                updateField("blinkStyle", blinkStyle)
+                updateBooleanField("isBlink", true)
+            } else {
+                updateBooleanField("isBlink", false)
+            }
+        } else {
+            // If only style was provided (though unlikely from our current UI)
+            updateField("blinkStyle", blinkStyle)
+        }
+
+        if (dressLength != null) {
+            if (dressLength > 0) {
+                updateField("dressLength", dressLength)
+                updateField("jacketStyle", jacketStyle)
+                updateBooleanField("isDress", true)
+            } else {
+                updateBooleanField("isDress", false)
+            }
+        } else {
+            updateField("jacketStyle", jacketStyle)
+        }
+
+        Files.writeString(metaFile, newJson)
+        
+        // Reload the layer to reflect changes
+        reloadLayer(layerId)
+        
+        return "Updated ETF settings for '$partId' in '$layerId'."
+    }
+
     fun commitRemask(
             layerId: String,
             partId: String,

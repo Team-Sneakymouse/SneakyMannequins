@@ -77,7 +77,8 @@ class MannequinHoverEvent(
 
 class MannequinClickEvent(
     mannequinId: UUID, location: Location, player: Player,
-    val button: String
+    val button: String,
+    val backwards: Boolean = false
 ) : MannequinEvent(mannequinId, location, player) {
     override fun getHandlers(): HandlerList = handlerList
     companion object { @JvmStatic val handlerList = HandlerList() }

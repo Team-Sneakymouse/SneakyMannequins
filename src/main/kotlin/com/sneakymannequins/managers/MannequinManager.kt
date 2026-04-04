@@ -1015,11 +1015,11 @@ class MannequinManager(
         val style = styleManager.getStyle(mannequin.styleId) ?: return
         val configBtn = buttonByName(buttonName, style.hudButtons) ?: return
 
+        val event = MannequinClickEvent(mannequinId, mannequin.location, player, buttonName, backwards = backwards)
         if (configBtn.type != "color" && configBtn.type != "config") {
-            plugin.server.pluginManager.callEvent(
-                    MannequinClickEvent(mannequinId, mannequin.location, player, buttonName)
-            )
+            plugin.server.pluginManager.callEvent(event)
         }
+        if (event.isCancelled) return
 
         when (configBtn.type) {
             "model" -> {
@@ -2418,6 +2418,11 @@ class MannequinManager(
                         "[DEBUG] handleInteract: hudOpen=true hoverButton=$hover tolerance=$tolerance"
                 )
             }
+
+            // Check for event cancellation (blocks regular interaction e.g. during ETF mode)
+            val event = MannequinClickEvent(mannequinId, mannequin.location, player, "_SURFACE_", backwards = backwards)
+            plugin.server.pluginManager.callEvent(event)
+            if (event.isCancelled) return
 
             // Only cycle if not hovering a button and within tolerance
             if (!hover && tolerance) {

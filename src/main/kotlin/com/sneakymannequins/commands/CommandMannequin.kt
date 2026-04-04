@@ -1,6 +1,7 @@
 package com.sneakymannequins.commands
 
 import com.sneakymannequins.SneakyMannequins
+import com.sneakymannequins.managers.EtfConfigManager
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymannequins.managers.LayerManager.MaskStrategy
 import com.sneakymannequins.managers.MannequinManager
@@ -23,7 +24,8 @@ class CommandMannequin(
         private val layerManager: LayerManager,
         private val styleManager: StyleManager,
         private val sessionManager: SessionManager,
-        private val remaskManager: RemaskManager
+        private val remaskManager: RemaskManager,
+        private val etfConfigManager: EtfConfigManager
 ) : CommandBase("mannequin") {
 
     companion object {
@@ -56,6 +58,8 @@ class CommandMannequin(
             "template" -> handleTemplate(stack, args)
             "remask" -> player?.let { handleRemask(it, args) }
                             ?: stack.sender.sendMessage("You must be a player to use this command")
+            "etf" -> player?.let { handleEtf(it, args) }
+                            ?: stack.sender.sendMessage("You must be a player to use this command")
             "me" -> player?.let { handleMe(it, args) }
                             ?: stack.sender.sendMessage("You must be a player to use this command")
             "add" -> player?.let { create(it, args) }
@@ -83,6 +87,7 @@ class CommandMannequin(
                         "history" to "View your session history",
                         "template" to "Manage session templates",
                         "remask" to "Remask a specific layer part",
+                        "etf" to "Configure ETF settings interactively",
                         "me" to "Manage user-uploaded custom skin parts",
                         "debug" to "Access developer/debug tools"
                 )
@@ -101,6 +106,7 @@ class CommandMannequin(
                                     "remove",
                                     "reload",
                                     "remask",
+                                    "etf",
                                     "me",
                                     "history",
                                     "template",
@@ -114,6 +120,20 @@ class CommandMannequin(
                         "remask" -> {
                             val p = stack.sender as? Player
                             if (p != null && remaskManager.hasSession(p)) {
+                                listOf("confirm", "cancel")
+                                        .filter { it.startsWith(args[1], ignoreCase = true) }
+                                        .toMutableList()
+                            } else {
+                                layerManager
+                                        .definitionsInOrder()
+                                        .map { it.id }
+                                        .filter { it.startsWith(args[1], ignoreCase = true) }
+                                        .toMutableList()
+                            }
+                        }
+                        "etf" -> {
+                            val p = stack.sender as? Player
+                            if (p != null && etfConfigManager.hasSession(p)) {
                                 listOf("confirm", "cancel")
                                         .filter { it.startsWith(args[1], ignoreCase = true) }
                                         .toMutableList()
@@ -160,6 +180,11 @@ class CommandMannequin(
                             layerManager
                                     .optionsFor(layerId)
                                     .map { it.id }
+                                    .filter { it.startsWith(args[2], ignoreCase = true) }
+                                    .toMutableList()
+                        }
+                        "etf" -> {
+                            listOf("blink", "dress")
                                     .filter { it.startsWith(args[2], ignoreCase = true) }
                                     .toMutableList()
                         }
@@ -657,6 +682,44 @@ class CommandMannequin(
                         "&aMannequin state saved with UID: ${TextUtility.clickableCopy(uid)}"
                 )
         )
+    }
+
+    private fun handleEtf(player: Player, args: Array<out String>) {
+        if (args.size == 1) {
+            player.sendMessage(TextUtility.convertToComponent("&cUsage: /mannequin etf <layer> <blink|dress> OR /mannequin etf <confirm|cancel>"))
+            return
+        }
+
+        if (args[1] == "confirm") {
+            etfConfigManager.stopSession(player, save = true)
+            return
+        }
+        if (args[1] == "cancel") {
+            etfConfigManager.stopSession(player, save = false)
+            return
+        }
+
+        if (args.size < 3) {
+            player.sendMessage(TextUtility.convertToComponent("&cUsage: /mannequin etf <layer> <blink|dress>"))
+            return
+        }
+
+        val layerId = args[1]
+        val mode = args[2].lowercase()
+        
+        val mannequin = mannequinManager.nearestMannequin(player.location, 10.0)
+        if (mannequin == null) {
+            player.sendMessage(TextUtility.convertToComponent("&cNo mannequin nearby."))
+            return
+        }
+
+        val selection = mannequin.selection.selections[layerId]
+        if (selection?.option == null) {
+            player.sendMessage(TextUtility.convertToComponent("&cNo part selected for layer '$layerId'."))
+            return
+        }
+
+        etfConfigManager.startSession(player, mannequin.id, layerId, selection.option.id, mode)
     }
 
     private fun handleRemask(sender: Player, args: Array<out String>) {
