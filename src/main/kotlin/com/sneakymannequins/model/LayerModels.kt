@@ -119,6 +119,7 @@ data class LayerDefinition(
         val displayName: String,
         val directory: Path,
         val allowColorMask: Boolean,
+        val allowEmpty: Boolean = true,
         val paletteSpec: PaletteSpec = PaletteSpec.INHERIT,
         val textureSpec: TextureSpec = TextureSpec.INHERIT,
         val brightnessInfluence: Float? = null,

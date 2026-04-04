@@ -63,6 +63,13 @@ class LayerManager(private val plugin: SneakyMannequins) {
                             plugin.logger.warning("No layer definitions found in config.")
                             return
                         }
+        
+        val layersSection = definitions.getConfigurationSection("layers")
+                        ?: run {
+                            plugin.logger.warning("No 'layers' section found in definitions.")
+                            return
+                        }
+
         defaultPaletteSpec = parsePaletteSpec(definitions)
         defaultTextureSpec = parseTextureSpec(definitions)
         if (definitions.contains("brightness-influence")) {
@@ -77,12 +84,12 @@ class LayerManager(private val plugin: SneakyMannequins) {
         if (configuredOrder.isNotEmpty()) {
             layerOrder.addAll(configuredOrder)
         } else {
-            // Fallback: use definition keys if no explicit order
-            layerOrder.addAll(definitions.getKeys(false))
+            // Fallback: use layersSection keys if no explicit order
+            layerOrder.addAll(layersSection.getKeys(false))
         }
 
         layerOrder.forEach { layerId ->
-            val definitionSection = definitions.getConfigurationSection(layerId)
+            val definitionSection = layersSection.getConfigurationSection(layerId)
             if (definitionSection == null) {
                 plugin.logger.warning("Layer '$layerId' listed in order but has no definition.")
                 return@forEach
@@ -271,7 +278,22 @@ class LayerManager(private val plugin: SneakyMannequins) {
             Files.createDirectories(directory)
         }
 
-        return loadLayerOptions(directory, definition, optionConfig)
+        val options = loadLayerOptions(directory, definition, optionConfig).toMutableList()
+        
+        if (definition.allowEmpty) {
+            options.add(0, LayerOption(
+                id = "none",
+                displayName = "None",
+                fileDefault = null,
+                fileSlim = null,
+                fileMaster = null,
+                imageDefault = null,
+                imageSlim = null,
+                imageMaster = null
+            ))
+        }
+        
+        return options
     }
 
     private fun loadLayerOptions(
@@ -2363,6 +2385,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
         val id = this.name
         val displayName = getString("display-name", id) ?: id
         val allowMask = getBoolean("allow-color-mask", false)
+        val allowEmpty = getBoolean("allow-empty", true)
         val directory =
                 dataFolder.resolve(getString("directory", "layers/$id") ?: "layers/$id").normalize()
 
@@ -2380,6 +2403,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 displayName = displayName,
                 directory = directory,
                 allowColorMask = allowMask,
+                allowEmpty = allowEmpty,
                 paletteSpec = palSpec,
                 textureSpec = texSpec,
                 brightnessInfluence = briInf,

@@ -306,43 +306,6 @@ layers:
       forest_green: "1A4A1A"
 
   # ── Texture definitions ──────────────────────────────────────────────
-  # Named textures that control *how* a colour channel is rendered.
-  # Each texture can have a blend map (RGB = sub-channel weights) and/or
-  # an AO map (grayscale brightness modulation) and/or a roughness map
-  # (grayscale saturation modulation).
-  #
-  # AO (ambient occlusion) modulates brightness on top of the original art:
-  #   128 = neutral (no change), lower = darker, higher = brighter.
-  #
-  # Roughness modulates saturation on top of the original art:
-  #   128 = neutral (no change), lower = less saturated, higher = more saturated.
-  #
-  # AO, roughness, and alpha can point to the same image file if you want
-  # coupled modulation.  All maps are optional and independent.
-  #
-  # When a texture is selected, AO, roughness, and alpha apply to EVERY pixel
-  # in the part — not just those covered by a colour mask channel.
-  #
-  # Textures are assigned at global, layer, or part level using a
-  # `textures:` list (same hierarchy as palettes, but without first/last).
-  # The reserved keyword "default" can be included in the list to enable
-  # the "Default" option (flat colour, no texture).  If omitted, the
-  # user must always have a texture selected.
-  #
-  # Example texture definitions:
-  #   textures:
-  #     wool:
-  #       blend: "textures/wool_blend.png"
-  #       ao: "textures/wool_ao.png"
-  #       roughness: "textures/wool_roughness.png"
-  #     denim:
-  #       blend: "textures/denim_blend.png"
-  #       ao: "textures/denim_detail.png"
-  #       roughness: "textures/denim_detail.png"   # same file for both
-  #     leather:
-  #       ao: "textures/leather_ao.png"             # AO only, no blend
-  #     ghostly:
-  #       alpha: "textures/ghost_alpha.png"          # alpha only, no blend
   textures:
     striped:
       blend: "textures/blend_stripes_h.png"
@@ -388,107 +351,78 @@ layers:
 
   definitions:
     # Default palette assignments – applied to ALL layers unless overridden.
-    # Three categories processed in order: first → palettes → last.
-    # Lower-level definitions (layer / part) fully replace higher-level ones
-    # within the same category.  Duplicate palettes across categories are
-    # collapsed (first occurrence wins).
-    #
-    # Each entry is either a plain palette id or a map with optional permission:
-    #   - primary                         # available to everyone
-    #   - palette: neon                   # same as above
-    #     permission: group.admin         # only if player has this perm
     palettes-first: []
     palettes:
-      - default                            # enables "Default" (no colour override) option
+      - default
       - greyscale
     palettes-last: []
 
     # Default texture assignments – applied to ALL layers unless overridden.
-    # Each entry is either a plain texture id or a map with optional permission:
-    #   - wool                              # available to everyone
-    #   - texture: leather                  # same as above
-    #     permission: group.admin           # only if player has this perm
-    # The reserved keyword "default" enables the "Default" (flat colour) option.
     textures:
-      - default                            # enables "Default" (flat colour) texture option
+      - default
       - worn
       - fabric
 
     # How much the picked color's saturation influences the final pixel.
-    # 0.0 = saturation fully preserved from original art.
-    # 1.0 = move the overall saturation towards the target (preserves variance).
     saturation-influence: 1.0
 
     # How much the picked colour's brightness influences the final pixel.
-    # 0.0 = brightness fully preserved from original art (old behaviour).
-    # 1.0 = full rescale towards picked colour's brightness (destroys shading).
-    # Values around 0.2–0.4 shift the overall brightness region while keeping
-    # the original shading contrast mostly intact.
-    # Can be overridden per-layer or per-part (option) in their config sections.
     brightness-influence: 0.3
 
-    hair:
-      display-name: "Hair"
-      directory: "layers/Hair"
-      allow-color-mask: true
-      # Layer-level palettes (overrides default-palettes for this layer)
-      palettes:
-        - default
-        - hair
-        - neon
-        - pastel
-      # Optional per-option overrides (three categories available):
-      # options:
-      #   fedora:
-      #     palettes:          # overrides layer "palettes" for this part
-      #       - earth
-      #     palettes-first:    # overrides default "palettes-first" for this part
-      #       - greyscale
-      #     palettes-last:     # overrides default "palettes-last" for this part
-      #       - palette: neon
-      #         permission: group.admin
-      #     permissions:       # restriction for the part itself (any of)
-      #       - my.part.perm
-    
-    shirt:
-      display-name: "Shirt"
-      directory: "layers/Shirt"
-      allow-color-mask: true
-      palettes:
-        - default
-        - primary
-        - fabric
-        - pastel
-      textures:
-        - default
-        - striped
-        - pinstripe
-        - checkered
-        - gradient
-        - diagonal
-        - tricolor
-    
-    pants:
-      display-name: "Pants"
-      directory: "layers/Pants"
-      allow-color-mask: true
-      palettes:
-        - default
-        - fabric
-        - earth
-        - greyscale
-      textures:
-        - default
-        - striped
-        - pinstripe
-        - checkered
-    
-    body:
-      display-name: "Body"
-      directory: "layers/Body"
-      allow-color-mask: true
-      base: true
-      palettes:
-        - default
-        - skin
-        - jewel
+    layers:
+      hair:
+        display-name: "Hair"
+        directory: "layers/Hair"
+        allow-empty: true
+        allow-color-mask: true
+        palettes:
+          - default
+          - hair
+          - neon
+          - pastel
+      
+      shirt:
+        display-name: "Shirt"
+        directory: "layers/Shirt"
+        allow-empty: true
+        allow-color-mask: true
+        palettes:
+          - default
+          - primary
+          - fabric
+          - pastel
+        textures:
+          - default
+          - striped
+          - pinstripe
+          - checkered
+          - gradient
+          - diagonal
+          - tricolor
+      
+      pants:
+        display-name: "Pants"
+        directory: "layers/Pants"
+        allow-empty: true
+        allow-color-mask: true
+        palettes:
+          - default
+          - fabric
+          - earth
+          - greyscale
+        textures:
+          - default
+          - striped
+          - pinstripe
+          - checkered
+      
+      body:
+        display-name: "Body"
+        directory: "layers/Body"
+        allow-empty: false
+        allow-color-mask: true
+        base: true
+        palettes:
+          - default
+          - skin
+          - jewel
