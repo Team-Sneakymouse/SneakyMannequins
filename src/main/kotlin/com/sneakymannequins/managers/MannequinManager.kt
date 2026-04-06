@@ -2428,6 +2428,15 @@ class MannequinManager(
 
     fun handleInteract(mannequinId: UUID, player: Player, backwards: Boolean) {
         val mannequin = mannequins[mannequinId] ?: return
+        val debug = plugin.config.getBoolean("plugin.debug", false)
+        if (debug) {
+            val pLoc = player.location
+            val mLoc = mannequin.location
+            val dist = if (pLoc.world == mLoc.world) runCatching { pLoc.distance(mLoc) }.getOrNull() else null
+            plugin.logger.info(
+                    "[DEBUG] handleInteract: man=$mannequinId player=${player.name} gm=${player.gameMode} backwards=$backwards dist=${dist ?: "?"}"
+            )
+        }
 
         if (mannequin.isHidden) {
             mannequin.isHidden = false
@@ -2437,12 +2446,17 @@ class MannequinManager(
         }
 
         val hud = holoController.getHud(player.uniqueId)
+        if (debug) {
+            plugin.logger.info(
+                    "[DEBUG] handleInteract: hud=${hud != null} hudMan=${hud?.mannequinId} thisMan=$mannequinId"
+            )
+        }
 
         if (hud != null && hud.mannequinId == mannequinId) {
             val hover = hud.isAnyButtonHovered
             val tolerance = meetsInteractionTolerances(player, mannequin)
 
-            if (plugin.config.getBoolean("plugin.debug", false)) {
+            if (debug) {
                 plugin.logger.info(
                         "[DEBUG] handleInteract: hudOpen=true hoverButton=$hover tolerance=$tolerance"
                 )
@@ -2451,6 +2465,9 @@ class MannequinManager(
             // Check for event cancellation (blocks regular interaction e.g. during ETF mode)
             val event = MannequinClickEvent(mannequinId, mannequin.location, player, "_SURFACE_", backwards = backwards)
             plugin.server.pluginManager.callEvent(event)
+            if (debug) {
+                plugin.logger.info("[DEBUG] handleInteract: clickEvent cancelled=${event.isCancelled}")
+            }
             if (event.isCancelled) return
 
             // Only cycle if not hovering a button and within tolerance
@@ -2467,10 +2484,15 @@ class MannequinManager(
                         updateStatus(mannequinId, "${prettyName(chosen)}")
                     }
                 }
+            } else if (debug) {
+                plugin.logger.info("[DEBUG] handleInteract: NOOP hover=$hover tolerance=$tolerance")
             }
             return
         }
 
+        if (debug) {
+            plugin.logger.info("[DEBUG] handleInteract: spawning HUD (no hud or other mannequin)")
+        }
         spawnPlayerHud(player, mannequin)
     }
 
@@ -2481,15 +2503,34 @@ class MannequinManager(
     }
 
     private fun meetsInteractionTolerances(player: Player, mannequin: Mannequin): Boolean {
+        val debug = plugin.config.getBoolean("plugin.debug", false)
         val pLoc = player.location
         val mLoc = mannequin.location
-        if (pLoc.distance(mLoc) > interactRange) return false
+        val dist =
+                if (pLoc.world == mLoc.world) runCatching { pLoc.distance(mLoc) }.getOrNull()
+                else null
+        if (dist == null) return false
+        if (dist > interactRange) {
+            if (debug) {
+                plugin.logger.info(
+                        "[DEBUG] tolerance: dist=$dist > interactRange=$interactRange (gm=${player.gameMode})"
+                )
+            }
+            return false
+        }
 
         val toMannequin = mLoc.toVector().subtract(pLoc.toVector()).setY(0).normalize()
         val facing = pLoc.direction.setY(0).normalize()
 
         val angle = facing.angle(toMannequin)
-        return Math.toDegrees(angle.toDouble()) <= partFacingToleranceDeg
+        val deg = Math.toDegrees(angle.toDouble())
+        val ok = deg <= partFacingToleranceDeg
+        if (debug) {
+            plugin.logger.info(
+                    "[DEBUG] tolerance: dist=$dist deg=${"%.2f".format(deg)} tolDeg=$partFacingToleranceDeg ok=$ok gm=${player.gameMode}"
+            )
+        }
+        return ok
     }
 
     fun startHoverTask() {
