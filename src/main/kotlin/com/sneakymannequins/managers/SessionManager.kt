@@ -26,7 +26,7 @@ import javax.imageio.ImageIO
 import org.bukkit.entity.Player
 import org.bukkit.profile.PlayerTextures.SkinModel
 
-data class FinalizedResult(val file: File, val slim: Boolean)
+data class FinalizedResult(val file: File, val slim: Boolean, val uid: String)
 
 class SessionManager(
         private val plugin: SneakyMannequins,
@@ -34,6 +34,14 @@ class SessionManager(
         private val layerManager: LayerManager,
         private val characterManagerBridge: CharacterManagerBridge
 ) {
+    private val rememberedAppliedUid = mutableMapOf<UUID, String>()
+
+    fun rememberAppliedUid(playerId: UUID, uid: String) {
+        rememberedAppliedUid[playerId] = uid
+    }
+
+    private fun rememberedUid(playerId: UUID): String? = rememberedAppliedUid[playerId]
+
     private fun hexToColor(hex: String?): Color? {
         if (hex == null) return null
         return try {
@@ -129,6 +137,12 @@ class SessionManager(
             }
         }
         return session
+    }
+
+    private fun persistSession(session: SessionData) {
+        val uid = session.uid
+        val jsonString = gson.toJson(session)
+        CompletableFuture.runAsync { File(sessionsDir, "$uid.json").writeText(jsonString) }
     }
 
     fun load(id: String): SessionData? {
@@ -337,7 +351,8 @@ class SessionManager(
             man: Mannequin,
             sessionOverride: SessionData? = null,
             contextPlayer: Player = requester,
-            craig: Boolean = false
+            craig: Boolean = false,
+            createNewUid: Boolean = false
     ): CompletableFuture<FinalizedResult> {
         val playerSkinModel = contextPlayer.playerProfile.textures.skinModel
         val playerSkinUrl = contextPlayer.playerProfile.textures.skin
@@ -370,14 +385,57 @@ class SessionManager(
                     } else downloadedSkin
 
             val lastAppliedUid =
-                    if (characterManagerBridge.active) decodeUidFromImage(baseSkin) else null
+                    if (createNewUid || characterManagerBridge.active) {
+                        decodeUidFromImage(baseSkin) ?: rememberedUid(contextPlayerUniqueId)
+                    } else {
+                        null
+                    }
             val baseSession = lastAppliedUid?.let { load(it) }
+            val defaultSlim = playerSkinModel == SkinModel.SLIM
             val merged =
                     if (baseSession != null) {
-                        merge(mannequinSession, baseSession, playerSkinModel == SkinModel.SLIM)
+                        if (createNewUid) {
+                            // Apply A on top of B, but persist a fresh UID so the result can be
+                            // re-used as a session (required for Outfit items).
+                            val out = baseSession.layers.toMutableMap()
+                            out.putAll(mannequinSession.layers)
+                            val mergedSlim =
+                                    mannequinSession.slimModel ?: baseSession.slimModel ?: defaultSlim
+                            val newUid = generateUid()
+                            SessionData(
+                                    uid = newUid,
+                                    creator = contextPlayerUniqueId.toString(),
+                                    createdAt = Instant.now().toString(),
+                                    slimModel = mergedSlim,
+                                    layers = out,
+                                    characterUuid =
+                                            mannequinSession.characterUuid
+                                                    ?: baseSession.characterUuid,
+                                    characterName =
+                                            mannequinSession.characterName
+                                                    ?: baseSession.characterName
+                            ).also { persistSession(it) }
+                        } else {
+                            merge(mannequinSession, baseSession, defaultSlim)
+                        }
                     } else {
-                        val defaultSlim = playerSkinModel == SkinModel.SLIM
-                        mannequinSession.copy(slimModel = mannequinSession.slimModel ?: defaultSlim)
+                        if (createNewUid) {
+                            val mergedSlim = mannequinSession.slimModel ?: defaultSlim
+                            val newUid = generateUid()
+                            SessionData(
+                                    uid = newUid,
+                                    creator = contextPlayerUniqueId.toString(),
+                                    createdAt = Instant.now().toString(),
+                                    slimModel = mergedSlim,
+                                    layers = mannequinSession.layers,
+                                    characterUuid = mannequinSession.characterUuid,
+                                    characterName = mannequinSession.characterName
+                            ).also { persistSession(it) }
+                        } else {
+                            mannequinSession.copy(
+                                    slimModel = mannequinSession.slimModel ?: defaultSlim
+                            )
+                        }
                     }
 
             val slim = merged.slimModel ?: false
@@ -418,8 +476,31 @@ class SessionManager(
             encodeUidToImage(finalImage, merged.uid)
             val f = File(targetDir, "finalized_${merged.uid}.png")
             ImageIO.write(finalImage, "PNG", f)
-            FinalizedResult(f, slim)
+            FinalizedResult(f, slim, merged.uid)
         }
+    }
+
+    fun finalizeSessionFromSessionData(
+            requester: Player,
+            session: SessionData,
+            contextPlayer: Player = requester,
+            craig: Boolean = false
+    ): CompletableFuture<FinalizedResult> {
+        // Use a synthetic mannequin wrapper to reuse existing pipeline.
+        val dummy =
+                Mannequin(
+                        location = contextPlayer.location,
+                        selection = SkinSelection(emptyMap()),
+                        slimModel = session.slimModel ?: false
+                )
+        return finalizeSession(
+                requester = requester,
+                man = dummy,
+                sessionOverride = session,
+                contextPlayer = contextPlayer,
+                craig = craig,
+                createNewUid = true
+        )
     }
 
     private fun sessionToSelection(session: SessionData): SkinSelection {

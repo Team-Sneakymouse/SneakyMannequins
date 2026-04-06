@@ -2460,6 +2460,7 @@ class MannequinManager(
                 )
                 .thenAccept { result ->
                     val url = ConfigManager.instance.getImageUrl(result.file.name)
+                    sessionManager.rememberAppliedUid(contextPlayer.uniqueId, result.uid)
 
                     if (characterManagerBridge.active) {
                         val charContext = characterManagerBridge.currentCharacter(contextPlayer)
@@ -2494,6 +2495,68 @@ class MannequinManager(
                                                     )
                                     )
 
+                    requester.sendMessage(message)
+                }
+                .exceptionally { ex ->
+                    requester.sendMessage(
+                            TextUtility.convertToComponent("&cFinalization failed: ${ex.message}")
+                    )
+                    null
+                }
+    }
+
+    /**
+     * Finalizes and applies a session directly to a player, creating a fresh UID and encoding it
+     * into the resulting skin. Used for Outfit items (incomplete sessions).
+     */
+    fun finalizeAndApplySession(
+            requester: Player,
+            contextPlayer: Player,
+            session: SessionData,
+            craig: Boolean = false
+    ) {
+        sessionManager
+                .finalizeSessionFromSessionData(
+                        requester = requester,
+                        session = session,
+                        contextPlayer = contextPlayer,
+                        craig = craig
+                )
+                .thenAccept { result ->
+                    val url = ConfigManager.instance.getImageUrl(result.file.name)
+                    sessionManager.rememberAppliedUid(contextPlayer.uniqueId, result.uid)
+
+                    if (characterManagerBridge.active) {
+                        val charContext = characterManagerBridge.currentCharacter(contextPlayer)
+                        if (charContext != null) {
+                            characterManagerBridge.updateSkin(
+                                    contextPlayer,
+                                    charContext.characterUuid,
+                                    url,
+                                    result.slim
+                            )
+
+                            requester.sendMessage(
+                                    TextUtility.convertToComponent(
+                                            "&aSkin applied to character &d${charContext.characterName}&a!"
+                                    )
+                            )
+                            return@thenAccept
+                        }
+                    }
+
+                    val message =
+                            Component.text("Skin finalized! ")
+                                    .color(NamedTextColor.GREEN)
+                                    .append(
+                                            Component.text("[Click to view]")
+                                                    .color(NamedTextColor.YELLOW)
+                                                    .decorate(TextDecoration.UNDERLINED)
+                                                    .clickEvent(ClickEvent.openUrl(url))
+                                                    .hoverEvent(
+                                                            HoverEvent.showText(Component.text(url))
+                                                    )
+                                    )
                     requester.sendMessage(message)
                 }
                 .exceptionally { ex ->

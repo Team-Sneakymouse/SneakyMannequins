@@ -68,19 +68,8 @@ class OutfitItemListener(
                             return
                         }
 
-        val man =
-                mannequinManager.nearestMannequin(player.location, 1000.0)
-                        ?: run {
-                            player.sendMessage(
-                                    TextUtility.convertToComponent(
-                                            "&cNo mannequin nearby for location context."
-                                    )
-                            )
-                            return
-                        }
-
         player.sendMessage(TextUtility.convertToComponent("&eApplying outfit..."))
-        mannequinManager.finalizeAndApply(player, man, player, sessionOverride = session)
+        mannequinManager.finalizeAndApplySession(player, player, session)
     }
 }
 
