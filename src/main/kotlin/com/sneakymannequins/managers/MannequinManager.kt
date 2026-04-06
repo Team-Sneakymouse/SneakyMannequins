@@ -115,6 +115,17 @@ class MannequinManager(
         return mannequin.selection.selections[layerId]?.option?.id
     }
 
+    /**
+     * After mask channel rewrites (merge/delete), the channel slots list can shrink/reorder.
+     * Reset UI indices so the HUD doesn't point at a non-existent old slot.
+     */
+    fun resetUiIndices(mannequinId: UUID, layerId: String) {
+        val state = controlState[mannequinId] ?: return
+        state.channelIndex[layerId] = 0
+        state.colorIndex[layerId] = 0
+        // textureIndex is left as-is; it is independent of mask channel count.
+    }
+
     fun findPartById(layerId: String, partId: String): LayerOption? {
         return layerManager.findPartById(layerId, partId)
     }
@@ -1119,8 +1130,13 @@ class MannequinManager(
                     if (cyclingLayers.isNotEmpty()) {
                         val currentLayerId =
                                 styleLayers.getOrNull(state.layerIndex % styleLayers.size)?.id
-                        val currentCyclingIdx =
+                        val currentCyclingIdxRaw =
                                 cyclingLayers.indexOfFirst { it.id == currentLayerId }
+                        // If the current layer is not in the allowed subset, default to the first
+                        // allowed layer instead of treating it as -1 (which makes forward clicks
+                        // always land on index 0).
+                        val currentCyclingIdx =
+                                if (currentCyclingIdxRaw >= 0) currentCyclingIdxRaw else 0
 
                         val nextCyclingIdx =
                                 if (backwards)
@@ -1129,8 +1145,16 @@ class MannequinManager(
                                 else (currentCyclingIdx + 1) % cyclingLayers.size
 
                         val nextLayer = cyclingLayers[nextCyclingIdx]
-                        state.layerIndex = styleLayers.indexOfFirst { it.id == nextLayer.id }
+                        // nextLayer comes from styleLayers filtering, so indexOf should succeed; fall
+                        // back to 0 rather than leaving layerIndex=-1 (breaks left-click cycling).
+                        state.layerIndex = styleLayers.indexOf(nextLayer).takeIf { it >= 0 } ?: 0
                         updateStatus(mannequinId, "Layer: ${prettyName(nextLayer.id)}")
+
+                        if (plugin.config.getBoolean("plugin.debug", false)) {
+                            plugin.logger.info(
+                                    "[DEBUG] layerClick: btn=${configBtn.name} backwards=$backwards layerIndex=${state.layerIndex} currentLayerId=$currentLayerId currentCyclingIdxRaw=$currentCyclingIdxRaw nextCyclingIdx=$nextCyclingIdx cyclingLayers=${cyclingLayers.map { it.id }}"
+                            )
+                        }
                     }
                 }
                 refreshDynamicLabels(mannequinId)
@@ -1192,17 +1216,27 @@ class MannequinManager(
                         val viewers = nearbyViewers(mannequin)
                         render(mannequin, viewers, forceInstant = true)
 
-                        val restoreSel = currentSel ?: LayerSelection(nextLayerDef.id, option)
                         plugin.server.scheduler.runTaskLater(
                                 plugin,
                                 Runnable {
                                     if (mannequins[mannequinId] != mannequin) return@Runnable
+                                    // Restore exactly what was there before the flash. If there was
+                                    // no selection entry yet, remove ours so the layer falls back to
+                                    // its normal defaults (instead of staying "all white").
                                     mannequin.selection =
-                                            mannequin.selection.copy(
-                                                    selections =
-                                                            mannequin.selection.selections +
-                                                                    (nextLayerDef.id to restoreSel)
-                                            )
+                                            if (currentSel != null) {
+                                                mannequin.selection.copy(
+                                                        selections =
+                                                                mannequin.selection.selections +
+                                                                        (nextLayerDef.id to currentSel)
+                                                )
+                                            } else {
+                                                mannequin.selection.copy(
+                                                        selections =
+                                                                mannequin.selection.selections -
+                                                                        nextLayerDef.id
+                                                )
+                                            }
                                     render(mannequin, nearbyViewers(mannequin), forceInstant = true)
                                 },
                                 10L

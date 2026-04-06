@@ -1510,6 +1510,52 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 null
             }
 
+    private fun rewriteMaskMappingsInMetadata(dir: Path) {
+        val metaFile = dir.resolve("metadata.json")
+        if (!metaFile.exists()) return
+
+        val mappingsMaster = mutableMapOf<Int, String>()
+        val mappingsDefault = mutableMapOf<Int, String>()
+        val mappingsSlim = mutableMapOf<Int, String>()
+
+        Files.list(dir).use { stream ->
+            stream.forEach { path ->
+                val name = path.nameWithoutExtension
+                if (!name.contains("_mask_")) return@forEach
+                val idx = name.substringAfterLast("_mask_").toIntOrNull() ?: return@forEach
+                when {
+                    name.contains("_Default_") -> mappingsDefault[idx] = path.name
+                    name.contains("_Slim_") -> mappingsSlim[idx] = path.name
+                    else -> mappingsMaster[idx] = path.name
+                }
+            }
+        }
+
+        fun mapToJson(m: Map<Int, String>) =
+                m.entries.sortedBy { it.key }.joinToString(",") { "\"${it.key}\": \"${it.value}\"" }
+
+        val content = try { Files.readString(metaFile) } catch (_: Exception) { return }
+
+        fun replaceMap(key: String, jsonMap: String): String {
+            val pattern = Regex("\"$key\"\\s*:\\s*\\{[\\s\\S]*?\\}")
+            val repl = "\"$key\": { $jsonMap }"
+            return if (pattern.containsMatchIn(content)) pattern.replace(content, repl) else content
+        }
+
+        var updated = content
+        updated = Regex("\"masks\"\\s*:\\s*\\{[\\s\\S]*?\\}").replace(updated, "\"masks\": { ${mapToJson(mappingsMaster)} }")
+        updated = Regex("\"masksDefault\"\\s*:\\s*\\{[\\s\\S]*?\\}").replace(updated, "\"masksDefault\": { ${mapToJson(mappingsDefault)} }")
+        updated = Regex("\"masksSlim\"\\s*:\\s*\\{[\\s\\S]*?\\}").replace(updated, "\"masksSlim\": { ${mapToJson(mappingsSlim)} }")
+
+        if (updated != content) {
+            try {
+                Files.writeString(metaFile, updated)
+            } catch (_: Exception) {
+                // ignore
+            }
+        }
+    }
+
     fun mergeMaskChannels(layerId: String, partId: String, channels: List<Int>): Pair<String, MaskChannelRewriteResult> {
         val option =
                 findPartById(layerId, partId)
@@ -1590,6 +1636,9 @@ class LayerManager(private val plugin: SneakyMannequins) {
         val rwDef = mergeVariant("_Default_")
         val rwSlim = mergeVariant("_Slim_")
 
+        // Keep metadata.json mappings in sync with on-disk masks.
+        rewriteMaskMappingsInMetadata(dir)
+
         reloadLayer(layerId)
         val remainingMaster = rwMaster.mappingOldToNew.values.distinct().size
         val remainingDef = rwDef.mappingOldToNew.values.distinct().size
@@ -1624,6 +1673,10 @@ class LayerManager(private val plugin: SneakyMannequins) {
         val rwMaster = deleteVariant("")
         val rwDef = deleteVariant("_Default_")
         val rwSlim = deleteVariant("_Slim_")
+
+        // Keep metadata.json mappings in sync with on-disk masks.
+        rewriteMaskMappingsInMetadata(dir)
+
         reloadLayer(layerId)
         val remainingMaster = rwMaster.mappingOldToNew.values.distinct().size
         val remainingDef = rwDef.mappingOldToNew.values.distinct().size

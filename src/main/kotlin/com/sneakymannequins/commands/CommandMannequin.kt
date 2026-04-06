@@ -920,6 +920,8 @@ class CommandMannequin(
                             selections = mannequin.selection.selections + (layerId to rewritten)
                     )
         }
+        // The HUD's channel selector index may now be out-of-range after compression.
+        mannequinManager.resetUiIndices(mannequin.id, layerId)
 
         sender.sendMessage(TextUtility.convertToComponent("&a$msg"))
         mannequinManager.render(mannequin, mannequinManager.nearbyViewers(mannequin), forceAll = true)
@@ -982,6 +984,7 @@ class CommandMannequin(
                             selections = mannequin.selection.selections + (layerId to rewritten)
                     )
         }
+        mannequinManager.resetUiIndices(mannequin.id, layerId)
 
         sender.sendMessage(TextUtility.convertToComponent("&a$msg"))
         mannequinManager.render(mannequin, mannequinManager.nearbyViewers(mannequin), forceAll = true)
