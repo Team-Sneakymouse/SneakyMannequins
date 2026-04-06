@@ -68,14 +68,6 @@ object SkinComposer {
             var sourceImage = if (useSlimModel) chosen.imageSlim else chosen.imageDefault
             if (sourceImage == null) return@forEach
 
-            // If this is a dress, we need to perform the ETF shift-and-swap:
-            if (chosen.isDress) {
-                anyDress = true
-                if (chosen.dressLength > maxDressLength) maxDressLength = chosen.dressLength
-                shiftOutputOuterToInner(output, chosen.dressLength)
-                sourceImage = convertLegsToDress(sourceImage)
-            }
-
             if (chosen.isBlink) {
                 maxBlinkStyle = chosen.blinkStyle
                 maxBlinkHeight = chosen.blinkHeight
@@ -160,6 +152,18 @@ object SkinComposer {
                 if (aoMap != null || roughnessMap != null || alphaMap != null) {
                     source = applyMaps(source!!, aoMap, roughnessMap, alphaMap)
                 }
+            }
+
+            // If this is a dress part, perform the ETF leg swap AFTER masking so that
+            // masks are evaluated against the original pixel positions.
+            // Bug fix 1: only perform the output swap when jacket is actually enabled.
+            if (chosen.isDress) {
+                anyDress = true
+                if (chosen.dressLength > maxDressLength) maxDressLength = chosen.dressLength
+                if (jacketEnabled) {
+                    shiftOutputOuterToInner(output, chosen.dressLength)
+                }
+                source = convertLegsToDress(source!!)
             }
 
             // Apply punch-through: if this layer has opaque inner skin pixels,
