@@ -2447,7 +2447,7 @@ class MannequinManager(
         plugin.server.pluginManager.callEvent(
                 MannequinSessionSaveEvent(mannequin.id, mannequin.location, player, uid)
         )
-        updateStatus(mannequin.id, "Saved to session '$uid'")
+        updateStatus(mannequin.id, "Saved Session")
         return session
     }
 
