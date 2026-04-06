@@ -214,6 +214,44 @@ class SessionManager(
         return null
     }
 
+    /**
+     * Create a NEW session UID from an existing session UID, optionally filtering to [layerIds].
+     * Returns the created SessionData on success, or an error message on failure.
+     */
+    fun createPartialSession(uid: String, layerIds: List<String>, player: Player): Pair<SessionData?, String?> {
+        val source = load(uid) ?: return null to "Session '$uid' not found."
+
+        val inheritBodyType = layerIds.any { it.equals("body_type", ignoreCase = true) }
+        val filteredLayerIds = layerIds.map { it.lowercase() }.filterNot { it == "body_type" }
+
+        val filteredLayers =
+                if (filteredLayerIds.isNotEmpty()) {
+                    source.layers.filterKeys { it.lowercase() in filteredLayerIds }
+                } else {
+                    source.layers
+                }
+
+        if (filteredLayers.isEmpty() && filteredLayerIds.isNotEmpty()) {
+            return null to "No matching layers found in session."
+        }
+
+        val newUid = generateUid()
+        val session =
+                SessionData(
+                        uid = newUid,
+                        creator = player.uniqueId.toString(),
+                        createdAt = Instant.now().toString(),
+                        slimModel = if (inheritBodyType) source.slimModel else null,
+                        layers = filteredLayers,
+                        characterUuid = source.characterUuid,
+                        characterName = source.characterName
+                )
+
+        val jsonString = gson.toJson(session)
+        CompletableFuture.runAsync { File(sessionsDir, "$newUid.json").writeText(jsonString) }
+        return session to null
+    }
+
     fun merge(s1: SessionData, s2: SessionData, defaultSlim: Boolean): SessionData {
         val mergedLayers = s2.layers.toMutableMap()
         mergedLayers.putAll(s1.layers)

@@ -1,6 +1,7 @@
 package com.sneakymannequins.commands
 
 import com.sneakymannequins.SneakyMannequins
+import com.sneakymannequins.items.OutfitItem
 import com.sneakymannequins.managers.EtfConfigManager
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymannequins.managers.LayerManager.MaskStrategy
@@ -55,6 +56,8 @@ class CommandMannequin(
             "history" -> handleHistory(stack, args)
             "remove" -> player?.let { removeNearest(it) }
                             ?: stack.sender.sendMessage("You must be a player to use this command")
+            "item" -> player?.let { handleItem(it, args) }
+                            ?: stack.sender.sendMessage("You must be a player to use this command")
             "template" -> handleTemplate(stack, args)
             "remask" -> player?.let { handleRemask(it, args) }
                             ?: stack.sender.sendMessage("You must be a player to use this command")
@@ -89,6 +92,7 @@ class CommandMannequin(
                         "remove" to "Remove nearest mannequin",
                         "reload" to "Reload plugin configuration",
                         "history" to "View your session history",
+                        "item <layer...>" to "Create an Outfit item from your encoded session",
                         "template" to "Manage session templates",
                         "remask" to "Remask selected part on nearest mannequin",
                         "layermerge" to "Merge & compress mask channels for selected part",
@@ -117,6 +121,7 @@ class CommandMannequin(
                                     "etf",
                                     "me",
                                     "history",
+                                    "item",
                                     "template",
                                     "debug"
                             )
@@ -184,6 +189,12 @@ class CommandMannequin(
                         "template" ->
                                 sessionManager
                                         .listSessionUids()
+                                        .filter { it.startsWith(args[1], ignoreCase = true) }
+                                        .toMutableList()
+                        "item" ->
+                                layerManager
+                                        .definitionsInOrder()
+                                        .map { it.id }
                                         .filter { it.startsWith(args[1], ignoreCase = true) }
                                         .toMutableList()
                         else -> mutableListOf()
@@ -264,6 +275,12 @@ class CommandMannequin(
                                     else -> mutableListOf()
                                 }
                         "template" -> mutableListOf("<template_name>")
+                        "item" ->
+                                layerManager
+                                        .definitionsInOrder()
+                                        .map { it.id }
+                                        .filter { it.startsWith(args[2], ignoreCase = true) }
+                                        .toMutableList()
                         else -> mutableListOf()
                     }
             4 ->
@@ -1348,6 +1365,67 @@ class CommandMannequin(
                     TextUtility.convertToComponent("&7Use /mannequin history <page> to navigate.")
             )
         }
+    }
+
+    private fun handleItem(player: Player, args: Array<out String>) {
+        if (args.size < 2) {
+            player.sendMessage(TextUtility.convertToComponent("&cUsage: /mannequin item <layer...>"))
+            return
+        }
+
+        val requestedLayerIds = args.drop(1).map { it.lowercase() }.distinct()
+        val skinUrl = player.playerProfile.textures.skin
+        if (skinUrl == null) {
+            player.sendMessage(TextUtility.convertToComponent("&cYou have no skin URL."))
+            return
+        }
+
+        player.sendMessage(TextUtility.convertToComponent("&eReading encoded session ID from your skin..."))
+        sessionManager
+                .downloadSkin(skinUrl)
+                .thenAccept { skin ->
+                    val uid = SessionManager.decodeUidFromImage(skin)
+                    if (uid == null) {
+                        player.sendMessage(
+                                TextUtility.convertToComponent(
+                                        "&cNo encoded session ID found in your skin. Apply a mannequin session first."
+                                )
+                        )
+                        return@thenAccept
+                    }
+
+                    if (sessionManager.load(uid) == null) {
+                        player.sendMessage(
+                                TextUtility.convertToComponent(
+                                        "&cEncoded UID '&e$uid&c' was found, but no local session exists for it."
+                                )
+                        )
+                        return@thenAccept
+                    }
+
+                    val (partial, err) = sessionManager.createPartialSession(uid, requestedLayerIds, player)
+                    if (err != null || partial == null) {
+                        player.sendMessage(
+                                TextUtility.convertToComponent(
+                                        "&c${err ?: "Failed to create partial session."}"
+                                )
+                        )
+                        return@thenAccept
+                    }
+
+                    val actualLayerIds = partial.layers.keys.toList()
+                    val item = OutfitItem.build(plugin, layerManager, partial.uid, partial.layers)
+                    player.inventory.addItem(item)
+                    player.sendMessage(
+                            TextUtility.convertToComponent("&aOutfit created with UID '&e${partial.uid}&a'.")
+                    )
+                }
+                .exceptionally { ex ->
+                    player.sendMessage(
+                            TextUtility.convertToComponent("&cFailed to read skin: ${ex.message}")
+                    )
+                    null
+                }
     }
 
     private fun handleTemplate(stack: CommandSourceStack, args: Array<out String>) {

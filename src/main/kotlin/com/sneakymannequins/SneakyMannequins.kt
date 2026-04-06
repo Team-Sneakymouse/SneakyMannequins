@@ -3,6 +3,7 @@ package com.sneakymannequins
 import com.sneakymannequins.commands.CommandMannequin
 import com.sneakymannequins.integrations.CharacterManagerBridge
 import com.sneakymannequins.integrations.CharacterManagerBridgeFactory
+import com.sneakymannequins.listeners.OutfitItemListener
 import com.sneakymannequins.listeners.TriggerListener
 import com.sneakymannequins.managers.EtfConfigManager
 import com.sneakymannequins.managers.LayerManager
@@ -100,6 +101,10 @@ class SneakyMannequins : JavaPlugin(), Listener {
         )
         server.pluginManager.registerEvents(this, this)
         server.pluginManager.registerEvents(TriggerListener(this), this)
+        server.pluginManager.registerEvents(
+                OutfitItemListener(this, mannequinManager, sessionManager),
+                this
+        )
         server.pluginManager.registerEvents(etfConfigManager, this)
         if (characterManagerBridge.active) {
             logger.info("CharacterManager integration enabled.")
