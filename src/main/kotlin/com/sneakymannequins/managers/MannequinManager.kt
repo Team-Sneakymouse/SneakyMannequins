@@ -1038,6 +1038,10 @@ class MannequinManager(
                 }
             }
         }
+
+        // Ensure placeholder-driven button text (e.g. {selectedChannel}) is applied immediately
+        // after HUD creation.
+        refreshDynamicLabels(mannequin.id)
     }
 
     internal fun handleButtonClick(
@@ -1656,6 +1660,19 @@ class MannequinManager(
                             resolveChannelSlots(currentLayer, currentOption, state, player)
                     else emptyList()
             val channelDisabled = slots.size <= 1
+            val selectedChannel =
+                    slots.getOrNull(state.channelIndex.getOrDefault(currentLayer?.id ?: "", 0))
+                            ?: slots.firstOrNull()
+
+            fun applyPlaceholders(mm: String): String {
+                var out = mm
+                if (selectedChannel != null) {
+                    out = out.replace("{selectedChannel}", selectedChannel.label)
+                } else {
+                    out = out.replace("{selectedChannel}", "")
+                }
+                return out
+            }
 
             fun processBtn(btn: HudButton, parentName: String? = null) {
                 val activeId = if (parentName != null) "${parentName}_${btn.name}" else btn.name
@@ -1668,7 +1685,7 @@ class MannequinManager(
                         (isLayerType && layerDisabled) ||
                                 (isTextureType && textureDisabled) ||
                                 (isChannelType && channelDisabled)
-                val hideThis = isButtonDisabled && btn.disabledTextJson == null
+                val hideThis = isButtonDisabled && btn.disabledTextMM == null
 
                 if (hideThis) {
                     if (hud.isButtonActive(activeId)) {
@@ -1682,8 +1699,13 @@ class MannequinManager(
                                 listOf(
                                         HoloButton(
                                                 id = activeId,
-                                                textJson = btn.disabledTextJson
-                                                                ?: TextUtility.mmToJson(btn.textMM),
+                                                textJson =
+                                                        TextUtility.mmToJson(
+                                                                applyPlaceholders(
+                                                                        btn.disabledTextMM
+                                                                                ?: btn.textMM
+                                                                )
+                                                        ),
                                                 tx = btn.tx,
                                                 ty = btn.ty,
                                                 tz = btn.tz,
@@ -1721,15 +1743,22 @@ class MannequinManager(
                                 else -> false
                             }
 
+                    val mm =
+                            if (btn.type == "status") {
+                                null
+                            } else if (isButtonDisabled && btn.disabledTextJson != null) {
+                                btn.disabledTextMM
+                            } else if (isActive && btn.activeTextMM != null) {
+                                btn.activeTextMM
+                            } else {
+                                btn.textMM
+                            }
+
                     val textJson =
                             if (btn.type == "status") {
                                 formatStatusText(statusText[mannequinId], mannequinId)
-                            } else if (isButtonDisabled && btn.disabledTextJson != null) {
-                                btn.disabledTextJson
-                            } else if (isActive && btn.activeTextJson != null) {
-                                btn.activeTextJson
                             } else {
-                                btn.textJson
+                                TextUtility.mmToJson(applyPlaceholders(mm ?: btn.textMM))
                             }
 
                     hud.updateButtonText(activeId, textJson)
@@ -1927,6 +1956,19 @@ class MannequinManager(
                         resolveChannelSlots(currentLayer, currentOption, state, player)
                 else emptyList()
         val channelDisabled = slots.size <= 1
+        val selectedChannel =
+                slots.getOrNull(state.channelIndex.getOrDefault(currentLayer?.id ?: "", 0))
+                        ?: slots.firstOrNull()
+
+        fun applyPlaceholders(mm: String): String {
+            var out = mm
+            if (selectedChannel != null) {
+                out = out.replace("{selectedChannel}", selectedChannel.label)
+            } else {
+                out = out.replace("{selectedChannel}", "")
+            }
+            return out
+        }
 
         menuBtn.items?.values?.forEach { itemConf ->
             val isLayerType = itemConf.type == "layer"
@@ -1937,16 +1979,22 @@ class MannequinManager(
                     (isLayerType && layerDisabled) ||
                             (isTextureType && textureDisabled) ||
                             (isChannelType && channelDisabled)
-            val hideThis = isButtonDisabled && itemConf.disabledTextJson == null
+            val hideThis = isButtonDisabled && itemConf.disabledTextMM == null
             if (hideThis) return@forEach
 
             if (itemConf.type == "color_grid") {
                 injectColorGrid(itemConf, grid, menuBtn.name, player, mannequin, state)
             } else {
                 val idPrefix = "${menuBtn.name}_${itemConf.name}"
+                val itemText =
+                        if (isButtonDisabled && itemConf.disabledTextMM != null) {
+                            itemConf.disabledTextMM
+                        } else {
+                            itemConf.textMM
+                        }
                 grid.addButtonManual(
                         id = idPrefix,
-                        textMM = itemConf.textMM,
+                        textMM = applyPlaceholders(itemText),
                         offsetX = itemConf.tx,
                         offsetY = itemConf.ty,
                         bgDefault =
