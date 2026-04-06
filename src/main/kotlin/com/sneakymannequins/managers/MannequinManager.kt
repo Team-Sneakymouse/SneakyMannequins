@@ -1118,6 +1118,7 @@ class MannequinManager(
             }
             "layer" -> {
                 val styleLayers = getAvailableLayers(mannequin)
+                val prevLayerIndex = state.layerIndex
                 if (configBtn.targetLayer != null) {
                     val targetIdx = styleLayers.indexOfFirst { it.id == configBtn.targetLayer }
                     if (targetIdx != -1) {
@@ -1175,90 +1176,101 @@ class MannequinManager(
                         }
                     }
                 }
+                val layerChanged = state.layerIndex != prevLayerIndex
                 refreshDynamicLabels(mannequinId)
-                val mStyle = styleManager.getStyle(mannequin.styleId) ?: return
-                val colorMenuId = findMenuIdForType("color_grid", mStyle.hudButtons)
-                if (colorMenuId != null) {
-                    val colorMenuBtn = buttonByName(colorMenuId, mStyle.hudButtons)
-                    if (colorMenuBtn != null &&
-                                    hud.buttons.any { it.id.startsWith("${colorMenuId}_") }
-                    ) {
-                        spawnMenu(colorMenuBtn, player, mannequin, state, hud, quiet = true)
-                    }
-                }
 
-                // Flash the newly selected layer white for 10 ticks
-                val nextLayerDef = styleLayers.getOrNull(state.layerIndex % styleLayers.size)
-                if (nextLayerDef != null) {
-                    val option = freshOption(nextLayerDef.id, mannequin)
-                    if (option != null) {
-                        val slots = resolveChannelSlots(nextLayerDef, option, state, player)
-                        val currentSel = mannequin.selection.selections[nextLayerDef.id]
-
-                        val flashColors = (currentSel?.channelColors ?: emptyMap()).toMutableMap()
-                        val flashTextured =
-                                (currentSel?.texturedColors ?: emptyMap()).toMutableMap()
-
-                        for (slot in slots) {
-                            if (slot.subChannel != null) {
-                                val sub =
-                                        flashTextured
-                                                .getOrPut(slot.maskIdx) { emptyMap() }
-                                                .toMutableMap()
-                                sub[slot.subChannel] = java.awt.Color.WHITE
-                                flashTextured[slot.maskIdx] = sub
-                            } else {
-                                flashColors[slot.maskIdx] = java.awt.Color.WHITE
-                            }
+                // Only respawn the color grid + flash highlight when the layer actually changes.
+                if (layerChanged) {
+                    val mStyle = styleManager.getStyle(mannequin.styleId) ?: return
+                    val colorMenuId = findMenuIdForType("color_grid", mStyle.hudButtons)
+                    if (colorMenuId != null) {
+                        val colorMenuBtn = buttonByName(colorMenuId, mStyle.hudButtons)
+                        if (colorMenuBtn != null &&
+                                        hud.buttons.any { it.id.startsWith("${colorMenuId}_") }
+                        ) {
+                            spawnMenu(colorMenuBtn, player, mannequin, state, hud, quiet = true)
                         }
+                    }
 
-                        val flashSel =
-                                currentSel?.copy(
-                                        channelColors = flashColors,
-                                        texturedColors = flashTextured
-                                )
-                                        ?: LayerSelection(
-                                                nextLayerDef.id,
-                                                option,
-                                                channelColors = flashColors,
-                                                texturedColors = flashTextured
+                    // Flash the newly selected layer white for 10 ticks
+                    val nextLayerDef = styleLayers.getOrNull(state.layerIndex % styleLayers.size)
+                    if (nextLayerDef != null) {
+                        val option = freshOption(nextLayerDef.id, mannequin)
+                        if (option != null) {
+                            val slots = resolveChannelSlots(nextLayerDef, option, state, player)
+                            val currentSel = mannequin.selection.selections[nextLayerDef.id]
+
+                            val flashColors =
+                                    (currentSel?.channelColors ?: emptyMap()).toMutableMap()
+                            val flashTextured =
+                                    (currentSel?.texturedColors ?: emptyMap()).toMutableMap()
+
+                            for (slot in slots) {
+                                if (slot.subChannel != null) {
+                                    val sub =
+                                            flashTextured
+                                                    .getOrPut(slot.maskIdx) { emptyMap() }
+                                                    .toMutableMap()
+                                    sub[slot.subChannel] = java.awt.Color.WHITE
+                                    flashTextured[slot.maskIdx] = sub
+                                } else {
+                                    flashColors[slot.maskIdx] = java.awt.Color.WHITE
+                                }
+                            }
+
+                            val flashSel =
+                                    currentSel?.copy(
+                                            channelColors = flashColors,
+                                            texturedColors = flashTextured
+                                    )
+                                            ?: LayerSelection(
+                                                    nextLayerDef.id,
+                                                    option,
+                                                    channelColors = flashColors,
+                                                    texturedColors = flashTextured
+                                            )
+
+                            mannequin.selection =
+                                    mannequin.selection.copy(
+                                            selections =
+                                                    mannequin.selection.selections +
+                                                            (nextLayerDef.id to flashSel)
+                                    )
+
+                            val viewers = nearbyViewers(mannequin)
+                            render(mannequin, viewers, forceInstant = true)
+
+                            plugin.server.scheduler.runTaskLater(
+                                    plugin,
+                                    Runnable {
+                                        if (mannequins[mannequinId] != mannequin) return@Runnable
+                                        // Restore exactly what was there before the flash. If there
+                                        // was no selection entry yet, remove ours so the layer falls
+                                        // back to its normal defaults (instead of staying "all
+                                        // white").
+                                        mannequin.selection =
+                                                if (currentSel != null) {
+                                                    mannequin.selection.copy(
+                                                            selections =
+                                                                    mannequin.selection.selections +
+                                                                            (nextLayerDef.id to currentSel)
+                                                    )
+                                                } else {
+                                                    mannequin.selection.copy(
+                                                            selections =
+                                                                    mannequin.selection.selections -
+                                                                            nextLayerDef.id
+                                                    )
+                                                }
+                                        render(
+                                                mannequin,
+                                                nearbyViewers(mannequin),
+                                                forceInstant = true
                                         )
-
-                        mannequin.selection =
-                                mannequin.selection.copy(
-                                        selections =
-                                                mannequin.selection.selections +
-                                                        (nextLayerDef.id to flashSel)
-                                )
-
-                        val viewers = nearbyViewers(mannequin)
-                        render(mannequin, viewers, forceInstant = true)
-
-                        plugin.server.scheduler.runTaskLater(
-                                plugin,
-                                Runnable {
-                                    if (mannequins[mannequinId] != mannequin) return@Runnable
-                                    // Restore exactly what was there before the flash. If there was
-                                    // no selection entry yet, remove ours so the layer falls back to
-                                    // its normal defaults (instead of staying "all white").
-                                    mannequin.selection =
-                                            if (currentSel != null) {
-                                                mannequin.selection.copy(
-                                                        selections =
-                                                                mannequin.selection.selections +
-                                                                        (nextLayerDef.id to currentSel)
-                                                )
-                                            } else {
-                                                mannequin.selection.copy(
-                                                        selections =
-                                                                mannequin.selection.selections -
-                                                                        nextLayerDef.id
-                                                )
-                                            }
-                                    render(mannequin, nearbyViewers(mannequin), forceInstant = true)
-                                },
-                                10L
-                        )
+                                    },
+                                    10L
+                            )
+                        }
                     }
                 }
             }
