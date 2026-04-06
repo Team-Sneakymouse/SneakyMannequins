@@ -86,7 +86,7 @@ class CommandMannequin(
                         "reload" to "Reload plugin configuration",
                         "history" to "View your session history",
                         "template" to "Manage session templates",
-                        "remask" to "Remask a specific layer part",
+                        "remask" to "Remask selected part on nearest mannequin",
                         "etf" to "Configure ETF settings interactively",
                         "me" to "Manage user-uploaded custom skin parts",
                         "debug" to "Access developer/debug tools"
@@ -176,10 +176,8 @@ class CommandMannequin(
             3 ->
                     when (args[0].lowercase()) {
                         "remask" -> {
-                            val layerId = args[1].lowercase()
-                            layerManager
-                                    .optionsFor(layerId)
-                                    .map { it.id }
+                            // /mannequin remask <layer> [strategy]
+                            LayerManager.STRATEGY_NAMES
                                     .filter { it.startsWith(args[2], ignoreCase = true) }
                                     .toMutableList()
                         }
@@ -245,10 +243,8 @@ class CommandMannequin(
                     }
             4 ->
                     when (args[0].lowercase()) {
-                        "remask" ->
-                                LayerManager.STRATEGY_NAMES
-                                        .filter { it.startsWith(args[3], ignoreCase = true) }
-                                        .toMutableList()
+                        // /mannequin remask <layer> [strategy] has no 4th arg
+                        "remask" -> mutableListOf()
                         "template" ->
                                 (layerManager.definitionsInOrder().map { it.id } +
                                                 listOf("body_type"))
