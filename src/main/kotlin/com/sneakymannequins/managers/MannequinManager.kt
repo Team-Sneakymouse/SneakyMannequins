@@ -1121,8 +1121,22 @@ class MannequinManager(
                 if (configBtn.targetLayer != null) {
                     val targetIdx = styleLayers.indexOfFirst { it.id == configBtn.targetLayer }
                     if (targetIdx != -1) {
-                        state.layerIndex = targetIdx
-                        updateStatus(mannequinId, "Layer: ${prettyName(configBtn.targetLayer)}")
+                        val currentLayerId =
+                                styleLayers.getOrNull(state.layerIndex % styleLayers.size)?.id
+                        if (currentLayerId == configBtn.targetLayer) {
+                            // If already on the target layer, behave like clicking the mannequin:
+                            // cycle parts forward/backward.
+                            val layerDef = styleLayers[targetIdx]
+                            val chosen = cyclePart(layerDef, mannequin, state, player, backwards)
+                            render(mannequin, nearbyViewers(mannequin))
+                            refreshDynamicLabels(mannequinId)
+                            if (chosen != null) {
+                                updateStatus(mannequinId, "${prettyName(chosen)}")
+                            }
+                        } else {
+                            state.layerIndex = targetIdx
+                            updateStatus(mannequinId, "Layer: ${prettyName(configBtn.targetLayer)}")
+                        }
                     }
                 } else {
                     val cyclingLayers =
