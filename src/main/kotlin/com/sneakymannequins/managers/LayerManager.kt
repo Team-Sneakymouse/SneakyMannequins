@@ -26,6 +26,7 @@ import kotlin.io.path.isDirectory
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.name
 import kotlin.io.path.nameWithoutExtension
+import kotlin.math.pow
 import org.bukkit.configuration.ConfigurationSection
 import org.bukkit.entity.Player
 
@@ -1578,7 +1579,11 @@ class LayerManager(private val plugin: SneakyMannequins) {
     enum class MaskStrategy {
         HSB,
         HUE,
-        RGB
+        RGB,
+        SATURATION_BANDS,
+        BRIGHTNESS_BANDS,
+        LAB,
+        EDGE_AWARE
     }
 
     companion object {
@@ -1902,6 +1907,12 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 if (distanceOrChannels is Float) distanceOrChannels else params.chromaticDistance
         val channels = if (distanceOrChannels is Int) distanceOrChannels else defaultChannels()
 
+        val baseStrategy =
+                when (strategy) {
+                    MaskStrategy.EDGE_AWARE -> MaskStrategy.RGB
+                    else -> strategy
+                }
+
         val rawClusters =
                 if (mode == GroupingMode.CHANNELS) {
                     val k = channels
@@ -1909,17 +1920,29 @@ class LayerManager(private val plugin: SneakyMannequins) {
                         listOf(Cluster(chromatic.map { it.x to it.y }.toMutableList()))
                     } else {
                         val effectiveK = k.coerceAtMost(chromatic.size)
-                        when (strategy) {
+                        when (baseStrategy) {
                             MaskStrategy.HSB -> clusterKMeansHsb(chromatic, effectiveK)
                             MaskStrategy.HUE -> clusterHueGap(chromatic, effectiveK)
                             MaskStrategy.RGB -> clusterKMeansRgb(chromatic, effectiveK)
+                            MaskStrategy.SATURATION_BANDS ->
+                                    clusterQuantileBands(chromatic, effectiveK) { it.s }
+                            MaskStrategy.BRIGHTNESS_BANDS ->
+                                    clusterQuantileBands(chromatic, effectiveK) { it.b }
+                            MaskStrategy.LAB -> clusterKMeansLab(chromatic, effectiveK)
+                            MaskStrategy.EDGE_AWARE -> clusterKMeansRgb(chromatic, effectiveK)
                         }
                     }
                 } else {
-                    when (strategy) {
+                    when (baseStrategy) {
                         MaskStrategy.HSB -> clusterAgglomerativeHsb(chromatic, distance)
                         MaskStrategy.HUE -> clusterAgglomerativeHue(chromatic, distance)
                         MaskStrategy.RGB -> clusterAgglomerativeRgb(chromatic, distance)
+                        MaskStrategy.SATURATION_BANDS ->
+                                clusterAgglomerative1D(chromatic, distance) { it.s }
+                        MaskStrategy.BRIGHTNESS_BANDS ->
+                                clusterAgglomerative1D(chromatic, distance) { it.b }
+                        MaskStrategy.LAB -> clusterAgglomerativeLab(chromatic, distance * 100f)
+                        MaskStrategy.EDGE_AWARE -> clusterAgglomerativeRgb(chromatic, distance)
                     }
                 }
 
@@ -1931,7 +1954,10 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 val bl: Float,
                 val h: Float,
                 val s: Float,
-                val b: Float
+                val b: Float,
+                val labL: Float,
+                val labA: Float,
+                val labB: Float
         )
 
         val clusterCentroids =
@@ -1943,6 +1969,9 @@ class LayerManager(private val plugin: SneakyMannequins) {
                     var bSum = 0f
                     var sinSum = 0.0
                     var cosSum = 0.0
+                    var lSum = 0f
+                    var aSum = 0f
+                    var labBSum = 0f
 
                     val clusterPixels = cluster.pixels.mapNotNull { pixelMap[it] }
                     for (p in clusterPixels) {
@@ -1954,6 +1983,10 @@ class LayerManager(private val plugin: SneakyMannequins) {
                         val angle = p.h.toDouble() * 2.0 * Math.PI
                         sinSum += kotlin.math.sin(angle)
                         cosSum += kotlin.math.cos(angle)
+                        val lab = rgbToLab(p.r, p.g, p.bl)
+                        lSum += lab.l
+                        aSum += lab.a
+                        labBSum += lab.b
                     }
                     val size = clusterPixels.size.toFloat().coerceAtLeast(1f)
                     val meanH =
@@ -1967,12 +2000,22 @@ class LayerManager(private val plugin: SneakyMannequins) {
                             bl = blSum / size,
                             h = meanH,
                             s = sSum / size,
-                            b = bSum / size
+                            b = bSum / size,
+                            labL = lSum / size,
+                            labA = aSum / size,
+                            labB = labBSum / size
                     )
                 }
 
         val trueNeutral = mutableListOf<ColorPixel>()
-        val thresholdSq = distance * distance
+        val thresholdSq =
+                when (baseStrategy) {
+                    MaskStrategy.LAB -> {
+                        val t = distance * 100f
+                        t * t
+                    }
+                    else -> distance * distance
+                }
 
         for (np in neutral) {
             var bestDistSq = Float.MAX_VALUE
@@ -1981,7 +2024,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
             for (i in rawClusters.indices) {
                 val c = clusterCentroids[i]
                 val dsq =
-                        when (strategy) {
+                        when (baseStrategy) {
                             MaskStrategy.RGB -> {
                                 val dr = (np.r / 255f) - c.r
                                 val dg = (np.g / 255f) - c.g
@@ -1995,10 +2038,31 @@ class LayerManager(private val plugin: SneakyMannequins) {
                                 val db = np.b - c.b
                                 hDist * hDist + ds * ds + db * db
                             }
+                            MaskStrategy.SATURATION_BANDS -> {
+                                val ds = np.s - c.s
+                                ds * ds
+                            }
+                            MaskStrategy.BRIGHTNESS_BANDS -> {
+                                val db = np.b - c.b
+                                db * db
+                            }
+                            MaskStrategy.LAB -> {
+                                val lab = rgbToLab(np.r, np.g, np.bl)
+                                val dl = lab.l - c.labL
+                                val da = lab.a - c.labA
+                                val db = lab.b - c.labB
+                                dl * dl + da * da + db * db
+                            }
                             MaskStrategy.HUE -> {
                                 val hDiff = kotlin.math.abs(np.h - c.h)
                                 val hDist = kotlin.math.min(hDiff, 1f - hDiff)
                                 hDist * hDist
+                            }
+                            MaskStrategy.EDGE_AWARE -> {
+                                val dr = (np.r / 255f) - c.r
+                                val dg = (np.g / 255f) - c.g
+                                val dbl = (np.bl / 255f) - c.bl
+                                dr * dr + dg * dg + dbl * dbl
                             }
                         }
                 if (dsq < bestDistSq) {
@@ -2027,11 +2091,241 @@ class LayerManager(private val plugin: SneakyMannequins) {
                         }
                 )
 
-        return if (actualNeutralCluster != null) {
-            sortedChromatic + actualNeutralCluster
+        val combined =
+                if (actualNeutralCluster != null) {
+                    sortedChromatic + actualNeutralCluster
+                } else {
+                    sortedChromatic
+                }
+
+        return if (strategy == MaskStrategy.EDGE_AWARE) {
+            combined.flatMap { splitDisconnected(it) }
         } else {
-            sortedChromatic
+            combined
         }
+    }
+
+    private fun clusterQuantileBands(
+            chromatic: List<ColorPixel>,
+            k: Int,
+            value: (ColorPixel) -> Float
+    ): List<Cluster> {
+        val sorted = chromatic.sortedBy(value)
+        if (sorted.isEmpty()) return emptyList()
+        if (k <= 1) return listOf(Cluster(sorted.map { it.x to it.y }.toMutableList()))
+        if (sorted.size <= k) return sorted.map { Cluster(mutableListOf(it.x to it.y)) }
+
+        val clusters = mutableListOf<Cluster>()
+        var start = 0
+        for (i in 1 until k) {
+            val endExclusive = (sorted.size * i) / k
+            if (endExclusive <= start) continue
+            val c = Cluster(mutableListOf())
+            for (j in start until endExclusive) c.pixels += sorted[j].x to sorted[j].y
+            clusters += c
+            start = endExclusive
+        }
+        val last = Cluster(mutableListOf())
+        for (j in start until sorted.size) last.pixels += sorted[j].x to sorted[j].y
+        clusters += last
+        return clusters.filter { it.pixels.isNotEmpty() }
+    }
+
+    private fun clusterAgglomerative1D(
+            chromatic: List<ColorPixel>,
+            distanceThreshold: Float,
+            value: (ColorPixel) -> Float
+    ): List<Cluster> {
+        val sorted = chromatic.sortedBy(value)
+        if (sorted.isEmpty()) return emptyList()
+        if (sorted.size == 1) return listOf(Cluster(mutableListOf(sorted[0].x to sorted[0].y)))
+
+        val clusters = mutableListOf<Cluster>()
+        var current = Cluster(mutableListOf(sorted[0].x to sorted[0].y))
+        var prev = value(sorted[0])
+        for (i in 1 until sorted.size) {
+            val v = value(sorted[i])
+            if (kotlin.math.abs(v - prev) > distanceThreshold) {
+                clusters += current
+                current = Cluster(mutableListOf())
+            }
+            current.pixels += sorted[i].x to sorted[i].y
+            prev = v
+        }
+        clusters += current
+        return clusters.filter { it.pixels.isNotEmpty() }
+    }
+
+    private data class Lab(val l: Float, val a: Float, val b: Float)
+
+    /** D65 sRGB -> CIELAB (L* 0..100). */
+    private fun rgbToLab(r8: Int, g8: Int, b8: Int): Lab {
+        fun srgbToLinear(c: Float): Float =
+                if (c <= 0.04045f) c / 12.92f
+                else ((c + 0.055f) / 1.055f).toDouble().pow(2.4).toFloat()
+        val r = srgbToLinear(r8 / 255f)
+        val g = srgbToLinear(g8 / 255f)
+        val b = srgbToLinear(b8 / 255f)
+
+        // sRGB -> XYZ (D65)
+        val x = 0.4124564f * r + 0.3575761f * g + 0.1804375f * b
+        val y = 0.2126729f * r + 0.7151522f * g + 0.0721750f * b
+        val z = 0.0193339f * r + 0.1191920f * g + 0.9503041f * b
+
+        // Reference white (D65)
+        val xn = 0.95047f
+        val yn = 1.00000f
+        val zn = 1.08883f
+
+        fun f(t: Float): Float {
+            val d = 6f / 29f
+            return if (t > d * d * d) kotlin.math.cbrt(t) else (t / (3f * d * d)) + (4f / 29f)
+        }
+
+        val fx = f(x / xn)
+        val fy = f(y / yn)
+        val fz = f(z / zn)
+
+        val l = (116f * fy) - 16f
+        val a = 500f * (fx - fy)
+        val bb = 200f * (fy - fz)
+        return Lab(l, a, bb)
+    }
+
+    private fun clusterAgglomerativeLab(
+            chromatic: List<ColorPixel>,
+            distanceThreshold: Float
+    ): List<Cluster> {
+        val colorGroups = chromatic.groupBy { (it.r shl 16) or (it.g shl 8) or it.bl }
+        class Node(var l: Float, var a: Float, var b: Float, val pixels: MutableList<ColorPixel>)
+        val nodes =
+                colorGroups.values.map { pixels ->
+                    val first = pixels.first()
+                    val lab = rgbToLab(first.r, first.g, first.bl)
+                    Node(lab.l, lab.a, lab.b, pixels.toMutableList())
+                }.toMutableList()
+
+        val thresholdSq = distanceThreshold * distanceThreshold
+        while (nodes.size > 1) {
+            var bestI = -1
+            var bestJ = -1
+            var minDistanceSq = Float.MAX_VALUE
+            for (i in 0 until nodes.size) {
+                for (j in i + 1 until nodes.size) {
+                    val dl = nodes[i].l - nodes[j].l
+                    val da = nodes[i].a - nodes[j].a
+                    val db = nodes[i].b - nodes[j].b
+                    val dsq = dl * dl + da * da + db * db
+                    if (dsq < minDistanceSq) {
+                        minDistanceSq = dsq
+                        bestI = i
+                        bestJ = j
+                    }
+                }
+            }
+            if (minDistanceSq > thresholdSq || bestI == -1) break
+            val a = nodes[bestI]
+            val b = nodes[bestJ]
+            val total = a.pixels.size + b.pixels.size
+            a.l = (a.l * a.pixels.size + b.l * b.pixels.size) / total
+            a.a = (a.a * a.pixels.size + b.a * b.pixels.size) / total
+            a.b = (a.b * a.pixels.size + b.b * b.pixels.size) / total
+            a.pixels.addAll(b.pixels)
+            nodes.removeAt(bestJ)
+        }
+        return nodes.map { n -> Cluster(n.pixels.map { it.x to it.y }.toMutableList()) }
+    }
+
+    private fun clusterKMeansLab(chromatic: List<ColorPixel>, k: Int): List<Cluster> {
+        val labs = chromatic.map { rgbToLab(it.r, it.g, it.bl) }
+        fun distSq(i: Int, cl: Float, ca: Float, cb: Float): Float {
+            val p = labs[i]
+            val dl = p.l - cl
+            val da = p.a - ca
+            val db = p.b - cb
+            return dl * dl + da * da + db * db
+        }
+
+        val rng = java.util.Random(chromatic.hashCode().toLong() xor 0x51C0FFEE)
+        val centroidIndices = mutableListOf(rng.nextInt(chromatic.size))
+        while (centroidIndices.size < k) {
+            val distances =
+                    FloatArray(chromatic.size) { i ->
+                        centroidIndices.minOf { ci ->
+                            distSq(i, labs[ci].l, labs[ci].a, labs[ci].b)
+                        }
+                    }
+            val totalDist = distances.sum()
+            if (totalDist <= 0f) break
+            var r = rng.nextFloat() * totalDist
+            var chosen = 0
+            for (i in distances.indices) {
+                r -= distances[i]
+                if (r <= 0f) {
+                    chosen = i
+                    break
+                }
+            }
+            centroidIndices += chosen
+        }
+
+        val cL = FloatArray(k) { labs[centroidIndices.getOrElse(it) { 0 }].l }
+        val cA = FloatArray(k) { labs[centroidIndices.getOrElse(it) { 0 }].a }
+        val cB = FloatArray(k) { labs[centroidIndices.getOrElse(it) { 0 }].b }
+        val assignments = IntArray(chromatic.size)
+
+        for (iter in 0 until 30) {
+            var changed = false
+            for (i in chromatic.indices) {
+                var bestC = 0
+                var bestD = Float.MAX_VALUE
+                for (c in 0 until k) {
+                    val d = distSq(i, cL[c], cA[c], cB[c])
+                    if (d < bestD) {
+                        bestD = d
+                        bestC = c
+                    }
+                }
+                if (assignments[i] != bestC) {
+                    changed = true
+                    assignments[i] = bestC
+                }
+            }
+            if (!changed && iter > 0) break
+            for (c in 0 until k) {
+                val members = chromatic.indices.filter { assignments[it] == c }
+                if (members.isNotEmpty()) {
+                    cL[c] = members.map { labs[it].l.toDouble() }.average().toFloat()
+                    cA[c] = members.map { labs[it].a.toDouble() }.average().toFloat()
+                    cB[c] = members.map { labs[it].b.toDouble() }.average().toFloat()
+                }
+            }
+        }
+        return buildClusters(chromatic, assignments, k)
+    }
+
+    private fun splitDisconnected(cluster: Cluster): List<Cluster> {
+        if (cluster.pixels.size <= 1) return listOf(cluster)
+        val remaining = cluster.pixels.toMutableSet()
+        val out = mutableListOf<Cluster>()
+        val dirs = arrayOf(1 to 0, -1 to 0, 0 to 1, 0 to -1)
+        while (remaining.isNotEmpty()) {
+            val start = remaining.first()
+            val q: ArrayDeque<Pair<Int, Int>> = ArrayDeque()
+            q.add(start)
+            remaining.remove(start)
+            val pixels = mutableListOf<Pair<Int, Int>>()
+            while (q.isNotEmpty()) {
+                val (x, y) = q.removeFirst()
+                pixels += x to y
+                for ((dx, dy) in dirs) {
+                    val n = (x + dx) to (y + dy)
+                    if (remaining.remove(n)) q.add(n)
+                }
+            }
+            out += Cluster(pixels)
+        }
+        return out
     }
 
     private fun clusterAgglomerativeRgb(

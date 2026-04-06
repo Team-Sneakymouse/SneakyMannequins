@@ -290,11 +290,7 @@ class CommandMannequin(
                     }
             5 ->
                     when (args[0].lowercase()) {
-                        "remask" ->
-                                (1..8)
-                                        .map { it.toString() }
-                                        .filter { it.startsWith(args[4], ignoreCase = true) }
-                                        .toMutableList()
+                        "remask" -> mutableListOf()
                         "me" ->
                                 when (args[1].lowercase()) {
                                     "upload" -> mutableListOf("<name>")

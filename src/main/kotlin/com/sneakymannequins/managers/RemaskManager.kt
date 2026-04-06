@@ -8,13 +8,18 @@ import java.awt.image.BufferedImage
 import java.util.*
 import org.bukkit.Sound
 import org.bukkit.entity.Player
+import org.bukkit.event.EventHandler
+import org.bukkit.event.EventPriority
+import org.bukkit.event.Listener
+import org.bukkit.event.player.PlayerDropItemEvent
+import org.bukkit.event.player.PlayerSwapHandItemsEvent
 import org.bukkit.scheduler.BukkitRunnable
 
 class RemaskManager(
         private val plugin: SneakyMannequins,
         private val mannequinManager: MannequinManager,
         private val layerManager: LayerManager
-) {
+) : Listener {
     private val sessions = mutableMapOf<UUID, RemaskSession>()
     private var tickTask: BukkitRunnable? = null
 
@@ -23,7 +28,7 @@ class RemaskManager(
             val mannequinId: UUID,
             val layerId: String,
             val partId: String,
-            val strategy: MaskStrategy,
+            var strategy: MaskStrategy,
             var params: RemaskParameters,
             var distanceOrChannels: Any? = null,
             var lastYaw: Float = player.location.yaw,
@@ -35,6 +40,7 @@ class RemaskManager(
     )
 
     fun start() {
+        plugin.server.pluginManager.registerEvents(this, plugin)
         tickTask =
                 object : BukkitRunnable() {
                     override fun run() {
@@ -48,6 +54,47 @@ class RemaskManager(
         tickTask?.cancel()
         tickTask = null
         sessions.clear()
+    }
+
+    private fun strategyCycleOrder(): List<MaskStrategy> =
+            listOf(
+                    MaskStrategy.RGB,
+                    MaskStrategy.HSB,
+                    MaskStrategy.HUE,
+                    MaskStrategy.SATURATION_BANDS,
+                    MaskStrategy.BRIGHTNESS_BANDS,
+                    MaskStrategy.LAB,
+                    MaskStrategy.EDGE_AWARE
+            )
+
+    private fun nextStrategy(cur: MaskStrategy): MaskStrategy {
+        val order = strategyCycleOrder()
+        val idx = order.indexOf(cur).takeIf { it >= 0 } ?: 0
+        return order[(idx + 1) % order.size]
+    }
+
+    private fun prevStrategy(cur: MaskStrategy): MaskStrategy {
+        val order = strategyCycleOrder()
+        val idx = order.indexOf(cur).takeIf { it >= 0 } ?: 0
+        return order[(idx - 1 + order.size) % order.size]
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    fun onSwapHand(event: PlayerSwapHandItemsEvent) {
+        val session = sessions[event.player.uniqueId] ?: return
+        event.isCancelled = true
+        session.strategy = nextStrategy(session.strategy)
+        updatePreview(session)
+        session.player.playSound(session.player.location, Sound.BLOCK_NOTE_BLOCK_CHIME, 1f, 1.4f)
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    fun onDropItem(event: PlayerDropItemEvent) {
+        val session = sessions[event.player.uniqueId] ?: return
+        event.isCancelled = true
+        session.strategy = prevStrategy(session.strategy)
+        updatePreview(session)
+        session.player.playSound(session.player.location, Sound.BLOCK_NOTE_BLOCK_CHIME, 1f, 1.0f)
     }
 
     fun startSession(
@@ -222,7 +269,9 @@ class RemaskManager(
                     else "dist=${String.format("%.3f", session.params.chromaticDistance)}"
             val satInfo = "neut=${String.format("%.3f", session.params.neutralSaturation)}"
             session.player.sendActionBar(
-                    TextUtility.convertToComponent("&eRemask: &b$info &8| &b$satInfo")
+                    TextUtility.convertToComponent(
+                            "&eRemask: &b${session.strategy} &8| &b$info &8| &b$satInfo"
+                    )
             )
         }
     }
