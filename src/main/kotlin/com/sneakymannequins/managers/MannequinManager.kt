@@ -1510,7 +1510,7 @@ class MannequinManager(
                                     plugin,
                                     Runnable {
                                         applySession(mannequinId, session)
-                                        updateStatus(mannequinId, "Sync: $uid")
+                                        updateStatus(mannequinId, "Copied")
                                     }
                             )
                             return@thenAccept
