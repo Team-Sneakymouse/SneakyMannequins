@@ -58,6 +58,10 @@ class CommandMannequin(
             "template" -> handleTemplate(stack, args)
             "remask" -> player?.let { handleRemask(it, args) }
                             ?: stack.sender.sendMessage("You must be a player to use this command")
+            "channelmerge", "layermerge" -> player?.let { handleLayerMerge(it, args) }
+                            ?: stack.sender.sendMessage("You must be a player to use this command")
+            "layerdelete" -> player?.let { handleLayerDelete(it, args) }
+                            ?: stack.sender.sendMessage("You must be a player to use this command")
             "etf" -> player?.let { handleEtf(it, args) }
                             ?: stack.sender.sendMessage("You must be a player to use this command")
             "me" -> player?.let { handleMe(it, args) }
@@ -87,6 +91,8 @@ class CommandMannequin(
                         "history" to "View your session history",
                         "template" to "Manage session templates",
                         "remask" to "Remask selected part on nearest mannequin",
+                        "layermerge" to "Merge & compress mask channels for selected part",
+                        "layerdelete" to "Delete a mask channel for selected part",
                         "etf" to "Configure ETF settings interactively",
                         "me" to "Manage user-uploaded custom skin parts",
                         "debug" to "Access developer/debug tools"
@@ -106,6 +112,8 @@ class CommandMannequin(
                                     "remove",
                                     "reload",
                                     "remask",
+                                    "layermerge",
+                                    "layerdelete",
                                     "etf",
                                     "me",
                                     "history",
@@ -130,6 +138,13 @@ class CommandMannequin(
                                         .filter { it.startsWith(args[1], ignoreCase = true) }
                                         .toMutableList()
                             }
+                        }
+                        "channelmerge", "layermerge", "layerdelete" -> {
+                            layerManager
+                                    .definitionsInOrder()
+                                    .map { it.id }
+                                    .filter { it.startsWith(args[1], ignoreCase = true) }
+                                    .toMutableList()
                         }
                         "etf" -> {
                             val p = stack.sender as? Player
@@ -175,6 +190,16 @@ class CommandMannequin(
                     }
             3 ->
                     when (args[0].lowercase()) {
+                        "channelmerge", "layermerge" -> {
+                            (1..8).map { it.toString() }
+                                    .filter { it.startsWith(args[2], ignoreCase = true) }
+                                    .toMutableList()
+                        }
+                        "layerdelete" -> {
+                            (1..8).map { it.toString() }
+                                    .filter { it.startsWith(args[2], ignoreCase = true) }
+                                    .toMutableList()
+                        }
                         "remask" -> {
                             // /mannequin remask <layer> [strategy]
                             LayerManager.STRATEGY_NAMES
@@ -784,6 +809,182 @@ class CommandMannequin(
         }
 
         remaskManager.startSession(sender, mannequin.id, layerId, partId, strategy)
+    }
+
+    private fun remapSelectionForMaskRewrite(
+            sel: com.sneakymannequins.model.LayerSelection,
+            rewrite: LayerManager.MaskChannelRewrite
+    ): com.sneakymannequins.model.LayerSelection {
+        if (rewrite.mappingOldToNew.isEmpty()) return sel
+
+        fun remapIdx(idx: Int): Int? = rewrite.mappingOldToNew[idx]
+
+        val targetOld = rewrite.targetOldIdx
+        val targetNew = targetOld?.let { remapIdx(it) }
+
+        // Merge/delete: pick a representative color for the target.
+        val mergedOld = rewrite.mergedOldIndices
+        val deletedOld = rewrite.deletedOldIndices
+
+        val newChannelColors = mutableMapOf<Int, java.awt.Color>()
+        val candidateColors = mutableListOf<java.awt.Color>()
+        for ((oldIdx, c) in sel.channelColors) {
+            val newIdx = remapIdx(oldIdx) ?: continue
+            if (targetNew != null && oldIdx in mergedOld) {
+                candidateColors += c
+                continue
+            }
+            if (oldIdx in deletedOld) continue
+            newChannelColors[newIdx] = c
+        }
+        if (targetNew != null && candidateColors.isNotEmpty()) {
+            newChannelColors[targetNew] = newChannelColors[targetNew] ?: candidateColors.first()
+        }
+
+        val newTexturedColors = mutableMapOf<Int, Map<Int, java.awt.Color>>()
+        val candidateTextured = mutableListOf<Map<Int, java.awt.Color>>()
+        for ((oldIdx, subMap) in sel.texturedColors) {
+            val newIdx = remapIdx(oldIdx) ?: continue
+            if (targetNew != null && oldIdx in mergedOld) {
+                candidateTextured += subMap
+                continue
+            }
+            if (oldIdx in deletedOld) continue
+            newTexturedColors[newIdx] = subMap
+        }
+        if (targetNew != null && candidateTextured.isNotEmpty()) {
+            newTexturedColors[targetNew] = newTexturedColors[targetNew] ?: candidateTextured.first()
+        }
+
+        return sel.copy(channelColors = newChannelColors, texturedColors = newTexturedColors)
+    }
+
+    private fun handleLayerMerge(sender: Player, args: Array<out String>) {
+        if (args.size < 4) {
+            sender.sendMessage(
+                    TextUtility.convertToComponent(
+                            "&cUsage: /mannequin layermerge <layer> <ch1> <ch2> [ch3...]"
+                    )
+            )
+            return
+        }
+        val layerId = args[1].lowercase()
+        val channels = args.drop(2).mapNotNull { it.toIntOrNull() }
+        if (channels.size < 2) {
+            sender.sendMessage(TextUtility.convertToComponent("&cProvide 2+ numeric channels."))
+            return
+        }
+
+        val mannequin =
+                mannequinManager.nearestMannequin(sender.location)
+                        ?: run {
+                            sender.sendMessage(TextUtility.convertToComponent("&cNo mannequin nearby."))
+                            return
+                        }
+
+        val partId =
+                mannequinManager.currentPartId(mannequin.id, layerId)
+                        ?: run {
+                            sender.sendMessage(
+                                    TextUtility.convertToComponent(
+                                            "&cNo part selected in layer '&b$layerId&c' for this mannequin."
+                                    )
+                            )
+                            return
+                        }
+
+        val opt = layerManager.findPartById(layerId, partId)
+        if (opt == null) {
+            sender.sendMessage(TextUtility.convertToComponent("&cCould not find part definition."))
+            return
+        }
+        val isOwner = opt.owner == sender.uniqueId
+        val isAdmin = sender.hasPermission("sneakymannequins.admin")
+        if (!isOwner && !isAdmin) {
+            sender.sendMessage(
+                    TextUtility.convertToComponent(
+                            "&cYou do not have permission to edit masks for this part (not the owner)."
+                    )
+            )
+            return
+        }
+
+        val (msg, rw) = layerManager.mergeMaskChannels(layerId, partId, channels)
+
+        // Remap the mannequin's active selection to the new compressed indices.
+        val curSel = mannequin.selection.selections[layerId]
+        if (curSel != null) {
+            val rewritten = remapSelectionForMaskRewrite(curSel, rw.master)
+            mannequin.selection =
+                    mannequin.selection.copy(
+                            selections = mannequin.selection.selections + (layerId to rewritten)
+                    )
+        }
+
+        sender.sendMessage(TextUtility.convertToComponent("&a$msg"))
+        mannequinManager.render(mannequin, mannequinManager.nearbyViewers(mannequin), forceAll = true)
+    }
+
+    private fun handleLayerDelete(sender: Player, args: Array<out String>) {
+        if (args.size < 3) {
+            sender.sendMessage(
+                    TextUtility.convertToComponent("&cUsage: /mannequin layerdelete <layer> <number>")
+            )
+            return
+        }
+        val layerId = args[1].lowercase()
+        val ch = args[2].toIntOrNull()
+        if (ch == null || ch <= 0) {
+            sender.sendMessage(TextUtility.convertToComponent("&cNumber must be >= 1."))
+            return
+        }
+
+        val mannequin =
+                mannequinManager.nearestMannequin(sender.location)
+                        ?: run {
+                            sender.sendMessage(TextUtility.convertToComponent("&cNo mannequin nearby."))
+                            return
+                        }
+
+        val partId =
+                mannequinManager.currentPartId(mannequin.id, layerId)
+                        ?: run {
+                            sender.sendMessage(
+                                    TextUtility.convertToComponent(
+                                            "&cNo part selected in layer '&b$layerId&c' for this mannequin."
+                                    )
+                            )
+                            return
+                        }
+
+        val opt = layerManager.findPartById(layerId, partId)
+        if (opt == null) {
+            sender.sendMessage(TextUtility.convertToComponent("&cCould not find part definition."))
+            return
+        }
+        val isOwner = opt.owner == sender.uniqueId
+        val isAdmin = sender.hasPermission("sneakymannequins.admin")
+        if (!isOwner && !isAdmin) {
+            sender.sendMessage(
+                    TextUtility.convertToComponent(
+                            "&cYou do not have permission to edit masks for this part (not the owner)."
+                    )
+            )
+            return
+        }
+
+        val (msg, rw) = layerManager.deleteMaskChannel(layerId, partId, ch)
+        val curSel = mannequin.selection.selections[layerId]
+        if (curSel != null) {
+            val rewritten = remapSelectionForMaskRewrite(curSel, rw.master)
+            mannequin.selection =
+                    mannequin.selection.copy(
+                            selections = mannequin.selection.selections + (layerId to rewritten)
+                    )
+        }
+
+        sender.sendMessage(TextUtility.convertToComponent("&a$msg"))
+        mannequinManager.render(mannequin, mannequinManager.nearbyViewers(mannequin), forceAll = true)
     }
 
     private fun handleDelete(player: Player, args: Array<out String>) {

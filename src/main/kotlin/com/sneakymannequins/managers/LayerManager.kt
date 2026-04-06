@@ -1442,6 +1442,197 @@ class LayerManager(private val plugin: SneakyMannequins) {
         return "Remasked '$partId' in '$layerId' using ${strategy.name}: ${clusters.size} mask(s) generated and propagated"
     }
 
+    data class MaskChannelRewrite(
+            val targetOldIdx: Int?,
+            val mappingOldToNew: Map<Int, Int>,
+            val mergedOldIndices: Set<Int>,
+            val deletedOldIndices: Set<Int>
+    )
+
+    data class MaskChannelRewriteResult(
+            val master: MaskChannelRewrite,
+            val default: MaskChannelRewrite,
+            val slim: MaskChannelRewrite
+    )
+
+    private fun emptyRewrite(): MaskChannelRewrite =
+            MaskChannelRewrite(targetOldIdx = null, mappingOldToNew = emptyMap(), mergedOldIndices = emptySet(), deletedOldIndices = emptySet())
+
+    private fun loadMaskIndexMap(dir: Path, prefix: String): MutableMap<Int, Path> {
+        val files = mutableMapOf<Int, Path>()
+        Files.list(dir).use { stream ->
+            stream.filter { it.name.lowercase().contains("_mask_") }.forEach { p ->
+                val name = p.nameWithoutExtension
+                if (prefix.isNotEmpty() && !name.contains(prefix)) return@forEach
+                if (prefix.isEmpty() && (name.contains("_Default_") || name.contains("_Slim_"))) return@forEach
+                val idx = name.substringAfterLast("_mask_").toIntOrNull() ?: return@forEach
+                files[idx] = p
+            }
+        }
+        return files
+    }
+
+    private fun baseMaskName(dir: Path, prefix: String): String =
+            if (prefix.isEmpty()) dir.name
+            else if (prefix == "_Default_") "${dir.name}_Default"
+            else if (prefix == "_Slim_") "${dir.name}_Slim"
+            else dir.name
+
+    private fun compressMaskIndices(dir: Path, files: Map<Int, Path>, prefix: String): Pair<Map<Int, Int>, Set<Int>> {
+        val remainingOld = files.keys.sorted()
+        val mapping = remainingOld.withIndex().associate { (i, old) -> old to (i + 1) }
+        if (mapping.all { it.key == it.value }) return mapping to emptySet()
+
+        val temp = mutableMapOf<Int, Path>()
+        for ((oldIdx, path) in files) {
+            val newIdx = mapping[oldIdx] ?: continue
+            if (newIdx == oldIdx) continue
+            val tmp = dir.resolve("${path.nameWithoutExtension}_tmp_${UUID.randomUUID()}.png")
+            Files.move(path, tmp)
+            temp[oldIdx] = tmp
+        }
+
+        val renamed = mutableSetOf<Int>()
+        for ((oldIdx, tmpPath) in temp) {
+            val newIdx = mapping.getValue(oldIdx)
+            val final = dir.resolve("${baseMaskName(dir, prefix)}_mask_$newIdx.png")
+            Files.move(tmpPath, final)
+            renamed += oldIdx
+        }
+
+        return mapping to renamed
+    }
+
+    private fun loadMask(path: Path): BufferedImage? =
+            try {
+                ImageIO.read(path.toFile())
+            } catch (_: Exception) {
+                null
+            }
+
+    fun mergeMaskChannels(layerId: String, partId: String, channels: List<Int>): Pair<String, MaskChannelRewriteResult> {
+        val option =
+                findPartById(layerId, partId)
+                        ?: return "Part '$partId' not found in '$layerId'" to
+                                MaskChannelRewriteResult(emptyRewrite(), emptyRewrite(), emptyRewrite())
+        val dir =
+                option.directory
+                        ?: return "Part has no directory" to
+                                MaskChannelRewriteResult(emptyRewrite(), emptyRewrite(), emptyRewrite())
+        if (!dir.exists() || !dir.isDirectory())
+            return "Part directory not found" to
+                    MaskChannelRewriteResult(emptyRewrite(), emptyRewrite(), emptyRewrite())
+
+        val unique = channels.distinct().sorted()
+        if (unique.size < 2) return ("Provide 2+ channels to merge (e.g. 1 2 4)") to MaskChannelRewriteResult(emptyRewrite(), emptyRewrite(), emptyRewrite())
+        val target = unique.first()
+        val mergeSet = unique.toSet()
+
+        fun mergeVariant(prefix: String): MaskChannelRewrite {
+            val files = loadMaskIndexMap(dir, prefix)
+            val existing = files.keys.sorted()
+            if (target !in existing) {
+                val mapping = existing.withIndex().associate { (i, old) -> old to (i + 1) }
+                return MaskChannelRewrite(targetOldIdx = null, mappingOldToNew = mapping, mergedOldIndices = emptySet(), deletedOldIndices = emptySet())
+            }
+
+            val toMerge = existing.filter { it in mergeSet && it in files }
+            if (toMerge.size < 2) {
+                val mapping = existing.withIndex().associate { (i, old) -> old to (i + 1) }
+                return MaskChannelRewrite(targetOldIdx = target, mappingOldToNew = mapping, mergedOldIndices = emptySet(), deletedOldIndices = emptySet())
+            }
+
+            val baseImg = loadMask(files.getValue(target)) ?: run {
+                val mapping = existing.withIndex().associate { (i, old) -> old to (i + 1) }
+                return MaskChannelRewrite(targetOldIdx = target, mappingOldToNew = mapping, mergedOldIndices = emptySet(), deletedOldIndices = emptySet())
+            }
+
+            val w = baseImg.width
+            val h = baseImg.height
+            val merged = BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB)
+            merged.graphics.drawImage(baseImg, 0, 0, null)
+
+            for (ch in toMerge) {
+                if (ch == target) continue
+                val img = loadMask(files.getValue(ch)) ?: continue
+                for (x in 0 until w) {
+                    for (y in 0 until h) {
+                        val a = merged.getRGB(x, y) ushr 24 and 0xFF
+                        val b = img.getRGB(x, y) ushr 24 and 0xFF
+                        val outA = maxOf(a, b)
+                        if (outA != a) merged.setRGB(x, y, (outA shl 24) or 0x00FFFFFF)
+                    }
+                }
+            }
+
+            ImageIO.write(merged, "png", files.getValue(target).toFile())
+
+            val deleted = mutableSetOf<Int>()
+            for (ch in toMerge) {
+                if (ch == target) continue
+                Files.deleteIfExists(files.getValue(ch))
+                files.remove(ch)
+                deleted += ch
+            }
+
+            val mapping = files.keys.sorted().withIndex().associate { (i, old) -> old to (i + 1) }
+            compressMaskIndices(dir, files, prefix)
+
+            return MaskChannelRewrite(
+                    targetOldIdx = target,
+                    mappingOldToNew = mapping,
+                    mergedOldIndices = toMerge.toSet(),
+                    deletedOldIndices = deleted
+            )
+        }
+
+        val rwMaster = mergeVariant("")
+        val rwDef = mergeVariant("_Default_")
+        val rwSlim = mergeVariant("_Slim_")
+
+        reloadLayer(layerId)
+        val remainingMaster = rwMaster.mappingOldToNew.values.distinct().size
+        val remainingDef = rwDef.mappingOldToNew.values.distinct().size
+        val remainingSlim = rwSlim.mappingOldToNew.values.distinct().size
+        val msg =
+                "Merged channels ${unique.joinToString(",")} → $target for '$partId'. Remaining masks: master=$remainingMaster default=$remainingDef slim=$remainingSlim."
+        return msg to MaskChannelRewriteResult(rwMaster, rwDef, rwSlim)
+    }
+
+    fun deleteMaskChannel(layerId: String, partId: String, channel: Int): Pair<String, MaskChannelRewriteResult> {
+        val option = findPartById(layerId, partId) ?: return "Part '$partId' not found in '$layerId'" to MaskChannelRewriteResult(emptyRewrite(), emptyRewrite(), emptyRewrite())
+        val dir = option.directory ?: return "Part has no directory" to MaskChannelRewriteResult(emptyRewrite(), emptyRewrite(), emptyRewrite())
+        if (!dir.exists() || !dir.isDirectory()) return "Part directory not found" to MaskChannelRewriteResult(emptyRewrite(), emptyRewrite(), emptyRewrite())
+        val ch = channel
+        if (ch <= 0) return "Channel must be >= 1" to MaskChannelRewriteResult(emptyRewrite(), emptyRewrite(), emptyRewrite())
+
+        fun deleteVariant(prefix: String): MaskChannelRewrite {
+            val files = loadMaskIndexMap(dir, prefix)
+            val existing = files.keys.sorted()
+            if (ch !in existing) {
+                val mapping = existing.withIndex().associate { (i, old) -> old to (i + 1) }
+                return MaskChannelRewrite(targetOldIdx = null, mappingOldToNew = mapping, mergedOldIndices = emptySet(), deletedOldIndices = emptySet())
+            }
+
+            Files.deleteIfExists(files.getValue(ch))
+            files.remove(ch)
+            val mapping = files.keys.sorted().withIndex().associate { (i, old) -> old to (i + 1) }
+            compressMaskIndices(dir, files, prefix)
+            return MaskChannelRewrite(targetOldIdx = null, mappingOldToNew = mapping, mergedOldIndices = emptySet(), deletedOldIndices = setOf(ch))
+        }
+
+        val rwMaster = deleteVariant("")
+        val rwDef = deleteVariant("_Default_")
+        val rwSlim = deleteVariant("_Slim_")
+        reloadLayer(layerId)
+        val remainingMaster = rwMaster.mappingOldToNew.values.distinct().size
+        val remainingDef = rwDef.mappingOldToNew.values.distinct().size
+        val remainingSlim = rwSlim.mappingOldToNew.values.distinct().size
+        val msg =
+                "Deleted mask channel $ch for '$partId'. Remaining masks: master=$remainingMaster default=$remainingDef slim=$remainingSlim."
+        return msg to MaskChannelRewriteResult(rwMaster, rwDef, rwSlim)
+    }
+
     private fun writeMetadata(
             dir: Path,
             partName: String,
