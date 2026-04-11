@@ -17,6 +17,7 @@ import java.awt.image.BufferedImage
 import java.net.URL
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import javax.imageio.ImageIO
@@ -108,11 +109,17 @@ class LayerManager(private val plugin: SneakyMannequins) {
 
     fun optionsFor(layerId: String, viewer: Player? = null): List<LayerOption> {
         val allOptions = loadedLayers[layerId]?.second.orEmpty()
-        return if (viewer == null) {
-            allOptions.filter { it.owner == null }
-        } else {
-            allOptions.filter { (it.owner == null || it.owner == viewer.uniqueId) && hasPermission(viewer, it) }
-        }
+        val filtered =
+                if (viewer == null) {
+                    allOptions.filter { it.owner == null }
+                } else {
+                    allOptions.filter {
+                        (it.owner == null || it.owner == viewer.uniqueId) && hasPermission(viewer, it)
+                    }
+                }
+        return filtered.sortedWith(
+                compareBy({ it.displayName.lowercase(Locale.ROOT) }, { it.id })
+        )
     }
 
     private fun hasPermission(player: org.bukkit.entity.Player, option: LayerOption): Boolean {
