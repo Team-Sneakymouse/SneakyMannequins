@@ -3,6 +3,7 @@ package com.sneakymannequins.managers
 import com.sneakymannequins.SneakyMannequins
 import com.sneakymannequins.events.*
 import com.sneakymannequins.integrations.CharacterManagerBridge
+import com.sneakymannequins.model.ColorTabMode
 import com.sneakymannequins.model.ChannelSlot
 import com.sneakymannequins.model.LayerDefinition
 import com.sneakymannequins.model.LayerOption
@@ -46,6 +47,8 @@ private data class ControlState(
         var layerIndex: Int = 0,
         val partIndex: MutableMap<String, Int> = mutableMapOf(),
         val colorIndex: MutableMap<String, Int> = mutableMapOf(),
+        /** Per-layer visible page index for paginated color_grid palettes (`max-rows`). */
+        val palettePage: MutableMap<String, Int> = mutableMapOf(),
         /**
          * Per-layer index into the flattened [ChannelSlot] list (covers both mask channels and
          * sub-channels).
@@ -213,6 +216,50 @@ class MannequinManager(
             }
         }
         return null
+    }
+
+    private fun findColorGridConfigInStyle(hudButtons: List<HudButton>): HudButton? {
+        val menuId = findMenuIdForType("color_grid", hudButtons) ?: return null
+        val menu = buttonByName(menuId, hudButtons) ?: return null
+        return menu.items?.values?.firstOrNull { it.type == "color_grid" }
+    }
+
+    private fun colorGridPaletteIds(
+            layer: LayerDefinition,
+            option: LayerOption,
+            player: Player
+    ): List<String> = layerManager.resolvePalettes(layer, option, player).filter { it != "default" }
+
+    private fun colorGridPageCountForLayer(
+            layer: LayerDefinition?,
+            option: LayerOption?,
+            player: Player,
+            maxRows: Int
+    ): Int {
+        if (layer == null || option == null) return 1
+        val all = colorGridPaletteIds(layer, option, player)
+        if (all.isEmpty()) return 1
+        val mr = maxOf(1, maxRows)
+        return (all.size + mr - 1) / mr
+    }
+
+    private fun advancePalettePageOnColorSubmenuClose(
+            mannequin: Mannequin,
+            state: ControlState,
+            player: Player,
+            submenuBtn: HudButton
+    ) {
+        if (submenuBtn.items?.values?.any { it.type == "color_grid" } != true) return
+        val style = styleManager.getStyle(mannequin.styleId) ?: return
+        val gridConfig = findColorGridConfigInStyle(style.hudButtons) ?: return
+        val maxRows = gridConfig.maxRows.coerceAtLeast(1)
+        val layers = getAvailableLayers(mannequin)
+        val layer = layers.getOrNull(state.layerIndex % layers.size) ?: return
+        val option = freshOption(layer.id, mannequin) ?: return
+        val pageCount = colorGridPageCountForLayer(layer, option, player, maxRows)
+        if (pageCount <= 1) return
+        val cur = state.palettePage.getOrDefault(layer.id, 0)
+        state.palettePage[layer.id] = (cur + 1) % pageCount
     }
 
     /**
@@ -1177,6 +1224,12 @@ class MannequinManager(
                     }
                 }
                 val layerChanged = state.layerIndex != prevLayerIndex
+                if (layerChanged) {
+                    styleLayers
+                            .getOrNull(state.layerIndex % styleLayers.size)
+                            ?.id
+                            ?.let { state.palettePage[it] = 0 }
+                }
                 refreshDynamicLabels(mannequinId)
 
                 // Only respawn the color grid + flash highlight when the layer actually changes.
@@ -1277,6 +1330,7 @@ class MannequinManager(
             "submenu" -> {
                 val isVisible = hud.buttons.any { it.id.startsWith("${buttonName}_") }
                 if (isVisible) {
+                    advancePalettePageOnColorSubmenuClose(mannequin, state, player, configBtn)
                     despawnMenu(buttonName, player, hud)
                 } else {
                     spawnMenu(configBtn, player, mannequin, state, hud)
@@ -1489,6 +1543,24 @@ class MannequinManager(
                     )
                 }
             }
+            "colortab" -> {
+                val gridConfig = findColorGridConfigInStyle(style.hudButtons) ?: return
+                val maxRows = gridConfig.maxRows.coerceAtLeast(1)
+                if (layer == null) return
+                val option = freshOption(layer.id, mannequin) ?: return
+                val pageCount = colorGridPageCountForLayer(layer, option, player, maxRows)
+                if (pageCount <= 1) return
+                val cur = state.palettePage.getOrDefault(layer.id, 0)
+                val delta =
+                        when (configBtn.colorTabMode) {
+                            ColorTabMode.FORWARD -> 1
+                            ColorTabMode.BACKWARD -> -1
+                            ColorTabMode.ALTERNATE -> if (backwards) -1 else 1
+                        }
+                state.palettePage[layer.id] = (cur + delta + pageCount) % pageCount
+                refreshColorGrid(player, mannequin, state, hud)
+                refreshDynamicLabels(mannequinId)
+            }
             "save", "load", "apply" -> {
                 executeConfigAction(configBtn.type, mannequinId, player, state)
             }
@@ -1690,6 +1762,17 @@ class MannequinManager(
                     slots.getOrNull(state.channelIndex.getOrDefault(currentLayer?.id ?: "", 0))
                             ?: slots.firstOrNull()
 
+            val style = styleManager.getStyle(mannequin.styleId) ?: continue
+            val gridConfig = findColorGridConfigInStyle(style.hudButtons)
+            val colorMenuId = findMenuIdForType("color_grid", style.hudButtons)
+            val maxRowsForColorGrid = gridConfig?.maxRows?.coerceAtLeast(1) ?: 1
+            val colorGridPageCount =
+                    colorGridPageCountForLayer(currentLayer, currentOption, player, maxRowsForColorGrid)
+            val colorGridVisible =
+                    colorMenuId != null &&
+                            hud.buttons.any { it.id.startsWith("${colorMenuId}_") }
+            val colortabShouldHide = colorGridPageCount <= 1 || !colorGridVisible
+
             fun applyPlaceholders(mm: String): String {
                 var out = mm
                 if (selectedChannel != null) {
@@ -1711,7 +1794,13 @@ class MannequinManager(
                         (isLayerType && layerDisabled) ||
                                 (isTextureType && textureDisabled) ||
                                 (isChannelType && channelDisabled)
-                val hideThis = isButtonDisabled && btn.disabledTextMM == null
+                val hideColortab =
+                        parentName == null &&
+                                btn.type == "colortab" &&
+                                colortabShouldHide &&
+                                btn.disabledTextMM == null
+                val hideThis =
+                        (isButtonDisabled && btn.disabledTextMM == null) || hideColortab
 
                 if (hideThis) {
                     if (hud.isButtonActive(activeId)) {
@@ -1799,7 +1888,6 @@ class MannequinManager(
                 }
             }
 
-            val style = styleManager.getStyle(mannequin.styleId) ?: continue
             for (btn in style.hudButtons) {
                 processBtn(btn)
             }
@@ -1907,6 +1995,7 @@ class MannequinManager(
 
         state.channelIndex[layer.id] = 0
         state.colorIndex[layer.id] = 0
+        state.palettePage[layer.id] = 0
         val rawTex = layerManager.resolveTextures(layer, chosen, player)
         state.textureIndex[layer.id] =
                 if (sel.selectedTexture != null) {
@@ -2065,14 +2154,21 @@ class MannequinManager(
             return
         }
 
+        val maxRows = config.maxRows.coerceAtLeast(1)
+        val pageCount = (allPaletteIds.size + maxRows - 1) / maxRows
+        val rawPage = state.palettePage.getOrDefault(layer.id, 0)
+        val page = rawPage.coerceIn(0, (pageCount - 1).coerceAtLeast(0))
+        state.palettePage[layer.id] = page
+        val visiblePaletteIds = allPaletteIds.drop(page * maxRows).take(maxRows)
+
         grid.cellSpacingX = config.cellSpacingX
         grid.cellSpacingY = config.cellSpacingY
 
         val selectedColor = currentSelectedGridColor(mannequin, state)
         val slots = resolveChannelSlots(layer, option, state, player)
 
-        // Palette rows
-        for ((row, palId) in allPaletteIds.withIndex()) {
+        // Palette rows (one row per palette on the current page)
+        for ((row, palId) in visiblePaletteIds.withIndex()) {
             val palette = layerManager.palette(palId) ?: continue
 
             // Palette header
@@ -2929,6 +3025,7 @@ class MannequinManager(
                     opts.indexOfFirst { it.id == sel?.option?.id }.coerceAtLeast(0)
             state.channelIndex[def.id] = 0
             state.colorIndex[def.id] = 0
+            state.palettePage[def.id] = 0
             val rawTex =
                     if (sel?.option != null) layerManager.resolveTextures(def, sel.option, null)
                     else emptyList()

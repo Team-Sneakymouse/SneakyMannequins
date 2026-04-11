@@ -206,6 +206,16 @@ hud-buttons:
         header-padding-side: "right"
         header-column: 13
         bg-header: "90000000"
+      colortab_prev:
+        text: "<white>«"
+        type: "colortab"
+        colortab-mode: "backward"
+        translation:
+          x: -0.1
+          y: 0.2
+          z: 0.0
+        scale-x: 0.6
+        scale-y: 0.6
       default:
         type: "default_color"
         text: "<white>Default"
@@ -231,6 +241,16 @@ hud-buttons:
         disabled-text: null # Set to "<gray>Texture" to show while disabled, or null to hide
         translation:
           x: 1.68
+          y: 0.2
+          z: 0.0
+        scale-x: 0.6
+        scale-y: 0.6
+      colortab_next:
+        text: "<white>»"
+        type: "colortab"
+        colortab-mode: "forward"
+        translation:
+          x: 2.06
           y: 0.2
           z: 0.0
         scale-x: 0.6
@@ -266,6 +286,24 @@ hud-buttons:
   #   type: "default_color"
   #   palette: "primary"    # Optional: defaults to "standard" if omitted
   #   translation: {x: 2.0, y: 0.7, z: -2.0}
+
+  # Palette pagination for `color_grid` when `max-rows` yields more than one page.
+  # Shown only while the color grid HUD is open and there is more than one page.
+  # colortab_next:
+  #   text: "<white>Palettes »"
+  #   type: "colortab"
+  #   colortab-mode: "forward"
+  #   translation: {x: 2.0, y: 0.2, z: -2.0}
+  # colortab_prev:
+  #   text: "<white>« Palettes"
+  #   type: "colortab"
+  #   colortab-mode: "backward"
+  #   translation: {x: 2.0, y: -0.3, z: -2.0}
+  # colortab_lr:
+  #   text: "<white>◀ ▶"
+  #   type: "colortab"
+  #   colortab-mode: "alternate"   # left-click next page, right-click previous
+  #   translation: {x: 2.0, y: -0.8, z: -2.0}
 
 # HUD frame – optional ItemDisplay rendered as a backdrop behind the HUD buttons.
 # Rotates together with the rest of the HUD.  Disabled by default.

@@ -2,6 +2,16 @@ package com.sneakymannequins.model
 
 import com.sneakymannequins.render.RenderSettings
 
+/** How a `colortab` HUD button advances the color-grid palette page. */
+enum class ColorTabMode {
+    /** Always move to the next page. */
+    FORWARD,
+    /** Always move to the previous page. */
+    BACKWARD,
+    /** Left-click forward, right-click backward (via `backwards` on click). */
+    ALTERNATE
+}
+
 data class MenuLayout(
         val originX: Float,
         val originY: Float,
@@ -29,6 +39,7 @@ data class HudButton(
         val scaleX: Float? = null,
         val scaleY: Float? = null,
         val type: String? = null,
+        val colorTabMode: ColorTabMode = ColorTabMode.FORWARD,
         val targetLayer: String? = null,
         val allowedLayers: List<String>? = null,
         val palette: String? = null,

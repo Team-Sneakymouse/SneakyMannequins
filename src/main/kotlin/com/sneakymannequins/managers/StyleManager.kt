@@ -182,6 +182,12 @@ class StyleManager(private val plugin: SneakyMannequins) {
         if (sec == null) return null
 
         val type = sec.getString("type") ?: name
+        val colorTabMode =
+                when (sec.getString("colortab-mode", "forward")?.lowercase()) {
+                    "backward" -> ColorTabMode.BACKWARD
+                    "alternate" -> ColorTabMode.ALTERNATE
+                    else -> ColorTabMode.FORWARD
+                }
         val textMM = sec.getString("text") ?: "<white>${name.replaceFirstChar { it.uppercase() }}"
         val activeMM = sec.getString("active-text")
         val disabledMM = sec.getString("disabled-text")
@@ -263,6 +269,7 @@ class StyleManager(private val plugin: SneakyMannequins) {
                 scaleX = sx,
                 scaleY = sy,
                 type = type,
+                colorTabMode = colorTabMode,
                 targetLayer = targetLayer,
                 allowedLayers = allowedLayers,
                 palette = palette,
