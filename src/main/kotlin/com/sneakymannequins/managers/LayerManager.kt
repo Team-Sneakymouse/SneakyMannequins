@@ -29,6 +29,7 @@ import kotlin.io.path.name
 import kotlin.io.path.nameWithoutExtension
 import kotlin.math.pow
 import org.bukkit.configuration.ConfigurationSection
+import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.entity.Player
 
 class LayerManager(private val plugin: SneakyMannequins) {
@@ -61,9 +62,11 @@ class LayerManager(private val plugin: SneakyMannequins) {
         loadTextures(root.getConfigurationSection("textures"))
 
         val definitions =
-                root.getConfigurationSection("definitions")
+                resolveDefinitionsSection(root)
                         ?: run {
-                            plugin.logger.warning("No layer definitions found in config.")
+                            plugin.logger.warning(
+                                    "No layer definitions found (check layers.definitions-file or layers.definitions)."
+                            )
                             return
                         }
         
@@ -102,6 +105,34 @@ class LayerManager(private val plugin: SneakyMannequins) {
                     loadOptions(definition, definitionSection.getConfigurationSection("options"))
             loadedLayers[layerId] = definition to options
         }
+    }
+
+    /**
+     * Loads [ConfigurationSection] for layer defaults + per-layer entries from
+     * `layers.definitions-file` (YAML under the plugin data folder), or from inline `layers.definitions`
+     * when that key is unset. When `definitions-file` is set, inline `definitions` is ignored.
+     */
+    private fun resolveDefinitionsSection(root: ConfigurationSection): ConfigurationSection? {
+        val pathStr = root.getString("definitions-file")?.trim()
+        if (!pathStr.isNullOrEmpty()) {
+            val base = plugin.dataFolder.toPath().normalize().toAbsolutePath()
+            val resolved = base.resolve(pathStr).normalize().toAbsolutePath()
+            if (!resolved.startsWith(base)) {
+                plugin.logger.severe(
+                        "SneakyMannequins: definitions-file escapes plugin data folder: $pathStr"
+                )
+                return null
+            }
+            val file = resolved.toFile()
+            if (!file.isFile) {
+                plugin.logger.severe(
+                        "SneakyMannequins: definitions-file not found: ${file.absolutePath}"
+                )
+                return null
+            }
+            return YamlConfiguration.loadConfiguration(file)
+        }
+        return root.getConfigurationSection("definitions")
     }
 
     fun definitionsInOrder(): List<LayerDefinition> =

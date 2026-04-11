@@ -1,0 +1,79 @@
+# Layer defaults and per-layer definitions for SneakyMannequins.
+# Loaded when config.yml sets: layers.definitions-file: layers/definitions.yml
+#
+# Default palette assignments – applied to ALL layers unless overridden.
+palettes-first: []
+palettes:
+  - default
+  - greyscale
+palettes-last: []
+
+# Default texture assignments – applied to ALL layers unless overridden.
+textures:
+  - default
+  - worn
+  - fabric
+
+# How much the picked color's saturation influences the final pixel.
+saturation-influence: 0.3
+
+# How much the picked colour's brightness influences the final pixel.
+brightness-influence: 0.3
+
+layers:
+  hair:
+    display-name: "Hair"
+    directory: "layers/Hair"
+    allow-empty: true
+    allow-color-mask: true
+    palettes:
+      - default
+      - hair
+      - neon
+      - pastel
+
+  shirt:
+    display-name: "Shirt"
+    directory: "layers/Shirt"
+    allow-empty: true
+    allow-color-mask: true
+    palettes:
+      - default
+      - primary
+      - fabric
+      - pastel
+    textures:
+      - default
+      - striped
+      - pinstripe
+      - checkered
+      - gradient
+      - diagonal
+      - tricolor
+
+  pants:
+    display-name: "Pants"
+    directory: "layers/Pants"
+    allow-empty: true
+    allow-color-mask: true
+    palettes:
+      - default
+      - fabric
+      - earth
+      - greyscale
+    textures:
+      - default
+      - striped
+      - pinstripe
+      - checkered
+
+  body:
+    display-name: "Body"
+    directory: "layers/Body"
+    allow-empty: false
+    allow-color-mask: true
+    base: true
+    palettes:
+      - default
+      - skin
+      - jewel
