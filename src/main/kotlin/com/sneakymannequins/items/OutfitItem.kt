@@ -40,22 +40,29 @@ object OutfitItem {
                         layers.keys.filter { it !in defsById.keys }.sorted()
 
         val lore =
-                orderedLayerIds.mapNotNull { layerId ->
-                    val layerData = layers[layerId] ?: return@mapNotNull null
-                    val layerName = defsById[layerId]?.displayName ?: beautify(layerId)
-                    val optionId = layerData.option
-                    val partName =
-                            if (optionId.isNullOrBlank()) {
-                                "None"
-                            } else {
-                                layerManager.findPartById(layerId, optionId)?.displayName
-                                        ?: beautify(optionId)
+                buildList {
+                    add(
+                            Component.text("Right-click to apply")
+                                    .color(NamedTextColor.DARK_AQUA)
+                    )
+                    addAll(
+                            orderedLayerIds.mapNotNull { layerId ->
+                                val layerData = layers[layerId] ?: return@mapNotNull null
+                                val layerName = defsById[layerId]?.displayName ?: beautify(layerId)
+                                val optionId = layerData.option
+                                val partName =
+                                        if (optionId.isNullOrBlank()) {
+                                            "None"
+                                        } else {
+                                            layerManager.findPartById(layerId, optionId)
+                                                    ?.displayName ?: beautify(optionId)
+                                        }
+                                Component.text("$layerName: $partName")
+                                        .color(NamedTextColor.GRAY)
                             }
-                    Component.text("$layerName: $partName").color(NamedTextColor.GRAY)
+                    )
                 }
-        if (lore.isNotEmpty()) {
-            meta.lore(lore)
-        }
+        meta.lore(lore)
 
         meta.persistentDataContainer.set(key(plugin), PersistentDataType.STRING, uid)
         stack.itemMeta = meta

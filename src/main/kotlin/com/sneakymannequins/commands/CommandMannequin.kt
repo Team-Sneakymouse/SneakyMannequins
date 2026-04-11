@@ -1417,7 +1417,9 @@ class CommandMannequin(
                     val item = OutfitItem.build(plugin, layerManager, partial.uid, partial.layers)
                     player.inventory.addItem(item)
                     player.sendMessage(
-                            TextUtility.convertToComponent("&aOutfit created with UID '&e${partial.uid}&a'.")
+                            TextUtility.convertToComponent(
+                                    "&aOutfit created with UID '&e${partial.uid}&a'. &7Right-click to apply; 5s cooldown between uses."
+                            )
                     )
                 }
                 .exceptionally { ex ->
