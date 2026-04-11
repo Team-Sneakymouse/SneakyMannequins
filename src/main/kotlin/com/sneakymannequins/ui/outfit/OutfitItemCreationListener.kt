@@ -12,7 +12,6 @@ import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.inventory.InventoryClickEvent
 import org.bukkit.event.inventory.InventoryDragEvent
-import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.persistence.PersistentDataType
 
 class OutfitItemCreationListener(
@@ -24,7 +23,7 @@ class OutfitItemCreationListener(
     @EventHandler(ignoreCancelled = false)
     fun onClick(event: InventoryClickEvent) {
         val top = event.view.topInventory
-        val holder = top.holder as? OutfitMainGuiHolder ?: return
+        if (top.holder !is OutfitMainGuiHolder) return
 
         if (event.clickedInventory != top) {
             event.isCancelled = true
@@ -51,9 +50,15 @@ class OutfitItemCreationListener(
                         Runnable {
                             when (action) {
                                 "icon" -> {
+                                    OutfitGuiSessionGuard.beginMainGuiIntentionalClose(
+                                            player.uniqueId
+                                    )
                                     OutfitIconPickerUi.open(plugin, player, 0)
                                 }
                                 "name" -> {
+                                    OutfitGuiSessionGuard.beginMainGuiIntentionalClose(
+                                            player.uniqueId
+                                    )
                                     player.closeInventory()
                                     player.sendMessage(
                                             TextUtility.convertToComponent(
@@ -103,10 +108,5 @@ class OutfitItemCreationListener(
         if (event.inventory.holder is OutfitMainGuiHolder) {
             event.isCancelled = true
         }
-    }
-
-    @EventHandler
-    fun onQuit(event: PlayerQuitEvent) {
-        OutfitItemCreationService.remove(event.player.uniqueId)
     }
 }

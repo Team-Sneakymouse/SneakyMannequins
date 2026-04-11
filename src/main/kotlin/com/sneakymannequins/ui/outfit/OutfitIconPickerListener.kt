@@ -44,18 +44,26 @@ class OutfitIconPickerListener(
                                     plugin,
                                     Runnable {
                                         when (nav) {
-                                            "prev_page" ->
-                                                    OutfitIconPickerUi.open(
-                                                            plugin,
-                                                            player,
-                                                            holder.page - 1
-                                                    )
-                                            "next_page" ->
-                                                    OutfitIconPickerUi.open(
-                                                            plugin,
-                                                            player,
-                                                            holder.page + 1
-                                                    )
+                                            "prev_page" -> {
+                                                OutfitGuiSessionGuard.beginIconPickerTransition(
+                                                        player.uniqueId
+                                                )
+                                                OutfitIconPickerUi.open(
+                                                        plugin,
+                                                        player,
+                                                        holder.page - 1
+                                                )
+                                            }
+                                            "next_page" -> {
+                                                OutfitGuiSessionGuard.beginIconPickerTransition(
+                                                        player.uniqueId
+                                                )
+                                                OutfitIconPickerUi.open(
+                                                        plugin,
+                                                        player,
+                                                        holder.page + 1
+                                                )
+                                            }
                                         }
                                     }
                             )
@@ -81,7 +89,10 @@ class OutfitIconPickerListener(
         Bukkit.getScheduler()
                 .runTask(
                         plugin,
-                        Runnable { OutfitItemCreationUi.reopenMain(plugin, layerManager, player) }
+                        Runnable {
+                            OutfitGuiSessionGuard.beginIconPickerTransition(player.uniqueId)
+                            OutfitItemCreationUi.reopenMain(plugin, layerManager, player)
+                        }
                 )
     }
 

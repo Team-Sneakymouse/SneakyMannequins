@@ -5,6 +5,7 @@ import com.sneakymannequins.integrations.CharacterManagerBridge
 import com.sneakymannequins.integrations.CharacterManagerBridgeFactory
 import com.sneakymannequins.listeners.OutfitItemListener
 import com.sneakymannequins.listeners.TriggerListener
+import com.sneakymannequins.ui.outfit.OutfitGuiLifecycleListener
 import com.sneakymannequins.ui.outfit.OutfitIconPickerListener
 import com.sneakymannequins.ui.outfit.OutfitItemCreationListener
 import com.sneakymannequins.ui.outfit.OutfitItemGuiConfig
@@ -121,6 +122,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
                 this
         )
         server.pluginManager.registerEvents(OutfitIconPickerListener(this, layerManager), this)
+        server.pluginManager.registerEvents(OutfitGuiLifecycleListener(this, layerManager), this)
         if (characterManagerBridge.active) {
             logger.info("CharacterManager integration enabled.")
         }
