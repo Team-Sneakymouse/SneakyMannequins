@@ -34,14 +34,6 @@ class SessionManager(
         private val layerManager: LayerManager,
         private val characterManagerBridge: CharacterManagerBridge
 ) {
-    private val rememberedAppliedUid = mutableMapOf<UUID, String>()
-
-    fun rememberAppliedUid(playerId: UUID, uid: String) {
-        rememberedAppliedUid[playerId] = uid
-    }
-
-    private fun rememberedUid(playerId: UUID): String? = rememberedAppliedUid[playerId]
-
     private fun hexToColor(hex: String?): Color? {
         if (hex == null) return null
         return try {
@@ -64,45 +56,93 @@ class SessionManager(
 
         fun encodeUidToImage(image: BufferedImage, uid: String) {
             val paddedUid = uid.padEnd(UID_LENGTH, '0').take(UID_LENGTH)
-            val bytes = paddedUid.toByteArray(Charsets.US_ASCII)
-
+            val b = paddedUid.toByteArray(Charsets.US_ASCII)
+            // Store only in RGB with alpha 0xFF. Old layout put UID bytes in the alpha channel too,
+            // which made pixels semi-transparent; PNG/Minecraft often normalizes or strips them.
+            val p0 =
+                    (0xFF shl 24) or
+                            ((b[0].toInt() and 0xFF) shl 16) or
+                            ((b[1].toInt() and 0xFF) shl 8) or
+                            (b[2].toInt() and 0xFF)
             val p1 =
-                    ((bytes[0].toInt() and 0xFF) shl 24) or
-                            ((bytes[1].toInt() and 0xFF) shl 16) or
-                            ((bytes[2].toInt() and 0xFF) shl 8) or
-                            (bytes[3].toInt() and 0xFF)
-            image.setRGB(3, 48, p1)
-
+                    (0xFF shl 24) or
+                            ((b[3].toInt() and 0xFF) shl 16) or
+                            ((b[4].toInt() and 0xFF) shl 8) or
+                            (b[5].toInt() and 0xFF)
             val p2 =
-                    ((bytes[4].toInt() and 0xFF) shl 24) or
-                            ((bytes[5].toInt() and 0xFF) shl 16) or
-                            ((bytes[6].toInt() and 0xFF) shl 8) or
-                            (bytes[7].toInt() and 0xFF)
-            image.setRGB(3, 49, p2)
+                    (0xFF shl 24) or
+                            ((b[6].toInt() and 0xFF) shl 16) or
+                            ((b[7].toInt() and 0xFF) shl 8)
+            image.setRGB(3, 48, p0)
+            image.setRGB(4, 48, p1)
+            image.setRGB(5, 48, p2)
+        }
+
+        /**
+         * The 64×64 painting/UID grid: **crop** the top-left of HD skins (1:1). Scaling a 128×128
+         * atlas into 64×64 blends pixels and breaks [decodeUidFromImage].
+         */
+        fun skinTopLeft64Argb(skin: BufferedImage): BufferedImage {
+            val out = BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB)
+            val g = out.createGraphics()
+            when {
+                skin.width < 64 || skin.height < 64 ->
+                        g.drawImage(skin, 0, 0, 64, 64, null)
+                skin.width == 64 && skin.height == 64 ->
+                        g.drawImage(skin, 0, 0, null)
+                else -> g.drawImage(skin, 0, 0, 64, 64, 0, 0, 64, 64, null)
+            }
+            g.dispose()
+            return out
         }
 
         fun decodeUidFromImage(image: BufferedImage): String? {
-            if (image.width < 64 || image.height < 64) return null
-            val p1 = image.getRGB(3, 48)
-            val p2 = image.getRGB(3, 49)
+            val grid = skinTopLeft64Argb(image)
+            if (grid.width < 64 || grid.height < 64) return null
 
-            val bytes = ByteArray(8)
-            bytes[0] = ((p1 ushr 24) and 0xFF).toByte()
-            bytes[1] = ((p1 ushr 16) and 0xFF).toByte()
-            bytes[2] = ((p1 ushr 8) and 0xFF).toByte()
-            bytes[3] = (p1 and 0xFF).toByte()
+            decodeUidOpaqueRgb(grid)?.let { return it }
 
-            bytes[4] = ((p2 ushr 24) and 0xFF).toByte()
-            bytes[5] = ((p2 ushr 16) and 0xFF).toByte()
-            bytes[6] = ((p2 ushr 8) and 0xFF).toByte()
-            bytes[7] = (p2 and 0xFF).toByte()
-
-            val str = String(bytes, Charsets.US_ASCII)
+            // Legacy: 8 bytes in two pixels (including alpha channel — fragile for PNG/skin hosts).
+            val p1 = grid.getRGB(3, 48)
+            val p2 = grid.getRGB(3, 49)
+            val legacy = ByteArray(8)
+            legacy[0] = ((p1 ushr 24) and 0xFF).toByte()
+            legacy[1] = ((p1 ushr 16) and 0xFF).toByte()
+            legacy[2] = ((p1 ushr 8) and 0xFF).toByte()
+            legacy[3] = (p1 and 0xFF).toByte()
+            legacy[4] = ((p2 ushr 24) and 0xFF).toByte()
+            legacy[5] = ((p2 ushr 16) and 0xFF).toByte()
+            legacy[6] = ((p2 ushr 8) and 0xFF).toByte()
+            legacy[7] = (p2 and 0xFF).toByte()
+            val str = String(legacy, Charsets.US_ASCII)
             if (str.length == 8 && str.all { it in UID_CHARS }) {
                 return str
             }
             return null
         }
+
+        /** Current layout: three fully opaque pixels (3,48)(4,48)(5,48), UID in RGB only. */
+        private fun decodeUidOpaqueRgb(grid: BufferedImage): String? {
+            if (grid.width < 6 || grid.height < 49) return null
+            val p0 = grid.getRGB(3, 48)
+            val p1 = grid.getRGB(4, 48)
+            val p2 = grid.getRGB(5, 48)
+            val bytes = ByteArray(8)
+            bytes[0] = ((p0 ushr 16) and 0xFF).toByte()
+            bytes[1] = ((p0 ushr 8) and 0xFF).toByte()
+            bytes[2] = (p0 and 0xFF).toByte()
+            bytes[3] = ((p1 ushr 16) and 0xFF).toByte()
+            bytes[4] = ((p1 ushr 8) and 0xFF).toByte()
+            bytes[5] = (p1 and 0xFF).toByte()
+            bytes[6] = ((p2 ushr 16) and 0xFF).toByte()
+            bytes[7] = ((p2 ushr 8) and 0xFF).toByte()
+            val str = String(bytes, Charsets.US_ASCII)
+            return if (str.length == 8 && str.all { it in UID_CHARS }) str else null
+        }
+
+        /** True for UIDs produced by [generateUid] (and persisted session files). */
+        fun isWellFormedSessionUid(uid: String): Boolean =
+                uid.length == UID_LENGTH && uid.all { it in UID_CHARS }
     }
 
     init {
@@ -130,19 +170,30 @@ class SessionManager(
                         characterName = characterName
                 )
         val jsonString = gson.toJson(session)
-        CompletableFuture.runAsync {
+        try {
+            sessionsDir.mkdirs()
             File(sessionsDir, "$uid.json").writeText(jsonString)
             if (renderedImage != null) {
                 runCatching { ImageIO.write(renderedImage, "PNG", File(sessionsDir, "$uid.png")) }
             }
+        } catch (e: Exception) {
+            plugin.logger.severe("Failed to save session $uid: ${e.message}")
+            throw e
         }
         return session
     }
 
+    /** Writes `sessions/<uid>.json` before the skin is finalized so disk state matches encoded pixels. */
     private fun persistSession(session: SessionData) {
         val uid = session.uid
         val jsonString = gson.toJson(session)
-        CompletableFuture.runAsync { File(sessionsDir, "$uid.json").writeText(jsonString) }
+        try {
+            sessionsDir.mkdirs()
+            File(sessionsDir, "$uid.json").writeText(jsonString)
+        } catch (e: Exception) {
+            plugin.logger.severe("Failed to persist session $uid: ${e.message}")
+            throw e
+        }
     }
 
     fun load(id: String): SessionData? {
@@ -261,8 +312,7 @@ class SessionManager(
                         characterName = source.characterName
                 )
 
-        val jsonString = gson.toJson(session)
-        CompletableFuture.runAsync { File(sessionsDir, "$newUid.json").writeText(jsonString) }
+        persistSession(session)
         return session to null
     }
 
@@ -346,6 +396,19 @@ class SessionManager(
         return allCovered
     }
 
+    /**
+     * Steve/Alex for the finalized skin: always [preApplySlim] (the context player's model before
+     * this apply) unless [appliedSession] covers the full inner base UV and may define body type.
+     */
+    private fun resultSlimAfterApply(appliedSession: SessionData, preApplySlim: Boolean): Boolean {
+        if (!isComplete(appliedSession, preApplySlim)) {
+            return preApplySlim
+        }
+        return appliedSession.slimModel ?: preApplySlim
+    }
+
+    private fun prepareSkin64Argb(skin: BufferedImage): BufferedImage = skinTopLeft64Argb(skin)
+
     fun finalizeSession(
             requester: Player,
             man: Mannequin,
@@ -384,29 +447,30 @@ class SessionManager(
                         converted
                     } else downloadedSkin
 
+            // 1–3: Download skin, read UID from pixels only; resolve session B if JSON exists.
+            val skin64 = prepareSkin64Argb(baseSkin)
             val lastAppliedUid =
                     if (createNewUid || characterManagerBridge.active) {
-                        decodeUidFromImage(baseSkin) ?: rememberedUid(contextPlayerUniqueId)
+                        decodeUidFromImage(skin64)
                     } else {
                         null
                     }
             val baseSession = lastAppliedUid?.let { load(it) }
             val defaultSlim = playerSkinModel == SkinModel.SLIM
-            val merged =
+            var merged: SessionData =
                     if (baseSession != null) {
                         if (createNewUid) {
-                            // Apply A on top of B, but persist a fresh UID so the result can be
-                            // re-used as a session (required for Outfit items).
+                            // 4–6: Discard bitmap for compose when B exists; merge A onto B (same id → A wins);
+                            // new UID already assigned below, then compose + encode + apply.
                             val out = baseSession.layers.toMutableMap()
                             out.putAll(mannequinSession.layers)
-                            val mergedSlim =
-                                    mannequinSession.slimModel ?: baseSession.slimModel ?: defaultSlim
+                            val resultSlim = resultSlimAfterApply(mannequinSession, defaultSlim)
                             val newUid = generateUid()
                             SessionData(
                                     uid = newUid,
                                     creator = contextPlayerUniqueId.toString(),
                                     createdAt = Instant.now().toString(),
-                                    slimModel = mergedSlim,
+                                    slimModel = resultSlim,
                                     layers = out,
                                     characterUuid =
                                             mannequinSession.characterUuid
@@ -420,13 +484,13 @@ class SessionManager(
                         }
                     } else {
                         if (createNewUid) {
-                            val mergedSlim = mannequinSession.slimModel ?: defaultSlim
+                            val resultSlim = resultSlimAfterApply(mannequinSession, defaultSlim)
                             val newUid = generateUid()
                             SessionData(
                                     uid = newUid,
                                     creator = contextPlayerUniqueId.toString(),
                                     createdAt = Instant.now().toString(),
-                                    slimModel = mergedSlim,
+                                    slimModel = resultSlim,
                                     layers = mannequinSession.layers,
                                     characterUuid = mannequinSession.characterUuid,
                                     characterName = mannequinSession.characterName
@@ -438,13 +502,41 @@ class SessionManager(
                         }
                     }
 
+            // Mannequin apply: persist the merged layers under one UID — reuse the session from
+            // save/load when present so apply does not mint a second file/UID.
+            if (!createNewUid) {
+                val stableUid = mannequinSession.uid.takeIf { isWellFormedSessionUid(it) }
+                merged =
+                        if (stableUid != null) {
+                            merged.copy(
+                                    uid = stableUid,
+                                    creator = mannequinSession.creator,
+                                    createdAt = mannequinSession.createdAt
+                            )
+                        } else {
+                            val newUid = generateUid()
+                            merged.copy(
+                                    uid = newUid,
+                                    creator = contextPlayerUniqueId.toString(),
+                                    createdAt = Instant.now().toString()
+                            )
+                        }
+                persistSession(merged)
+            }
+
             val slim = merged.slimModel ?: false
             if (!isValid(merged, slim)) {
                 throw IllegalStateException("Merged session is invalid for finalization")
             }
 
+            // With a stored session B (from decoded UID + existing JSON), merge is authoritative;
+            // the downloaded PNG is only for reading the UID. Without B, composite A onto the skin.
+            val composeBase: BufferedImage? =
+                    if (createNewUid && baseSession != null) null else skin64
+
             val selection = sessionToSelection(merged)
             val layersDef = layerManager.definitionsInOrder()
+
             val sessionImage =
                     SkinComposer.compose(
                             layers = layersDef,
@@ -452,7 +544,7 @@ class SessionManager(
                             useSlimModel = slim,
                             optionResolver = { l, o -> layerManager.allOptions(l).find { it.id == o } },
                             textureResolver = { layerManager.texture(it) },
-                            baseImage = baseSkin,
+                            baseImage = composeBase,
                             blinkEnabled =
                                     plugin.config.getBoolean(
                                             "integrations.entity-texture-features.blink-enabled",
@@ -480,13 +572,18 @@ class SessionManager(
         }
     }
 
+    /**
+     * Apply session A to [contextPlayer]: download skin → read UID → if session B exists on disk,
+     * merge A onto B and compose from merged layers only (skin bitmap discarded); otherwise merge A
+     * onto the downloaded skin as base. Saves a new session UID and encodes it on the result.
+     * Steve/Alex follows the player unless A is UV-complete ([isComplete]).
+     */
     fun finalizeSessionFromSessionData(
             requester: Player,
             session: SessionData,
             contextPlayer: Player = requester,
             craig: Boolean = false
     ): CompletableFuture<FinalizedResult> {
-        // Use a synthetic mannequin wrapper to reuse existing pipeline.
         val dummy =
                 Mannequin(
                         location = contextPlayer.location,

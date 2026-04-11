@@ -109,7 +109,7 @@ class OutfitItemListener(
                         }
 
         player.sendMessage(TextUtility.convertToComponent("&eApplying outfit..."))
-        mannequinManager.finalizeAndApplySession(player, player, session)
+        mannequinManager.applyOutfitSession(player, session)
         cooldownUntilEpochMs[player.uniqueId] =
                 System.currentTimeMillis() + OUTFIT_USE_COOLDOWN_MS
     }

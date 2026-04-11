@@ -31,7 +31,9 @@ import com.sneakymouse.sneakyholos.*
 import com.sneakymouse.sneakyholos.util.HoloGridBuilder
 import com.sneakymouse.sneakyholos.util.TextUtility
 import java.awt.image.BufferedImage
+import java.net.URI
 import java.util.UUID
+import java.util.logging.Level
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import net.kyori.adventure.text.Component
@@ -2444,23 +2446,7 @@ class MannequinManager(
                     )
                 } else {
                     val session = saveMannequinState(mannequin, player)
-                    val uid = session.uid
-                    player.sendMessage(
-                            Component.text("Session saved: ")
-                                    .color(NamedTextColor.GREEN)
-                                    .append(
-                                            Component.text(uid)
-                                                    .color(NamedTextColor.YELLOW)
-                                                    .hoverEvent(
-                                                            HoverEvent.showText(
-                                                                    Component.text(
-                                                                            "Click to copy UID"
-                                                                    )
-                                                            )
-                                                    )
-                                                    .clickEvent(ClickEvent.copyToClipboard(uid))
-                                    )
-                    )
+                    sendSessionSavedChat(player, session.uid)
                 }
             }
             "load" -> {
@@ -2569,13 +2555,9 @@ class MannequinManager(
         if (sessionOverride == null) {
             val currentFingerprint = sessionManager.fingerprint(mannequin)
             if (lastSavedFingerprint[mannequin.id] != currentFingerprint) {
-                val session = saveMannequinState(mannequin, requester)
-                requester.sendMessage(
-                        TextUtility.convertToComponent(
-                                "&7Unsaved changes detected. Auto-saved to session &e${session.uid}&7."
-                        )
-                )
-                actualSessionOverride = session
+                val saved = saveMannequinState(mannequin, requester)
+                sendSessionSavedChat(requester, saved.uid)
+                actualSessionOverride = saved
             } else {
                 val savedUid = mannequin.savedUid
                 if (savedUid != null) {
@@ -2594,42 +2576,65 @@ class MannequinManager(
                 )
                 .thenAccept { result ->
                     val url = ConfigManager.instance.getImageUrl(result.file.name)
-                    sessionManager.rememberAppliedUid(contextPlayer.uniqueId, result.uid)
+                    val slim = result.slim
+                    plugin.server.scheduler.runTask(
+                            plugin,
+                            Runnable {
+                                sessionManager.load(result.uid)?.let { appliedSession ->
+                                    mannequin.savedUid = result.uid
+                                    lastSavedFingerprint[mannequin.id] =
+                                            sessionManager.fingerprint(appliedSession)
+                                    persist()
+                                }
 
-                    if (characterManagerBridge.active) {
-                        val charContext = characterManagerBridge.currentCharacter(contextPlayer)
-                        if (charContext != null) {
-                            characterManagerBridge.updateSkin(
-                                    contextPlayer,
-                                    charContext.characterUuid,
-                                    url,
-                                    result.slim
-                            )
+                                if (!contextPlayer.isOnline) return@Runnable
 
-                            requester.sendMessage(
-                                    TextUtility.convertToComponent(
-                                            "&aSkin applied to character &d${charContext.characterName}&a!"
+                                if (characterManagerBridge.active) {
+                                    val charContext =
+                                            characterManagerBridge.currentCharacter(contextPlayer)
+                                    if (charContext != null) {
+                                        characterManagerBridge.updateSkin(
+                                                contextPlayer,
+                                                charContext.characterUuid,
+                                                url,
+                                                slim
+                                        )
+                                        requester.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&aSkin applied to character &d${charContext.characterName}&a!"
+                                                )
+                                        )
+                                        return@Runnable
+                                    }
+                                }
+
+                                runCatching {
+                                    applyFinalizedSkinToPlayerProfile(contextPlayer, url, slim)
+                                }.onFailure {
+                                    plugin.logger.log(
+                                            Level.WARNING,
+                                            "Could not set in-game skin profile for ${contextPlayer.name}",
+                                            it
                                     )
-                            )
-                            return@thenAccept
-                        }
-                    }
+                                }
 
-                    // Fallback to classic link strategy
-                    val message =
-                            Component.text("Skin finalized! ")
-                                    .color(NamedTextColor.GREEN)
-                                    .append(
-                                            Component.text("[Click to view]")
-                                                    .color(NamedTextColor.YELLOW)
-                                                    .decorate(TextDecoration.UNDERLINED)
-                                                    .clickEvent(ClickEvent.openUrl(url))
-                                                    .hoverEvent(
-                                                            HoverEvent.showText(Component.text(url))
-                                                    )
-                                    )
-
-                    requester.sendMessage(message)
+                                val message =
+                                        Component.text("Skin finalized! ")
+                                                .color(NamedTextColor.GREEN)
+                                                .append(
+                                                        Component.text("[Open skin URL]")
+                                                                .color(NamedTextColor.YELLOW)
+                                                                .decorate(TextDecoration.UNDERLINED)
+                                                                .clickEvent(ClickEvent.openUrl(url))
+                                                                .hoverEvent(
+                                                                        HoverEvent.showText(
+                                                                                Component.text(url)
+                                                                        )
+                                                                )
+                                                )
+                                requester.sendMessage(message)
+                            }
+                    )
                 }
                 .exceptionally { ex ->
                     requester.sendMessage(
@@ -2640,8 +2645,22 @@ class MannequinManager(
     }
 
     /**
-     * Finalizes and applies a session directly to a player, creating a fresh UID and encoding it
-     * into the resulting skin. Used for Outfit items (incomplete sessions).
+     * Points the player's Paper profile texture at the finalized PNG so [org.bukkit.profile.PlayerTextures.getSkin]
+     * (and e.g. debug checkskin) download the image that carries the encoded session UID.
+     */
+    private fun applyFinalizedSkinToPlayerProfile(player: Player, skinUrl: String, slim: Boolean) {
+        val url = URI.create(skinUrl).toURL()
+        val profile = player.playerProfile
+        val textures = profile.textures
+        textures.setSkin(url, if (slim) SkinModel.SLIM else SkinModel.CLASSIC)
+        profile.setTextures(textures)
+        player.playerProfile = profile
+    }
+
+    /**
+     * Applies a saved [session] to [contextPlayer]'s skin via [SessionManager.finalizeSessionFromSessionData]
+     * (download skin, detect encoded session, merge per layer, composite, new UID). Same pipeline as
+     * mannequin Apply without a mannequin entity — used for outfit items and similar.
      */
     fun finalizeAndApplySession(
             requester: Player,
@@ -2658,40 +2677,58 @@ class MannequinManager(
                 )
                 .thenAccept { result ->
                     val url = ConfigManager.instance.getImageUrl(result.file.name)
-                    sessionManager.rememberAppliedUid(contextPlayer.uniqueId, result.uid)
+                    val slim = result.slim
+                    plugin.server.scheduler.runTask(
+                            plugin,
+                            Runnable {
+                                if (!contextPlayer.isOnline) return@Runnable
 
-                    if (characterManagerBridge.active) {
-                        val charContext = characterManagerBridge.currentCharacter(contextPlayer)
-                        if (charContext != null) {
-                            characterManagerBridge.updateSkin(
-                                    contextPlayer,
-                                    charContext.characterUuid,
-                                    url,
-                                    result.slim
-                            )
+                                if (characterManagerBridge.active) {
+                                    val charContext =
+                                            characterManagerBridge.currentCharacter(contextPlayer)
+                                    if (charContext != null) {
+                                        characterManagerBridge.updateSkin(
+                                                contextPlayer,
+                                                charContext.characterUuid,
+                                                url,
+                                                slim
+                                        )
+                                        requester.sendMessage(
+                                                TextUtility.convertToComponent(
+                                                        "&aSkin applied to character &d${charContext.characterName}&a!"
+                                                )
+                                        )
+                                        return@Runnable
+                                    }
+                                }
 
-                            requester.sendMessage(
-                                    TextUtility.convertToComponent(
-                                            "&aSkin applied to character &d${charContext.characterName}&a!"
+                                runCatching {
+                                    applyFinalizedSkinToPlayerProfile(contextPlayer, url, slim)
+                                }.onFailure {
+                                    plugin.logger.log(
+                                            Level.WARNING,
+                                            "Could not set in-game skin profile for ${contextPlayer.name}",
+                                            it
                                     )
-                            )
-                            return@thenAccept
-                        }
-                    }
+                                }
 
-                    val message =
-                            Component.text("Skin finalized! ")
-                                    .color(NamedTextColor.GREEN)
-                                    .append(
-                                            Component.text("[Click to view]")
-                                                    .color(NamedTextColor.YELLOW)
-                                                    .decorate(TextDecoration.UNDERLINED)
-                                                    .clickEvent(ClickEvent.openUrl(url))
-                                                    .hoverEvent(
-                                                            HoverEvent.showText(Component.text(url))
-                                                    )
-                                    )
-                    requester.sendMessage(message)
+                                val message =
+                                        Component.text("Skin finalized! ")
+                                                .color(NamedTextColor.GREEN)
+                                                .append(
+                                                        Component.text("[Open skin URL]")
+                                                                .color(NamedTextColor.YELLOW)
+                                                                .decorate(TextDecoration.UNDERLINED)
+                                                                .clickEvent(ClickEvent.openUrl(url))
+                                                                .hoverEvent(
+                                                                        HoverEvent.showText(
+                                                                                Component.text(url)
+                                                                        )
+                                                                )
+                                                )
+                                requester.sendMessage(message)
+                            }
+                    )
                 }
                 .exceptionally { ex ->
                     requester.sendMessage(
@@ -2699,6 +2736,28 @@ class MannequinManager(
                     )
                     null
                 }
+    }
+
+    /** @see finalizeAndApplySession */
+    fun applyOutfitSession(player: Player, session: SessionData) {
+        finalizeAndApplySession(player, player, session)
+    }
+
+    private fun sendSessionSavedChat(player: Player, uid: String) {
+        player.sendMessage(
+                Component.text("Session saved: ")
+                        .color(NamedTextColor.GREEN)
+                        .append(
+                                Component.text(uid)
+                                        .color(NamedTextColor.YELLOW)
+                                        .hoverEvent(
+                                                HoverEvent.showText(
+                                                        Component.text("Click to copy UID")
+                                                )
+                                        )
+                                        .clickEvent(ClickEvent.copyToClipboard(uid))
+                        )
+        )
     }
 
     fun saveMannequinState(mannequin: Mannequin, player: Player): SessionData {
