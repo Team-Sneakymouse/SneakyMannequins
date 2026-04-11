@@ -57,9 +57,11 @@ A rich set of built-in colour palettes: skin tones, hair, eyes, primary, pastel,
 | `/mannequin me remask <layer> <uuid> <part> [strategy] [channels]` | Re-run colour-channel masking for an uploaded part |
 | `/mannequin me delete <layer> <uuid> <part>` | Delete an uploaded part |
 | `/mannequin remask <layer> <part> <strategy> [channels]` | Re-run colour-channel masking for a global part |
+| `/mannequin item <layer...>` | Open the outfit maker GUI (icon, name, preview) from your skin’s encoded session |
+| `/mannequin debug item <layer...>` | Same session resolution as `item`, but add the outfit item to inventory immediately (debug) |
 | `/mannequin debug` | Various debug actions. Not intended for everyday use |
 
-Permission nodes: `sneakymannequins.command.mannequin`, plus `sneakymannequins.command.debug.<subcmd>` for debug operations.
+Permission nodes: `sneakymannequins.command.mannequin`, plus `sneakymannequins.command.debug.<subcmd>` for debug operations (including `sneakymannequins.command.debug.item` for `/mannequin debug item`, which grants an outfit item without opening the GUI).
 
 ## Configuration
 
@@ -72,6 +74,7 @@ The full config lives at `plugins/SneakyMannequins/config.yml` (auto-generated f
 - **`layers.palettes`** — named colour palettes (hex RGB values).
 - **`layers.order`** — rendering order (bottom to top).
 - **`layers.definitions`** — per-layer display name, directory, colour masking toggle, and default palettes.
+- **`outfit-item-gui`** / **`outfit-item-icons`** — layout and icon list for `/mannequin item` (see `config.yml` defaults).
 
 ### Adding Content
 

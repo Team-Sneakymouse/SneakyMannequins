@@ -2,6 +2,8 @@ package com.sneakymannequins.commands
 
 import com.sneakymannequins.SneakyMannequins
 import com.sneakymannequins.items.OutfitItem
+import com.sneakymannequins.model.SessionData
+import com.sneakymannequins.ui.outfit.OutfitItemCreationUi
 import com.sneakymannequins.managers.EtfConfigManager
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymannequins.managers.LayerManager.MaskStrategy
@@ -177,7 +179,8 @@ class CommandMannequin(
                                                 "checkskin",
                                                 "copyme",
                                                 "debug",
-                                                "overlay"
+                                                "overlay",
+                                                "item"
                                         )
                                         .filter { hasDebugPermission(stack.sender, it) }
                                         .filter { it.startsWith(args[1], ignoreCase = true) }
@@ -224,6 +227,14 @@ class CommandMannequin(
                         }
                         "debug" ->
                                 when (args[1].lowercase()) {
+                                    "item" ->
+                                            layerManager
+                                                    .definitionsInOrder()
+                                                    .map { it.id }
+                                                    .filter {
+                                                        it.startsWith(args[2], ignoreCase = true)
+                                                    }
+                                                    .toMutableList()
                                     "merge" ->
                                             (sessionManager.listTemplateNames() +
                                                             sessionManager.listSessionUids() +
@@ -294,6 +305,14 @@ class CommandMannequin(
                                         .toMutableList()
                         "debug" ->
                                 when (args[1].lowercase()) {
+                                    "item" ->
+                                            layerManager
+                                                    .definitionsInOrder()
+                                                    .map { it.id }
+                                                    .filter {
+                                                        it.startsWith(args[3], ignoreCase = true)
+                                                    }
+                                                    .toMutableList()
                                     "merge", "finalize", "apply" ->
                                             (plugin.server
                                                             .onlinePlayers
@@ -332,6 +351,18 @@ class CommandMannequin(
                     }
             5 ->
                     when (args[0].lowercase()) {
+                        "debug" ->
+                                when (args.getOrNull(1)?.lowercase()) {
+                                    "item" ->
+                                            layerManager
+                                                    .definitionsInOrder()
+                                                    .map { it.id }
+                                                    .filter {
+                                                        it.startsWith(args[4], ignoreCase = true)
+                                                    }
+                                                    .toMutableList()
+                                    else -> mutableListOf()
+                                }
                         "remask" -> mutableListOf()
                         "me" ->
                                 when (args[1].lowercase()) {
@@ -370,6 +401,18 @@ class CommandMannequin(
                     }
             6 ->
                     when (args[0].lowercase()) {
+                        "debug" ->
+                                when (args.getOrNull(1)?.lowercase()) {
+                                    "item" ->
+                                            layerManager
+                                                    .definitionsInOrder()
+                                                    .map { it.id }
+                                                    .filter {
+                                                        it.startsWith(args[5], ignoreCase = true)
+                                                    }
+                                                    .toMutableList()
+                                    else -> mutableListOf()
+                                }
                         "me" ->
                                 when (args[1].lowercase()) {
                                     "remask" ->
@@ -384,6 +427,18 @@ class CommandMannequin(
                     }
             7 ->
                     when (args[0].lowercase()) {
+                        "debug" ->
+                                when (args.getOrNull(1)?.lowercase()) {
+                                    "item" ->
+                                            layerManager
+                                                    .definitionsInOrder()
+                                                    .map { it.id }
+                                                    .filter {
+                                                        it.startsWith(args[6], ignoreCase = true)
+                                                    }
+                                                    .toMutableList()
+                                    else -> mutableListOf()
+                                }
                         "me" ->
                                 when (args[1].lowercase()) {
                                     "remask" ->
@@ -398,8 +453,15 @@ class CommandMannequin(
                         else -> mutableListOf()
                     }
             else ->
-                    when (args[0].lowercase()) {
-                        "template" ->
+                    when {
+                        args.getOrNull(0)?.lowercase() == "debug" &&
+                                args.getOrNull(1)?.lowercase() == "item" ->
+                                layerManager
+                                        .definitionsInOrder()
+                                        .map { it.id }
+                                        .filter { it.startsWith(args.last(), ignoreCase = true) }
+                                        .toMutableList()
+                        args[0].lowercase() == "template" ->
                                 (layerManager.definitionsInOrder().map { it.id } +
                                                 listOf("body_type"))
                                         .filter { it.startsWith(args.last(), ignoreCase = true) }
@@ -564,6 +626,21 @@ class CommandMannequin(
                 handleDelete(player, args.drop(1).toTypedArray())
                 true
             }
+            "item" -> {
+                if (args.size < 3) {
+                    player.sendMessage(
+                            TextUtility.convertToComponent(
+                                    "&cUsage: /mannequin debug item <layer...>"
+                            )
+                    )
+                    return true
+                }
+                grantOutfitItemDirectToInventory(
+                        player,
+                        args.drop(2).map { it.lowercase() }.distinct()
+                )
+                true
+            }
             else -> {
                 sendDebugHelp(stack.sender)
                 true
@@ -582,7 +659,8 @@ class CommandMannequin(
                         "copyme" to "Trigger 'Copy Me' [uncraig]",
                         "overlay" to "Toggle nearest mannequin overlay",
                         "info" to "Show nearest mannequin info",
-                        "delete" to "Delete a session UID"
+                        "delete" to "Delete a session UID",
+                        "item" to "Grant outfit item to inventory (no GUI)"
                 )
 
         debugCommands.forEach { (cmd, desc) ->
@@ -1372,8 +1450,33 @@ class CommandMannequin(
             player.sendMessage(TextUtility.convertToComponent("&cUsage: /mannequin item <layer...>"))
             return
         }
-
         val requestedLayerIds = args.drop(1).map { it.lowercase() }.distinct()
+        runOutfitItemSessionPipeline(player, requestedLayerIds) { partial ->
+            OutfitItemCreationUi.open(plugin, layerManager, player, partial)
+        }
+    }
+
+    private fun grantOutfitItemDirectToInventory(player: Player, requestedLayerIds: List<String>) {
+        runOutfitItemSessionPipeline(player, requestedLayerIds) { partial ->
+            val item = OutfitItem.build(plugin, layerManager, partial.uid, partial.layers)
+            player.inventory.addItem(item)
+            player.sendMessage(
+                    TextUtility.convertToComponent(
+                            "&aOutfit created with UID '&e${partial.uid}&a'. &7Right-click to apply; 5s cooldown between uses."
+                    )
+            )
+        }
+    }
+
+    /**
+     * Resolves encoded session from the player's skin, creates a partial session (new UID on disk),
+     * then runs [onSuccess] on the main thread.
+     */
+    private fun runOutfitItemSessionPipeline(
+            player: Player,
+            requestedLayerIds: List<String>,
+            onSuccess: (SessionData) -> Unit
+    ) {
         val skinUrl = player.playerProfile.textures.skin
         if (skinUrl == null) {
             player.sendMessage(TextUtility.convertToComponent("&cYou have no skin URL."))
@@ -1384,47 +1487,57 @@ class CommandMannequin(
         sessionManager
                 .downloadSkin(skinUrl)
                 .thenAccept { skin ->
-                    val uid = SessionManager.decodeUidFromImage(skin)
-                    if (uid == null) {
-                        player.sendMessage(
-                                TextUtility.convertToComponent(
-                                        "&cNo encoded session ID found in your skin. Apply a mannequin session first."
-                                )
-                        )
-                        return@thenAccept
-                    }
+                    plugin.server.scheduler.runTask(
+                            plugin,
+                            Runnable {
+                                val uid = SessionManager.decodeUidFromImage(skin)
+                                if (uid == null) {
+                                    player.sendMessage(
+                                            TextUtility.convertToComponent(
+                                                    "&cNo encoded session ID found in your skin. Apply a mannequin session first."
+                                            )
+                                    )
+                                    return@Runnable
+                                }
 
-                    if (sessionManager.load(uid) == null) {
-                        player.sendMessage(
-                                TextUtility.convertToComponent(
-                                        "&cEncoded UID '&e$uid&c' was found, but no local session exists for it."
-                                )
-                        )
-                        return@thenAccept
-                    }
+                                if (sessionManager.load(uid) == null) {
+                                    player.sendMessage(
+                                            TextUtility.convertToComponent(
+                                                    "&cEncoded UID '&e$uid&c' was found, but no local session exists for it."
+                                            )
+                                    )
+                                    return@Runnable
+                                }
 
-                    val (partial, err) = sessionManager.createPartialSession(uid, requestedLayerIds, player)
-                    if (err != null || partial == null) {
-                        player.sendMessage(
-                                TextUtility.convertToComponent(
-                                        "&c${err ?: "Failed to create partial session."}"
-                                )
-                        )
-                        return@thenAccept
-                    }
+                                val (partial, err) =
+                                        sessionManager.createPartialSession(
+                                                uid,
+                                                requestedLayerIds,
+                                                player
+                                        )
+                                if (err != null || partial == null) {
+                                    player.sendMessage(
+                                            TextUtility.convertToComponent(
+                                                    "&c${err ?: "Failed to create partial session."}"
+                                            )
+                                    )
+                                    return@Runnable
+                                }
 
-                    val actualLayerIds = partial.layers.keys.toList()
-                    val item = OutfitItem.build(plugin, layerManager, partial.uid, partial.layers)
-                    player.inventory.addItem(item)
-                    player.sendMessage(
-                            TextUtility.convertToComponent(
-                                    "&aOutfit created with UID '&e${partial.uid}&a'. &7Right-click to apply; 5s cooldown between uses."
-                            )
+                                onSuccess(partial)
+                            }
                     )
                 }
                 .exceptionally { ex ->
-                    player.sendMessage(
-                            TextUtility.convertToComponent("&cFailed to read skin: ${ex.message}")
+                    plugin.server.scheduler.runTask(
+                            plugin,
+                            Runnable {
+                                player.sendMessage(
+                                        TextUtility.convertToComponent(
+                                                "&cFailed to read skin: ${ex.message}"
+                                        )
+                                )
+                            }
                     )
                     null
                 }

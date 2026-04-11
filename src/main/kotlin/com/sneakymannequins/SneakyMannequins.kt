@@ -5,6 +5,10 @@ import com.sneakymannequins.integrations.CharacterManagerBridge
 import com.sneakymannequins.integrations.CharacterManagerBridgeFactory
 import com.sneakymannequins.listeners.OutfitItemListener
 import com.sneakymannequins.listeners.TriggerListener
+import com.sneakymannequins.ui.outfit.OutfitIconPickerListener
+import com.sneakymannequins.ui.outfit.OutfitItemCreationListener
+import com.sneakymannequins.ui.outfit.OutfitItemGuiConfig
+import com.sneakymannequins.ui.outfit.OutfitNameChatListener
 import com.sneakymannequins.managers.EtfConfigManager
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymannequins.managers.MannequinManager
@@ -43,7 +47,10 @@ class SneakyMannequins : JavaPlugin(), Listener {
     }
 
     private lateinit var handler: VolatileHandler
-    private lateinit var layerManager: LayerManager
+    lateinit var layerManager: LayerManager
+        private set
+    lateinit var outfitItemGuiConfig: OutfitItemGuiConfig
+        private set
     private lateinit var styleManager: StyleManager
     private lateinit var mannequinManager: MannequinManager
     private lateinit var persistence: MannequinPersistence
@@ -63,6 +70,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
         saveDefaultConfig()
         handler = VolatileHandlerRegistry.resolve(this)
         layerManager = LayerManager(this).also { it.reload() }
+        outfitItemGuiConfig = OutfitItemGuiConfig(this).also { it.reload() }
         styleManager = StyleManager(this).also { it.loadStyles() }
         persistence = MannequinPersistence(this)
         characterManagerBridge = CharacterManagerBridgeFactory.create(this)
@@ -106,6 +114,13 @@ class SneakyMannequins : JavaPlugin(), Listener {
                 this
         )
         server.pluginManager.registerEvents(etfConfigManager, this)
+        val outfitNameChat = OutfitNameChatListener(this)
+        server.pluginManager.registerEvents(outfitNameChat, this)
+        server.pluginManager.registerEvents(
+                OutfitItemCreationListener(this, layerManager, outfitNameChat),
+                this
+        )
+        server.pluginManager.registerEvents(OutfitIconPickerListener(this, layerManager), this)
         if (characterManagerBridge.active) {
             logger.info("CharacterManager integration enabled.")
         }
@@ -161,6 +176,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
         styleManager.loadStyles()
         layerManager.reload()
         mannequinManager.reloadAll()
+        outfitItemGuiConfig.reload()
     }
 
     private fun firstTimeSetup() {

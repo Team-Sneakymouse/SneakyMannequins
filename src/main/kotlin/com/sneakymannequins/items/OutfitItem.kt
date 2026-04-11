@@ -14,8 +14,17 @@ import org.bukkit.persistence.PersistentDataType
 
 object OutfitItem {
     private const val PDC_KEY = "outfit_uid"
+    private const val GUI_ACTION_KEY = "outfit_gui_action"
+    private const val GUI_PREVIEW_KEY = "outfit_gui_preview"
+    private const val ICON_PICKER_DATA_KEY = "outfit_icon_pick"
 
     fun key(plugin: SneakyMannequins): NamespacedKey = NamespacedKey(plugin, PDC_KEY)
+
+    fun guiActionKey(plugin: SneakyMannequins): NamespacedKey = NamespacedKey(plugin, GUI_ACTION_KEY)
+
+    fun guiPreviewKey(plugin: SneakyMannequins): NamespacedKey = NamespacedKey(plugin, GUI_PREVIEW_KEY)
+
+    fun iconPickerDataKey(plugin: SneakyMannequins): NamespacedKey = NamespacedKey(plugin, ICON_PICKER_DATA_KEY)
 
     fun readUid(pdc: PersistentDataContainer, plugin: SneakyMannequins): String? =
             pdc.get(key(plugin), PersistentDataType.STRING)
@@ -23,16 +32,27 @@ object OutfitItem {
     fun hasUid(pdc: PersistentDataContainer, plugin: SneakyMannequins): Boolean =
             pdc.has(key(plugin), PersistentDataType.STRING)
 
+    fun isGuiPreviewStack(pdc: PersistentDataContainer, plugin: SneakyMannequins): Boolean =
+            pdc.has(guiPreviewKey(plugin), PersistentDataType.BYTE)
+
     fun build(
             plugin: SneakyMannequins,
             layerManager: LayerManager,
             uid: String,
-            layers: Map<String, LayerSessionData>
+            layers: Map<String, LayerSessionData>,
+            material: Material = Material.RABBIT_FOOT,
+            customModelData: Int? = null,
+            displayName: Component? = null,
+            guiPreview: Boolean = false
     ): ItemStack {
-        val stack = ItemStack(Material.RABBIT_FOOT, 1)
-        val meta = stack.itemMeta
+        val stack = ItemStack(material, 1)
+        val meta = stack.itemMeta ?: return stack
 
-        meta.displayName(Component.text("Outfit").color(NamedTextColor.GREEN))
+        meta.displayName(displayName ?: Component.text("Outfit").color(NamedTextColor.GREEN))
+
+        if (customModelData != null) {
+            meta.setCustomModelData(customModelData)
+        }
 
         val defsById = layerManager.definitionsInOrder().associateBy { it.id }
         val orderedLayerIds =
@@ -61,10 +81,22 @@ object OutfitItem {
                                         .color(NamedTextColor.GRAY)
                             }
                     )
+                    if (guiPreview) {
+                        add(Component.empty())
+                        add(
+                                Component.text("Click to add to your inventory")
+                                        .color(NamedTextColor.YELLOW)
+                        )
+                    }
                 }
         meta.lore(lore)
 
-        meta.persistentDataContainer.set(key(plugin), PersistentDataType.STRING, uid)
+        val pdc = meta.persistentDataContainer
+        pdc.set(key(plugin), PersistentDataType.STRING, uid)
+        if (guiPreview) {
+            pdc.set(guiPreviewKey(plugin), PersistentDataType.BYTE, 1)
+        }
+
         stack.itemMeta = meta
         return stack
     }
@@ -78,4 +110,3 @@ object OutfitItem {
                 }
     }
 }
-
