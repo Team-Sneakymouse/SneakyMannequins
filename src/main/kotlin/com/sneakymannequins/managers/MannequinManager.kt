@@ -318,8 +318,8 @@ class MannequinManager(
         registerTrigger(mannequin)
         persist()
 
-        // Sync to all nearby viewers immediately
-        val viewers = nearbyViewers(mannequin)
+        // First appearance only within view-radius (matches checkFirstSeen / preset docs).
+        val viewers = viewRadiusViewers(mannequin)
         if (viewers.isNotEmpty()) {
             renderFull(mannequin, viewers, isFirstSeen = true)
             viewers.forEach { viewer ->
@@ -2506,7 +2506,7 @@ class MannequinManager(
         val applyHides = plugin.config.getBoolean("rendering.apply-hides-mannequin", true)
         if (applyHides) {
             mannequin.isHidden = true
-            val viewers = nearbyViewers(mannequin)
+            val viewers = trackingViewers(mannequin)
             viewers.forEach { v ->
                 val otherHud = holoController.getHud(v.uniqueId)
                 if (otherHud?.mannequinId == manId) {
@@ -2745,7 +2745,13 @@ class MannequinManager(
 
         if (mannequin.isHidden) {
             mannequin.isHidden = false
-            renderFull(mannequin, nearbyViewers(mannequin), isFirstSeen = true)
+            val viewers = viewersForUnhide(mannequin)
+            if (viewers.isNotEmpty()) {
+                renderFull(mannequin, viewers, isFirstSeen = true)
+                viewers.forEach { v ->
+                    sentTo.getOrPut(v.uniqueId) { mutableSetOf() }.add(mannequin.id)
+                }
+            }
             spawnPlayerHud(player, mannequin)
             return
         }
@@ -2881,7 +2887,25 @@ class MannequinManager(
         )
     }
 
+    /**
+     * Players who should receive incremental [render] / [renderFull] updates: same world, within
+     * **update-radius**, and already tracking this mannequin ([sentTo]). Matches [renderVisibleTo]
+     * / [checkFirstSeen] teardown at update-radius.
+     */
     fun nearbyViewers(mannequin: Mannequin): List<Player> {
+        val style = styleManager.getStyle(mannequin.styleId)
+        val radius = style?.rendering?.updateRadius ?: 30.0
+        val radiusSq = radius * radius
+        val mid = mannequin.id
+        return plugin.server.onlinePlayers.filter { p ->
+            p.world == mannequin.location.world &&
+                    mid in sentTo.getOrDefault(p.uniqueId, emptySet()) &&
+                    p.location.distanceSquared(mannequin.location) <= radiusSq
+        }
+    }
+
+    /** Within view-radius only; used for initial spawn (before [sentTo] is populated). */
+    private fun viewRadiusViewers(mannequin: Mannequin): List<Player> {
         val style = styleManager.getStyle(mannequin.styleId)
         val radius = style?.rendering?.viewRadius ?: 8.0
         val radiusSq = radius * radius
@@ -2889,6 +2913,33 @@ class MannequinManager(
             it.world == mannequin.location.world &&
                     it.location.distanceSquared(mannequin.location) <= radiusSq
         }
+    }
+
+    /** Everyone still marked as tracking this mannequin (any distance). Used for apply-hide fade. */
+    private fun trackingViewers(mannequin: Mannequin): List<Player> {
+        val mid = mannequin.id
+        return plugin.server.onlinePlayers.filter { mid in sentTo.getOrDefault(it.uniqueId, emptySet()) }
+    }
+
+    /**
+     * Unhide: first-seen animation for players in view-radius, plus full respawn for anyone still
+     * tracking within update-radius (they had pixels before hide).
+     */
+    private fun viewersForUnhide(mannequin: Mannequin): List<Player> {
+        val style = styleManager.getStyle(mannequin.styleId) ?: return emptyList()
+        val viewSq = style.rendering.viewRadius * style.rendering.viewRadius
+        val updateSq = style.rendering.updateRadius * style.rendering.updateRadius
+        val mid = mannequin.id
+        val byId = LinkedHashMap<UUID, Player>()
+        for (p in plugin.server.onlinePlayers) {
+            if (p.world != mannequin.location.world) continue
+            val dSq = p.location.distanceSquared(mannequin.location)
+            val tracking = mid in sentTo.getOrDefault(p.uniqueId, emptySet())
+            if (dSq <= viewSq || (tracking && dSq <= updateSq)) {
+                byId[p.uniqueId] = p
+            }
+        }
+        return byId.values.toList()
     }
 
     private fun getFallbackColor(
