@@ -719,7 +719,8 @@ class MannequinManager(
             viewers: Collection<Player>,
             forceInstant: Boolean = false,
             forceArmPixels: Boolean = false,
-            forceAll: Boolean = false
+            forceAll: Boolean = false,
+            fullColorMaskInfluence: Boolean = false
     ): Int {
         val definitions = layerManager.definitionsInOrder()
         val composed =
@@ -745,7 +746,8 @@ class MannequinManager(
                         	plugin.config.getInt(
                         		"integrations.entity-texture-features.jacket-dress-style",
                         		5
-                        	)
+                        	),
+                        fullColorMaskInfluence = fullColorMaskInfluence
                 )
         val nextFrame = PixelFrame.fromImage(composed)
         val diff =
@@ -1330,7 +1332,12 @@ class MannequinManager(
                                     )
 
                             val viewers = nearbyViewers(mannequin)
-                            render(mannequin, viewers, forceInstant = true)
+                            render(
+                                    mannequin,
+                                    viewers,
+                                    forceInstant = true,
+                                    fullColorMaskInfluence = true
+                            )
 
                             plugin.server.scheduler.runTaskLater(
                                     plugin,
@@ -1467,7 +1474,12 @@ class MannequinManager(
                                     )
 
                             val viewers = nearbyViewers(mannequin)
-                            render(mannequin, viewers, forceInstant = true)
+                            render(
+                                    mannequin,
+                                    viewers,
+                                    forceInstant = true,
+                                    fullColorMaskInfluence = true
+                            )
 
                             plugin.server.scheduler.runTaskLater(
                                     plugin,
@@ -1545,7 +1557,12 @@ class MannequinManager(
                                     )
 
                             val viewers = nearbyViewers(mannequin)
-                            render(mannequin, viewers, forceInstant = true)
+                            render(
+                                    mannequin,
+                                    viewers,
+                                    forceInstant = true,
+                                    fullColorMaskInfluence = true
+                            )
 
                             // Restore original colors after 10 ticks (500ms)
                             val restoreSel = currentSel ?: LayerSelection(layer.id, option)

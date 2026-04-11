@@ -38,7 +38,9 @@ object SkinComposer {
             blinkEnabled: Boolean = false,
             jacketEnabled: Boolean = false,
             defaultJacketStyle: Int = 5,
-            showOverlay: Boolean = true
+            showOverlay: Boolean = true,
+            /** When true, brightness- and saturation-influence are treated as 100% for color masking (UX flash). */
+            fullColorMaskInfluence: Boolean = false
     ): BufferedImage {
         val output =
                 if (baseImage != null) {
@@ -85,9 +87,11 @@ object SkinComposer {
             var source = sourceImage
             if (layer.allowColorMask) {
                 val brightnessInfluence =
-                        brightnessInfluenceResolver?.invoke(layer.id, chosen) ?: 0.3f
+                        if (fullColorMaskInfluence) 1f
+                        else brightnessInfluenceResolver?.invoke(layer.id, chosen) ?: 0.3f
                 val saturationInfluence =
-                        saturationInfluenceResolver?.invoke(layer.id, chosen) ?: 1.0f
+                        if (fullColorMaskInfluence) 1f
+                        else saturationInfluenceResolver?.invoke(layer.id, chosen) ?: 1.0f
 
                 // Resolve the active texture for this layer (null = "Default" / flat)
                 val texDef = textureResolver?.invoke(layer.id)
