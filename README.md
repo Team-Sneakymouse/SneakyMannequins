@@ -82,7 +82,7 @@ Place 64×64 RGBA PNGs in `plugins/SneakyMannequins/layers/<Layer>/`. On load, t
 
 ### Part Metadata
 
-Each skin part directory can contain a `metadata.json` file to override auto-detected properties and configure specialized behaviors (like Entity Texture Features):
+Each skin part directory **must** contain a `metadata.json` file to be loaded as a part (folders without it are ignored). That file stores auto-detected and overridden properties and specialized behaviors (like Entity Texture Features). Dropping a standalone `.png` into a layer folder still works: preprocessing generates the part folder and writes `metadata.json` for you.
 
 | Field | Type | Description |
 |---|---|---|

@@ -344,8 +344,13 @@ class LayerManager(private val plugin: SneakyMannequins) {
         val entries = Files.list(directory).use { it.toList() }
         val grouped = mutableMapOf<String, OptionAggregate>()
 
-        // 1. Identify preprocessed directories (excluding the 'uploads' folder)
-        entries.filter { it.isDirectory() && it.name != "uploads" }.forEach { dir ->
+        // 1. Identify preprocessed directories (excluding the 'uploads' folder).
+        //    A folder is only a part if it contains metadata.json.
+        entries
+                .filter {
+                    it.isDirectory() && it.name != "uploads" && hasPartMetadataJson(it)
+                }
+                .forEach { dir ->
             val id = slugify(dir.name)
             val metadata = loadMetadata(dir)
             val displayName = metadata["displayName"] as? String ?: toDisplayName(dir.name)
@@ -370,7 +375,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
                         }
 
                         val dir = path.parent.resolve(path.nameWithoutExtension)
-                        if (dir.exists()) {
+                        if (dir.exists() && hasPartMetadataJson(dir)) {
                             val metadata = loadMetadata(dir)
                             val displayName =
                                     metadata["displayName"] as? String ?: toDisplayName(dir.name)
@@ -407,7 +412,9 @@ class LayerManager(private val plugin: SneakyMannequins) {
                         if (ownerUuid != null) {
                             val userPartDirs = Files.list(userDir).use { it.toList() }
                             userPartDirs.forEach partLoop@{ partDir ->
-                                if (!Files.isDirectory(partDir)) return@partLoop
+                                if (!Files.isDirectory(partDir) || !hasPartMetadataJson(partDir)) {
+                                    return@partLoop
+                                }
                                 val id = slugify(partDir.name)
                                 val metadata = loadMetadata(partDir)
                                 val displayName =
@@ -809,6 +816,9 @@ class LayerManager(private val plugin: SneakyMannequins) {
         loadedLayers[layerId] = def to options.filter { it.id != partId }
         return "Successfully deleted part '${optOpt.displayName}'"
     }
+
+    private fun hasPartMetadataJson(directory: Path): Boolean =
+            Files.isRegularFile(directory.resolve("metadata.json"))
 
     private fun loadMetadata(directory: Path): Map<String, Any> {
         val file = directory.resolve("metadata.json")
