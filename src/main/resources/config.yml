@@ -19,9 +19,15 @@ plugin:
     # If true, sanitize/mask new layer PNGs on load (creates *_mask_*.png)
     enabled: true
     # Default masking strategy for splitting pixels into colour channels.
-    # Available: RGB (agglomerative distance clustering),
-    #            HSB (k-means in hue/saturation/brightness),
-    #            HUE (largest hue gap)
+    # Used for preprocessing and as the starting strategy in interactive remask (cycle with swap-hand).
+    # Available (names are case-insensitive in commands):
+    #   RGB               — agglomerative / k-means clustering in RGB space
+    #   HSB               — agglomerative / k-means in hue, saturation, brightness
+    #   HUE               — merge by hue similarity; CHANNELS mode uses largest hue gaps
+    #   SATURATION_BANDS  — split chromatic pixels into bands by saturation (1D merge or quantile bands)
+    #   BRIGHTNESS_BANDS  — same as SATURATION_BANDS but on value/brightness
+    #   LAB               — agglomerative / k-means in CIELAB (perceptual colour distance)
+    #   EDGE_AWARE        — RGB-style clusters, then each cluster is split along disconnected islands (same colour, separate blobs)
     # Can be overridden per part with: /mannequin remask <layer> <part> [strategy] [distance_or_channels]
     default-strategy: HUE
     # How to automatically determine the number of channels for a part.
