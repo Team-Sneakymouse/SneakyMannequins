@@ -61,9 +61,9 @@ class CommandMannequin(
             "template" -> handleTemplate(stack, args)
             "remask" -> player?.let { handleRemask(it, args) }
                             ?: stack.sender.sendMessage("You must be a player to use this command")
-            "channelmerge", "layermerge" -> player?.let { handleLayerMerge(it, args) }
+            "channelmerge", "channelmerge" -> player?.let { handleChannelMerge(it, args) }
                             ?: stack.sender.sendMessage("You must be a player to use this command")
-            "layerdelete" -> player?.let { handleLayerDelete(it, args) }
+            "channeldelete" -> player?.let { handleChannelDelete(it, args) }
                             ?: stack.sender.sendMessage("You must be a player to use this command")
             "etf" -> player?.let { handleEtf(it, args) }
                             ?: stack.sender.sendMessage("You must be a player to use this command")
@@ -95,8 +95,8 @@ class CommandMannequin(
                         "item <layer...>" to "Create an Outfit item from your encoded session",
                         "template" to "Manage session templates",
                         "remask" to "Remask selected part on nearest mannequin",
-                        "layermerge" to "Merge & compress mask channels for selected part",
-                        "layerdelete" to "Delete a mask channel for selected part",
+                        "channelmerge" to "Merge & compress mask channels for selected part",
+                        "channeldelete" to "Delete a mask channel for selected part",
                         "etf" to "Configure ETF settings interactively",
                         "me" to "Manage user-uploaded custom skin parts",
                         "debug" to "Access developer/debug tools"
@@ -116,8 +116,8 @@ class CommandMannequin(
                                     "remove",
                                     "reload",
                                     "remask",
-                                    "layermerge",
-                                    "layerdelete",
+                                    "channelmerge",
+                                    "channeldelete",
                                     "etf",
                                     "me",
                                     "history",
@@ -144,7 +144,7 @@ class CommandMannequin(
                                         .toMutableList()
                             }
                         }
-                        "channelmerge", "layermerge", "layerdelete" -> {
+                        "channelmerge", "channelmerge", "channeldelete" -> {
                             layerManager
                                     .definitionsInOrder()
                                     .map { it.id }
@@ -201,12 +201,12 @@ class CommandMannequin(
                     }
             3 ->
                     when (args[0].lowercase()) {
-                        "channelmerge", "layermerge" -> {
+                        "channelmerge", "channelmerge" -> {
                             (1..8).map { it.toString() }
                                     .filter { it.startsWith(args[2], ignoreCase = true) }
                                     .toMutableList()
                         }
-                        "layerdelete" -> {
+                        "channeldelete" -> {
                             (1..8).map { it.toString() }
                                     .filter { it.startsWith(args[2], ignoreCase = true) }
                                     .toMutableList()
@@ -876,11 +876,11 @@ class CommandMannequin(
         return sel.copy(channelColors = newChannelColors, texturedColors = newTexturedColors)
     }
 
-    private fun handleLayerMerge(sender: Player, args: Array<out String>) {
+    private fun handleChannelMerge(sender: Player, args: Array<out String>) {
         if (args.size < 4) {
             sender.sendMessage(
                     TextUtility.convertToComponent(
-                            "&cUsage: /mannequin layermerge <layer> <ch1> <ch2> [ch3...]"
+                            "&cUsage: /mannequin channelmerge <layer> <ch1> <ch2> [ch3...]"
                     )
             )
             return
@@ -944,10 +944,10 @@ class CommandMannequin(
         mannequinManager.render(mannequin, mannequinManager.nearbyViewers(mannequin), forceAll = true)
     }
 
-    private fun handleLayerDelete(sender: Player, args: Array<out String>) {
+    private fun handleChannelDelete(sender: Player, args: Array<out String>) {
         if (args.size < 3) {
             sender.sendMessage(
-                    TextUtility.convertToComponent("&cUsage: /mannequin layerdelete <layer> <number>")
+                    TextUtility.convertToComponent("&cUsage: /mannequin channeldelete <layer> <number>")
             )
             return
         }
