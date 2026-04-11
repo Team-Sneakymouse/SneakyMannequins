@@ -2767,7 +2767,7 @@ class MannequinManager(
                 )
             }
 
-            // Check for event cancellation (blocks regular interaction e.g. during ETF mode)
+            // Check for event cancellation (blocks regular interaction during ETF / remask configure)
             val event = MannequinClickEvent(mannequinId, mannequin.location, player, "_SURFACE_", backwards = backwards)
             plugin.server.pluginManager.callEvent(event)
             if (debug) {

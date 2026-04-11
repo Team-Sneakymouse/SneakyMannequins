@@ -1,6 +1,8 @@
 package com.sneakymannequins.managers
 
 import com.sneakymannequins.SneakyMannequins
+import com.sneakymannequins.events.MannequinClickEvent
+import com.sneakymannequins.events.MannequinHoverEvent
 import com.sneakymannequins.managers.LayerManager.MaskStrategy
 import com.sneakymannequins.managers.LayerManager.RemaskParameters
 import com.sneakymouse.sneakyholos.util.TextUtility
@@ -12,6 +14,8 @@ import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
 import org.bukkit.event.player.PlayerDropItemEvent
+import org.bukkit.event.player.PlayerInteractEvent
+import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.event.player.PlayerSwapHandItemsEvent
 import org.bukkit.scheduler.BukkitRunnable
 
@@ -77,6 +81,35 @@ class RemaskManager(
         val order = strategyCycleOrder()
         val idx = order.indexOf(cur).takeIf { it >= 0 } ?: 0
         return order[(idx - 1 + order.size) % order.size]
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    fun onInteract(event: PlayerInteractEvent) {
+        if (sessions[event.player.uniqueId] == null) return
+        // Same as ETF configure mode: block left/right use on blocks and air while tuning.
+        event.isCancelled = true
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    fun onMannequinClick(event: MannequinClickEvent) {
+        if (sessions[event.player.uniqueId] == null) return
+        event.isCancelled = true
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    fun onMannequinHover(event: MannequinHoverEvent) {
+        if (sessions.containsKey(event.player.uniqueId)) {
+            event.isCancelled = true
+        }
+    }
+
+    @EventHandler
+    fun onQuit(event: PlayerQuitEvent) {
+        val session = sessions.remove(event.player.uniqueId) ?: return
+        val mannequin = mannequinManager.getMannequin(session.mannequinId)
+        if (mannequin != null) {
+            mannequinManager.clearOverride(mannequin)
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -183,6 +216,10 @@ class RemaskManager(
         while (it.hasNext()) {
             val session = it.next()
             if (!session.player.isOnline) {
+                val mannequin = mannequinManager.getMannequin(session.mannequinId)
+                if (mannequin != null) {
+                    mannequinManager.clearOverride(mannequin)
+                }
                 it.remove()
                 continue
             }
