@@ -14,6 +14,7 @@ import net.minecraft.network.protocol.game.ClientboundAddEntityPacket
 import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket
 import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.util.Brightness
 import net.minecraft.world.entity.Display
 import net.minecraft.world.entity.Display.TextDisplay
 import net.minecraft.world.entity.EntityType
@@ -35,7 +36,9 @@ class VolatileHandler1214(private val plugin: SneakyMannequins) : VolatileHandle
             viewer: Player,
             mannequinId: UUID,
             origin: Location,
-            changes: Collection<PixelChange>
+            changes: Collection<PixelChange>,
+            textLightBlock: Int,
+            textLightSky: Int
     ) {
         val projected =
                 PixelProjector.project(
@@ -44,15 +47,26 @@ class VolatileHandler1214(private val plugin: SneakyMannequins) : VolatileHandle
                         pixelScale = 1.0 / 16.0,
                         scaleMultiplier = pixelScaleMultiplier()
                 )
-        applyProjectedPixels(viewer, mannequinId, projected)
+        applyProjectedPixels(viewer, mannequinId, projected, textLightBlock, textLightSky)
     }
 
     override fun applyProjectedPixels(
             viewer: Player,
             mannequinId: UUID,
-            projected: Collection<ProjectedPixel>
+            projected: Collection<ProjectedPixel>,
+            textLightBlock: Int,
+            textLightSky: Int
     ) {
-        applyProjectedPixelsAnimated(viewer, mannequinId, projected, emptyMap(), emptySet())
+        applyProjectedPixelsAnimated(
+                viewer,
+                mannequinId,
+                projected,
+                emptyMap(),
+                emptySet(),
+                riseUpTicks = 6,
+                textLightBlock,
+                textLightSky
+        )
     }
 
     override fun applyProjectedPixelsAnimated(
@@ -61,8 +75,15 @@ class VolatileHandler1214(private val plugin: SneakyMannequins) : VolatileHandle
             projected: Collection<ProjectedPixel>,
             flyInOffsets: Map<Int, FlyInOffset>,
             riseUpIndices: Set<Int>,
-            riseUpTicks: Int
+            riseUpTicks: Int,
+            textLightBlock: Int,
+            textLightSky: Int
     ) {
+        val brightness =
+                Brightness(
+                        textLightBlock.coerceIn(0, 15),
+                        textLightSky.coerceIn(0, 15)
+                )
         val handle = (viewer as CraftPlayer).handle as ServerPlayer
         val level = handle.serverLevel()
         val connection = handle.connection
@@ -93,6 +114,7 @@ class VolatileHandler1214(private val plugin: SneakyMannequins) : VolatileHandle
                     display.setShadowRadius(0f)
                     display.setShadowStrength(0f)
                     display.setViewRange(32f)
+                    display.setBrightnessOverride(brightness)
                     val sw = proj.scaleW // horizontal pixel size
                     val sh = proj.scaleH // vertical pixel size
                     val yawRad = Math.toRadians(-proj.yaw.toDouble()).toFloat()
@@ -243,6 +265,7 @@ class VolatileHandler1214(private val plugin: SneakyMannequins) : VolatileHandle
                         display.setShadowRadius(0f)
                         display.setShadowStrength(0f)
                         display.setViewRange(32f)
+                        display.setBrightnessOverride(brightness)
 
                         val sw = proj.scaleW
                         val sh = proj.scaleH

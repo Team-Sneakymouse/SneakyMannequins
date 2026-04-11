@@ -74,7 +74,8 @@ class AnimationManager(private val plugin: SneakyMannequins, private val handler
             viewer: Player,
             mannequinId: UUID,
             projected: List<ProjectedPixel>,
-            settings: RenderSettings
+            settings: RenderSettings,
+            textDisplayLight: TextDisplayLightSupplier,
     ) {
         if (projected.isEmpty()) return
 
@@ -88,12 +89,13 @@ class AnimationManager(private val plugin: SneakyMannequins, private val handler
             RenderMode.INSTANT -> {
                 // Scale at delivery time so each viewer sees the correct size.
                 val scaled = scaleForViewer(projected, viewer)
-                handler.applyProjectedPixels(viewer, mannequinId, scaled)
+                val (lb, ls) = textDisplayLight()
+                handler.applyProjectedPixels(viewer, mannequinId, scaled, lb, ls)
             }
             RenderMode.BUILD -> {
                 // BUILD pixels are stored unscaled; scaling happens per-tick in
                 // tick() so the viewer's current scale is always respected.
-                queueBuild(viewer, mannequinId, projected, settings)
+                queueBuild(viewer, mannequinId, projected, settings, textDisplayLight)
             }
         }
     }
@@ -126,7 +128,8 @@ class AnimationManager(private val plugin: SneakyMannequins, private val handler
             viewer: Player,
             mannequinId: UUID,
             projected: List<ProjectedPixel>,
-            settings: RenderSettings
+            settings: RenderSettings,
+            textDisplayLight: TextDisplayLightSupplier,
     ) {
         val playerAnims = animations.computeIfAbsent(viewer.uniqueId) { mutableListOf() }
 
@@ -143,7 +146,8 @@ class AnimationManager(private val plugin: SneakyMannequins, private val handler
                         tickInterval = settings.tickInterval,
                         skipChance = settings.skipChance,
                         flyInCount = settings.flyInCount,
-                        reversed = settings.reversed
+                        reversed = settings.reversed,
+                        textDisplayLight = textDisplayLight,
                 )
         if (!anim.isComplete()) {
             playerAnims.add(anim)
@@ -178,6 +182,7 @@ class AnimationManager(private val plugin: SneakyMannequins, private val handler
                     val scaled =
                             if (viewerScale == 1.0) result.pixels
                             else result.pixels.map { it.scaled(viewerScale) }
+                    val (lb, ls) = anim.textDisplayLight()
 
                     if (plugin.config.getBoolean("plugin.debug", false)) {
                         plugin.logger.info(
@@ -192,10 +197,12 @@ class AnimationManager(private val plugin: SneakyMannequins, private val handler
                                 scaled,
                                 result.flyInOffsets,
                                 result.riseUpIndices,
-                                result.riseUpTicks
+                                result.riseUpTicks,
+                                lb,
+                                ls,
                         )
                     } else {
-                        handler.applyProjectedPixels(player, anim.mannequinId, scaled)
+                        handler.applyProjectedPixels(player, anim.mannequinId, scaled, lb, ls)
                     }
                 }
                 if (anim.isComplete()) {

@@ -19,7 +19,9 @@ class UnsupportedVolatileHandler(
         viewer: Player,
         mannequinId: UUID,
         origin: Location,
-        changes: Collection<PixelChange>
+        changes: Collection<PixelChange>,
+        textLightBlock: Int,
+        textLightSky: Int
     ) {
         if (plugin.config.getBoolean("plugin.debug", false)) {
             plugin.logger.warning("No NMS handler for $targetMinecraftVersion; skipping pixel updates.")
@@ -35,9 +37,18 @@ class UnsupportedVolatileHandler(
     override fun applyProjectedPixels(
         viewer: Player,
         mannequinId: UUID,
-        projected: Collection<ProjectedPixel>
+        projected: Collection<ProjectedPixel>,
+        textLightBlock: Int,
+        textLightSky: Int
     ) {
-        applyPixelChanges(viewer, mannequinId, viewer.location, emptyList())
+        applyPixelChanges(
+                viewer,
+                mannequinId,
+                viewer.location,
+                emptyList(),
+                textLightBlock,
+                textLightSky
+        )
     }
 
     override fun allocateEntityId(): Int = nextId++

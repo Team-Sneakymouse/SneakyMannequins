@@ -15,11 +15,13 @@ import com.sneakymannequins.model.PixelChange
 import com.sneakymannequins.model.PixelFrame
 import com.sneakymannequins.model.SessionData
 import com.sneakymannequins.model.SkinSelection
+import com.sneakymannequins.model.TextDisplayBrightnessSetting
 import com.sneakymannequins.model.TextureDefinition
 import com.sneakymannequins.model.buildChannelSlots
 import com.sneakymannequins.model.hexToColor
 import com.sneakymannequins.nms.VolatileHandler
 import com.sneakymannequins.render.AnimationManager
+import com.sneakymannequins.render.TextDisplayLightSupplier
 import com.sneakymannequins.render.PixelProjector
 import com.sneakymannequins.render.RenderMode
 import com.sneakymannequins.render.RenderSettings
@@ -30,6 +32,7 @@ import com.sneakymouse.sneakyholos.util.HoloGridBuilder
 import com.sneakymouse.sneakyholos.util.TextUtility
 import java.awt.image.BufferedImage
 import java.util.UUID
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.event.ClickEvent
@@ -773,8 +776,9 @@ class MannequinManager(
         val settings =
                 if (forceInstant) RenderSettings(RenderMode.INSTANT)
                 else style?.rendering?.update ?: RenderSettings()
+        val light = textDisplayLightProvider(mannequin)
         viewers.forEach { viewer ->
-            animationManager.deliver(viewer, mannequin.id, projected, settings)
+            animationManager.deliver(viewer, mannequin.id, projected, settings, light)
         }
         return diff.size
     }
@@ -810,8 +814,9 @@ class MannequinManager(
                         tPose = poseState[mannequin.id] == true
                 )
         val settings = RenderSettings(RenderMode.INSTANT)
+        val light = textDisplayLightProvider(mannequin)
         viewers.forEach { viewer ->
-            animationManager.deliver(viewer, mannequin.id, projected, settings)
+            animationManager.deliver(viewer, mannequin.id, projected, settings, light)
         }
     }
 
@@ -832,8 +837,9 @@ class MannequinManager(
                         tPose = poseState[mannequin.id] == true
                 )
         val settings = RenderSettings(RenderMode.INSTANT)
+        val light = textDisplayLightProvider(mannequin)
         nearbyViewers(mannequin).forEach { viewer ->
-            animationManager.deliver(viewer, mannequin.id, projected, settings)
+            animationManager.deliver(viewer, mannequin.id, projected, settings, light)
         }
     }
 
@@ -906,12 +912,42 @@ class MannequinManager(
                 if (forceInstant) RenderSettings(RenderMode.INSTANT)
                 else if (isFirstSeen) style?.rendering?.firstSeen ?: RenderSettings()
                 else style?.rendering?.update ?: RenderSettings()
+        val light = textDisplayLightProvider(mannequin)
         viewers.forEach { viewer ->
-            animationManager.deliver(viewer, mannequin.id, projected, settings)
+            animationManager.deliver(viewer, mannequin.id, projected, settings, light)
         }
     }
 
     private fun isSlimModel(mannequin: Mannequin): Boolean = mannequin.slimModel
+
+    /** Block/sky light (0–15) for mannequin pixel TextDisplays and HUD text; matches style preset. */
+    private fun textDisplayLightProvider(mannequin: Mannequin): TextDisplayLightSupplier {
+        val rendering = styleManager.getStyle(mannequin.styleId)?.rendering
+        val bri = rendering?.textDisplayBrightness ?: TextDisplayBrightnessSetting.Auto
+        val autoMult = rendering?.textDisplayBrightnessAutoMultiplier?.coerceIn(0f, 4f) ?: 1f
+        return when (bri) {
+            is TextDisplayBrightnessSetting.Fixed -> {
+                val block = bri.block
+                val sky = bri.sky
+                { block to sky }
+            }
+            TextDisplayBrightnessSetting.Auto -> {
+                {
+                    fun scaleLight(level: Int): Int =
+                            (level * autoMult).roundToInt().coerceIn(0, 15)
+
+                    val world = mannequin.location.world
+                    val block = mannequin.location.block
+                    if (world == null || !block.chunk.isLoaded) {
+                        scaleLight(15) to scaleLight(15)
+                    } else {
+                        scaleLight(block.lightFromBlocks.toInt()) to
+                                scaleLight(block.lightFromSky.toInt())
+                    }
+                }
+            }
+        }
+    }
 
     fun nearestMannequin(location: Location, radius: Double = 10.0): Mannequin? {
         return mannequins.values
@@ -1056,6 +1092,7 @@ class MannequinManager(
                         origin = mannequin.location,
                         mannequinId = mannequin.id,
                         handler = holoController.handler,
+                        textDisplayLight = textDisplayLightProvider(mannequin),
                         buttons = buttons,
                         frameItem = frameItem,
                         frameCustomModelData = frameCmd,
@@ -2494,8 +2531,9 @@ class MannequinManager(
 
             val style = styleManager.getStyle(mannequin.styleId)
             val settings = (style?.rendering?.firstSeen ?: RenderSettings()).copy(reversed = true)
+            val light = textDisplayLightProvider(mannequin)
             viewers.forEach { viewer ->
-                animationManager.deliver(viewer, manId, projected, settings)
+                animationManager.deliver(viewer, manId, projected, settings, light)
             }
         }
 

@@ -3,6 +3,9 @@ package com.sneakymannequins.render
 import java.util.UUID
 import kotlin.math.sqrt
 
+/** Samples Minecraft text-display light (block / sky, 0–15) when sending pixel entities. */
+typealias TextDisplayLightSupplier = () -> Pair<Int, Int>
+
 /**
  * A transformation offset for a pixel that should "fly in" from a random distant position and
  * interpolate to its final location.
@@ -88,7 +91,8 @@ private constructor(
         private val flyInCount: Int,
         private val reversed: Boolean,
         /** The absolute lowest (or highest if reversed) Y-band key across all columns / bands. */
-        private val globalEdgeBand: Int
+        private val globalEdgeBand: Int,
+        val textDisplayLight: TextDisplayLightSupplier,
 ) {
     private var tickCounter = 0
     private val random = java.util.Random()
@@ -306,7 +310,8 @@ private constructor(
                 tickInterval: Int,
                 skipChance: Double,
                 flyInCount: Int = 0,
-                reversed: Boolean = false
+                reversed: Boolean = false,
+                textDisplayLight: TextDisplayLightSupplier = { 15 to 15 },
         ): BuildAnimation {
             // Step 1: group pixels into (column, Y-band) buckets
             val grouped = mutableMapOf<ColumnKey, MutableMap<Int, MutableList<ProjectedPixel>>>()
@@ -352,7 +357,8 @@ private constructor(
                     skipChance = skipChance,
                     flyInCount = flyInCount,
                     reversed = reversed,
-                    globalEdgeBand = globalEdgeBand
+                    globalEdgeBand = globalEdgeBand,
+                    textDisplayLight = textDisplayLight,
             )
         }
     }

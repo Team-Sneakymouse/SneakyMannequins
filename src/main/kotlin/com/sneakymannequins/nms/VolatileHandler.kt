@@ -20,16 +20,20 @@ interface VolatileHandler {
     fun pixelScaleMultiplier(): Float = DEFAULT_PIXEL_SCALE_MULTIPLIER
 
     fun applyPixelChanges(
-        viewer: Player,
-        mannequinId: UUID,
-        origin: Location,
-        changes: Collection<PixelChange>
+            viewer: Player,
+            mannequinId: UUID,
+            origin: Location,
+            changes: Collection<PixelChange>,
+            textLightBlock: Int = 15,
+            textLightSky: Int = 15
     )
 
     fun applyProjectedPixels(
-        viewer: Player,
-        mannequinId: UUID,
-        projected: Collection<ProjectedPixel>
+            viewer: Player,
+            mannequinId: UUID,
+            projected: Collection<ProjectedPixel>,
+            textLightBlock: Int = 15,
+            textLightSky: Int = 15
     )
 
     /**
@@ -44,14 +48,16 @@ interface VolatileHandler {
      * [applyProjectedPixels].
      */
     fun applyProjectedPixelsAnimated(
-        viewer: Player,
-        mannequinId: UUID,
-        projected: Collection<ProjectedPixel>,
-        flyInOffsets: Map<Int, FlyInOffset>,
-        riseUpIndices: Set<Int> = emptySet(),
-        riseUpTicks: Int = 6
+            viewer: Player,
+            mannequinId: UUID,
+            projected: Collection<ProjectedPixel>,
+            flyInOffsets: Map<Int, FlyInOffset>,
+            riseUpIndices: Set<Int> = emptySet(),
+            riseUpTicks: Int = 6,
+            textLightBlock: Int = 15,
+            textLightSky: Int = 15
     ) {
-        applyProjectedPixels(viewer, mannequinId, projected)
+        applyProjectedPixels(viewer, mannequinId, projected, textLightBlock, textLightSky)
     }
 
     fun destroyMannequin(viewer: Player, mannequinId: UUID)

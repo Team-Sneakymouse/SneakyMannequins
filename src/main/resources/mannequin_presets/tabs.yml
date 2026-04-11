@@ -17,6 +17,14 @@ rendering:
   # Should clicking an 'apply' button hide the mannequin?
   apply-hides-mannequin: true
 
+  # Light levels (0–15) for TextDisplay entities: HUD buttons and per-pixel mannequin body (uniform).
+  # auto — sample block + sky light at the mannequin's block; updates as the world changes.
+  # Or a single integer for both channels, or "block/sky" (e.g. 15/15 for full bright).
+  text-display-brightness: auto
+  # Only when brightness is auto: multiply sampled light before clamping to 0–15 (1.0 = vanilla sample).
+  # Use < 1 if the mannequin reads brighter than nearby players (e.g. 0.80).
+  text-display-brightness-auto-multiplier: 0.80
+
   # Settings for the first time a player sees a mannequin.
   first-seen:
     # INSTANT – all pixels in one burst.

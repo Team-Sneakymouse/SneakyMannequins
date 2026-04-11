@@ -62,13 +62,28 @@ data class HudButton(
         val headerColumn: Int = 0
 )
 
+/** How hologram text display entity brightness override is chosen. */
+sealed class TextDisplayBrightnessSetting {
+    /**
+     * Each tick, use block light and sky light at the mannequin anchor block (same values for every
+     * HUD label, independent of each button’s world position).
+     */
+    data object Auto : TextDisplayBrightnessSetting()
+
+    /** Fixed Minecraft light levels (0–15) for block-emitted and sky light on the display entity. */
+    data class Fixed(val block: Int, val sky: Int) : TextDisplayBrightnessSetting()
+}
+
 data class RenderingConfig(
     val scale: String = "auto",
     val viewRadius: Double = 8.0,
     val updateRadius: Double = 30.0,
     val applyHidesMannequin: Boolean = true,
     val firstSeen: RenderSettings,
-    val update: RenderSettings
+    val update: RenderSettings,
+    val textDisplayBrightness: TextDisplayBrightnessSetting = TextDisplayBrightnessSetting.Auto,
+    /** Scales sampled block/sky light when [textDisplayBrightness] is [TextDisplayBrightnessSetting.Auto]. */
+    val textDisplayBrightnessAutoMultiplier: Float = 1f,
 )
 
 data class HudFrameConfig(

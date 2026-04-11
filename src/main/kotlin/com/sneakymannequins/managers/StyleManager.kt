@@ -123,8 +123,22 @@ class StyleManager(private val plugin: SneakyMannequins) {
                         0.5,
                         5
                 )
+        val textBrightness = parseTextDisplayBrightness(sec)
+        val autoMult =
+                sec.getDouble("text-display-brightness-auto-multiplier", 1.0)
+                        .toFloat()
+                        .coerceIn(0f, 4f)
 
-        return RenderingConfig(scale, viewRadius, updateRadius, applyHides, firstSeen, update)
+        return RenderingConfig(
+                scale,
+                viewRadius,
+                updateRadius,
+                applyHides,
+                firstSeen,
+                update,
+                textDisplayBrightness = textBrightness,
+                textDisplayBrightnessAutoMultiplier = autoMult,
+        )
     }
 
     private fun parseRenderSettings(
@@ -168,6 +182,35 @@ class StyleManager(private val plugin: SneakyMannequins) {
                     configLayout,
                     colorLayout
             )
+        }
+    }
+
+    private fun parseTextDisplayBrightness(sec: ConfigurationSection): TextDisplayBrightnessSetting {
+        if (!sec.contains("text-display-brightness")) return TextDisplayBrightnessSetting.Auto
+        val raw = sec.get("text-display-brightness") ?: return TextDisplayBrightnessSetting.Auto
+        return when (raw) {
+            is Number -> {
+                val n = raw.toInt().coerceIn(0, 15)
+                TextDisplayBrightnessSetting.Fixed(n, n)
+            }
+            is String -> {
+                val s = raw.trim()
+                if (s.equals("auto", ignoreCase = true)) TextDisplayBrightnessSetting.Auto
+                else if (s.contains('/')) {
+                    val parts = s.split('/').map { it.trim().toIntOrNull() }
+                    if (parts.size >= 2 && parts[0] != null && parts[1] != null) {
+                        TextDisplayBrightnessSetting.Fixed(
+                                parts[0]!!.coerceIn(0, 15),
+                                parts[1]!!.coerceIn(0, 15)
+                        )
+                    } else TextDisplayBrightnessSetting.Auto
+                } else {
+                    val n = s.toIntOrNull()?.coerceIn(0, 15)
+                    if (n != null) TextDisplayBrightnessSetting.Fixed(n, n)
+                    else TextDisplayBrightnessSetting.Auto
+                }
+            }
+            else -> TextDisplayBrightnessSetting.Auto
         }
     }
 
