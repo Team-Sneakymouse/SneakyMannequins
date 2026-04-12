@@ -1,6 +1,7 @@
 package com.sneakymannequins.managers
 
 import com.google.gson.GsonBuilder
+import com.google.gson.JsonParser
 import com.sneakymannequins.SneakyMannequins
 import com.sneakymannequins.model.SessionData
 import java.io.File
@@ -15,7 +16,8 @@ class StatsManager(private val plugin: SneakyMannequins, dataFolder: File) {
     private val statsFile = File(dataFolder, "usage_stats.json")
     private val gson = GsonBuilder().setPrettyPrinting().create()
 
-    private val partUsage = ConcurrentHashMap<String, AtomicLong>()
+    // Nested map: layerId -> (optionId -> count)
+    private val partUsage = ConcurrentHashMap<String, ConcurrentHashMap<String, AtomicLong>>()
     private val colorUsage = ConcurrentHashMap<String, AtomicLong>()
 
     init {
@@ -29,8 +31,8 @@ class StatsManager(private val plugin: SneakyMannequins, dataFolder: File) {
         session.layers.forEach { (layerId, layerData) ->
             val optionId = layerData.option
             if (optionId != null && optionId != "none") {
-                val partKey = "$layerId:$optionId"
-                partUsage.computeIfAbsent(partKey) { AtomicLong(0) }.incrementAndGet()
+                val layerMap = partUsage.computeIfAbsent(layerId) { ConcurrentHashMap() }
+                layerMap.computeIfAbsent(optionId) { AtomicLong(0) }.incrementAndGet()
             }
 
             layerData.channelColors.values.forEach { hex ->
@@ -50,11 +52,44 @@ class StatsManager(private val plugin: SneakyMannequins, dataFolder: File) {
         if (!statsFile.exists()) return
         try {
             val json = statsFile.readText()
-            val data = gson.fromJson(json, StatsData::class.java) ?: return
-            data.parts.forEach { (k, v) -> partUsage[k] = AtomicLong(v) }
-            data.colors.forEach { (k, v) -> colorUsage[k] = AtomicLong(v) }
+            val element = JsonParser.parseString(json).asJsonObject
+            
+            // Migration & Load logic for parts
+            val partsObj = element.get("parts")?.asJsonObject
+            if (partsObj != null) {
+                for (entry in partsObj.entrySet()) {
+                    val key = entry.key
+                    val value = entry.value
+                    if (value.isJsonPrimitive) {
+                        // Old format migration: "layer:option": count
+                        val split = key.split(":")
+                        if (split.size == 2) {
+                            val layerId = split[0]
+                            val optionId = split[1]
+                            val count = value.asLong
+                            val layerMap = partUsage.computeIfAbsent(layerId) { ConcurrentHashMap() }
+                            layerMap.computeIfAbsent(optionId) { AtomicLong(0) }.addAndGet(count)
+                        }
+                    } else if (value.isJsonObject) {
+                        // New format: "layer": { "option": count }
+                        val layerId = key
+                        val layerMap = partUsage.computeIfAbsent(layerId) { ConcurrentHashMap() }
+                        for (optionEntry in value.asJsonObject.entrySet()) {
+                            layerMap[optionEntry.key] = AtomicLong(optionEntry.value.asLong)
+                        }
+                    }
+                }
+            }
+            
+            // Load colors
+            val colorsObj = element.get("colors")?.asJsonObject
+            if (colorsObj != null) {
+                for (entry in colorsObj.entrySet()) {
+                    colorUsage[entry.key] = AtomicLong(entry.value.asLong)
+                }
+            }
         } catch (e: Exception) {
-            plugin.logger.warning("Failed to load usage stats: ${e.message}")
+            plugin.logger.warning("Failed to load usage stats (it may have been reset if the format changed significantly): ${e.message}")
         }
     }
 
@@ -63,8 +98,13 @@ class StatsManager(private val plugin: SneakyMannequins, dataFolder: File) {
      */
     fun save() {
         try {
+            val partsData = partUsage.mapValues { layerEntry ->
+                layerEntry.value.mapValues { optionEntry ->
+                    optionEntry.value.get()
+                }
+            }
             val data = StatsData(
-                parts = partUsage.mapValues { it.value.get() },
+                parts = partsData,
                 colors = colorUsage.mapValues { it.value.get() }
             )
             statsFile.writeText(gson.toJson(data))
@@ -74,7 +114,7 @@ class StatsManager(private val plugin: SneakyMannequins, dataFolder: File) {
     }
 
     private data class StatsData(
-        val parts: Map<String, Long>,
+        val parts: Map<String, Map<String, Long>>,
         val colors: Map<String, Long>
     )
 }
