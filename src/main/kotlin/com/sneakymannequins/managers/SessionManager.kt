@@ -32,7 +32,8 @@ class SessionManager(
         private val plugin: SneakyMannequins,
         private val dataFolder: File,
         private val layerManager: LayerManager,
-        private val characterManagerBridge: CharacterManagerBridge
+        private val characterManagerBridge: CharacterManagerBridge,
+        private val statsManager: StatsManager
 ) {
     private fun hexToColor(hex: String?): Color? {
         if (hex == null) return null
@@ -176,6 +177,7 @@ class SessionManager(
             if (renderedImage != null) {
                 runCatching { ImageIO.write(renderedImage, "PNG", File(sessionsDir, "$uid.png")) }
             }
+            statsManager.record(session)
         } catch (e: Exception) {
             plugin.logger.severe("Failed to save session $uid: ${e.message}")
             throw e
@@ -190,6 +192,7 @@ class SessionManager(
         try {
             sessionsDir.mkdirs()
             File(sessionsDir, "$uid.json").writeText(jsonString)
+            statsManager.record(session)
         } catch (e: Exception) {
             plugin.logger.severe("Failed to persist session $uid: ${e.message}")
             throw e

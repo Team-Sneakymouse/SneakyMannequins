@@ -16,6 +16,7 @@ import com.sneakymannequins.managers.MannequinManager
 import com.sneakymannequins.managers.MannequinPersistence
 import com.sneakymannequins.managers.RemaskManager
 import com.sneakymannequins.managers.SessionManager
+import com.sneakymannequins.managers.StatsManager
 import com.sneakymannequins.managers.StyleManager
 import com.sneakymannequins.nms.VolatileHandler
 import com.sneakymannequins.nms.VolatileHandlerRegistry
@@ -55,7 +56,9 @@ class SneakyMannequins : JavaPlugin(), Listener {
     private lateinit var styleManager: StyleManager
     private lateinit var mannequinManager: MannequinManager
     private lateinit var persistence: MannequinPersistence
-    private lateinit var sessionManager: SessionManager
+    private var sessionManager: SessionManager? = null
+    lateinit var statsManager: StatsManager
+        private set
     private lateinit var remaskManager: RemaskManager
     private lateinit var etfConfigManager: EtfConfigManager
     lateinit var characterManagerBridge: CharacterManagerBridge
@@ -75,7 +78,9 @@ class SneakyMannequins : JavaPlugin(), Listener {
         styleManager = StyleManager(this).also { it.loadStyles() }
         persistence = MannequinPersistence(this)
         characterManagerBridge = CharacterManagerBridgeFactory.create(this)
-        sessionManager = SessionManager(this, dataFolder, layerManager, characterManagerBridge)
+        statsManager = StatsManager(this, dataFolder)
+        val sm = SessionManager(this, dataFolder, layerManager, characterManagerBridge, statsManager)
+        sessionManager = sm
         holoController = HoloController(this, HoloHandler1214()).also { it.start() }
         mannequinManager =
                 MannequinManager(
@@ -84,7 +89,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
                                 styleManager,
                                 handler,
                                 persistence,
-                                sessionManager,
+                                sm,
                                 characterManagerBridge,
                                 holoController
                         )
@@ -103,7 +108,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
                         mannequinManager,
                         layerManager,
                         styleManager,
-                        sessionManager,
+                        sessionManager!!,
                         remaskManager,
                         etfConfigManager
                 )
@@ -111,7 +116,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
         server.pluginManager.registerEvents(this, this)
         server.pluginManager.registerEvents(TriggerListener(this), this)
         server.pluginManager.registerEvents(
-                OutfitItemListener(this, mannequinManager, sessionManager),
+                OutfitItemListener(this, mannequinManager, sessionManager!!),
                 this
         )
         server.pluginManager.registerEvents(etfConfigManager, this)
@@ -131,6 +136,9 @@ class SneakyMannequins : JavaPlugin(), Listener {
     override fun onDisable() {
         if (this::mannequinManager.isInitialized) {
             mannequinManager.shutdown()
+        }
+        if (this::statsManager.isInitialized) {
+            statsManager.save()
         }
         if (this::remaskManager.isInitialized) {
             remaskManager.stop()
