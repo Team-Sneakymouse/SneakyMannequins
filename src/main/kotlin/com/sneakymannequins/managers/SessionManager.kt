@@ -186,13 +186,15 @@ class SessionManager(
     }
 
     /** Writes `sessions/<uid>.json` before the skin is finalized so disk state matches encoded pixels. */
-    private fun persistSession(session: SessionData) {
+    private fun persistSession(session: SessionData, recordStats: Boolean = true) {
         val uid = session.uid
         val jsonString = gson.toJson(session)
         try {
             sessionsDir.mkdirs()
             File(sessionsDir, "$uid.json").writeText(jsonString)
-            statsManager.record(session)
+            if (recordStats) {
+                statsManager.record(session)
+            }
         } catch (e: Exception) {
             plugin.logger.severe("Failed to persist session $uid: ${e.message}")
             throw e
@@ -418,7 +420,8 @@ class SessionManager(
             sessionOverride: SessionData? = null,
             contextPlayer: Player = requester,
             craig: Boolean = false,
-            createNewUid: Boolean = false
+            createNewUid: Boolean = false,
+            recordStats: Boolean = true
     ): CompletableFuture<FinalizedResult> {
         val playerSkinModel = contextPlayer.playerProfile.textures.skinModel
         val playerSkinUrl = contextPlayer.playerProfile.textures.skin
@@ -481,7 +484,7 @@ class SessionManager(
                                     characterName =
                                             mannequinSession.characterName
                                                     ?: baseSession.characterName
-                            ).also { persistSession(it) }
+                            ).also { persistSession(it, recordStats) }
                         } else {
                             merge(mannequinSession, baseSession, defaultSlim)
                         }
@@ -497,7 +500,7 @@ class SessionManager(
                                     layers = mannequinSession.layers,
                                     characterUuid = mannequinSession.characterUuid,
                                     characterName = mannequinSession.characterName
-                            ).also { persistSession(it) }
+                            ).also { persistSession(it, recordStats) }
                         } else {
                             mannequinSession.copy(
                                     slimModel = mannequinSession.slimModel ?: defaultSlim
@@ -524,7 +527,7 @@ class SessionManager(
                                     createdAt = Instant.now().toString()
                             )
                         }
-                persistSession(merged)
+                persistSession(merged, recordStats)
             }
 
             val slim = merged.slimModel ?: false
@@ -585,7 +588,8 @@ class SessionManager(
             requester: Player,
             session: SessionData,
             contextPlayer: Player = requester,
-            craig: Boolean = false
+            craig: Boolean = false,
+            recordStats: Boolean = true
     ): CompletableFuture<FinalizedResult> {
         val dummy =
                 Mannequin(
@@ -599,7 +603,8 @@ class SessionManager(
                 sessionOverride = session,
                 contextPlayer = contextPlayer,
                 craig = craig,
-                createNewUid = true
+                createNewUid = true,
+                recordStats = recordStats
         )
     }
 

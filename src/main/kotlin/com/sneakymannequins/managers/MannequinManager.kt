@@ -2569,12 +2569,14 @@ class MannequinManager(
     ) {
         var actualSessionOverride = sessionOverride
 
+        var savedInternally = false
         if (sessionOverride == null) {
             val currentFingerprint = sessionManager.fingerprint(mannequin)
             if (lastSavedFingerprint[mannequin.id] != currentFingerprint) {
                 val saved = saveMannequinState(mannequin, requester)
                 sendSessionSavedChat(requester, saved.uid)
                 actualSessionOverride = saved
+                savedInternally = true
             } else {
                 val savedUid = mannequin.savedUid
                 if (savedUid != null) {
@@ -2589,7 +2591,8 @@ class MannequinManager(
                         mannequin,
                         sessionOverride = actualSessionOverride,
                         contextPlayer = contextPlayer,
-                        craig = craig
+                        craig = craig,
+                        recordStats = !savedInternally
                 )
                 .thenAccept { result ->
                     val url = ConfigManager.instance.getImageUrl(result.file.name)
