@@ -52,8 +52,6 @@ private data class ControlState(
         var layerIndex: Int = 0,
         val partIndex: MutableMap<String, Int> = mutableMapOf(),
         val colorIndex: MutableMap<String, Int> = mutableMapOf(),
-        /** Per-layer visible page index for paginated color_grid palettes (`max-rows`). */
-        val palettePage: MutableMap<String, Int> = mutableMapOf(),
         /**
          * Per-layer index into the flattened [ChannelSlot] list (covers both mask channels and
          * sub-channels).
@@ -100,6 +98,8 @@ class MannequinManager(
     /** mannequinId -> true = T-pose */
     private val poseState = mutableMapOf<UUID, Boolean>()
     private val controlState = mutableMapOf<UUID, ControlState>()
+    /** (viewerId, mannequinId) -> per-layer page index for paginated color_grid palettes (`max-rows`). */
+    private val palettePageByViewer = mutableMapOf<Pair<UUID, UUID>, MutableMap<String, Int>>()
     /** mannequin -> layerId -> partId(optionId) -> last selection used for that part */
     private val partSelectionMemory =
             mutableMapOf<UUID, MutableMap<String, MutableMap<String, LayerSelection>>>()
@@ -117,6 +117,10 @@ class MannequinManager(
     private val animationManager = AnimationManager(plugin, handler)
 
     fun getMannequin(mannequinId: UUID): Mannequin? = mannequins[mannequinId]
+
+    private fun palettePages(viewerId: UUID, mannequinId: UUID): MutableMap<String, Int> {
+        return palettePageByViewer.getOrPut(viewerId to mannequinId) { mutableMapOf() }
+    }
 
     fun currentPartId(mannequinId: UUID, layerId: String): String? {
         val mannequin = mannequins[mannequinId] ?: return null
@@ -263,8 +267,9 @@ class MannequinManager(
         val option = freshOption(layer.id, mannequin) ?: return
         val pageCount = colorGridPageCountForLayer(layer, option, player, maxRows)
         if (pageCount <= 1) return
-        val cur = state.palettePage.getOrDefault(layer.id, 0)
-        state.palettePage[layer.id] = (cur + 1) % pageCount
+        val pages = palettePages(player.uniqueId, mannequin.id)
+        val cur = pages.getOrDefault(layer.id, 0)
+        pages[layer.id] = (cur + 1) % pageCount
     }
 
     /**
@@ -352,6 +357,7 @@ class MannequinManager(
         statusText.remove(mannequinId)
         poseState.remove(mannequinId)
         partSelectionMemory.remove(mannequinId)
+        palettePageByViewer.keys.removeIf { it.second == mannequinId }
         persist()
     }
 
@@ -1269,7 +1275,7 @@ class MannequinManager(
                     styleLayers
                             .getOrNull(state.layerIndex % styleLayers.size)
                             ?.id
-                            ?.let { state.palettePage[it] = 0 }
+                            ?.let { palettePages(player.uniqueId, mannequinId)[it] = 0 }
                 }
                 refreshDynamicLabels(mannequinId)
 
@@ -1606,14 +1612,15 @@ class MannequinManager(
                 val option = freshOption(layer.id, mannequin) ?: return
                 val pageCount = colorGridPageCountForLayer(layer, option, player, maxRows)
                 if (pageCount <= 1) return
-                val cur = state.palettePage.getOrDefault(layer.id, 0)
+                val pages = palettePages(player.uniqueId, mannequinId)
+                val cur = pages.getOrDefault(layer.id, 0)
                 val delta =
                         when (configBtn.colorTabMode) {
                             ColorTabMode.FORWARD -> 1
                             ColorTabMode.BACKWARD -> -1
                             ColorTabMode.ALTERNATE -> if (backwards) -1 else 1
                         }
-                state.palettePage[layer.id] = (cur + delta + pageCount) % pageCount
+                pages[layer.id] = (cur + delta + pageCount) % pageCount
                 refreshColorGrid(player, mannequin, state, hud)
                 refreshDynamicLabels(mannequinId)
             }
@@ -2051,7 +2058,7 @@ class MannequinManager(
 
         state.channelIndex[layer.id] = 0
         state.colorIndex[layer.id] = 0
-        state.palettePage[layer.id] = 0
+        palettePages(player.uniqueId, mannequin.id)[layer.id] = 0
         val rawTex = layerManager.resolveTextures(layer, chosen, player)
         state.textureIndex[layer.id] =
                 if (sel.selectedTexture != null) {
@@ -2212,9 +2219,10 @@ class MannequinManager(
 
         val maxRows = config.maxRows.coerceAtLeast(1)
         val pageCount = (allPaletteIds.size + maxRows - 1) / maxRows
-        val rawPage = state.palettePage.getOrDefault(layer.id, 0)
+        val pages = palettePages(player.uniqueId, mannequin.id)
+        val rawPage = pages.getOrDefault(layer.id, 0)
         val page = rawPage.coerceIn(0, (pageCount - 1).coerceAtLeast(0))
-        state.palettePage[layer.id] = page
+        pages[layer.id] = page
         val visiblePaletteIds = allPaletteIds.drop(page * maxRows).take(maxRows)
 
         grid.cellSpacingX = config.cellSpacingX
@@ -3194,7 +3202,6 @@ class MannequinManager(
                     opts.indexOfFirst { it.id == sel?.option?.id }.coerceAtLeast(0)
             state.channelIndex[def.id] = 0
             state.colorIndex[def.id] = 0
-            state.palettePage[def.id] = 0
             val rawTex =
                     if (sel?.option != null) layerManager.resolveTextures(def, sel.option, null)
                     else emptyList()
