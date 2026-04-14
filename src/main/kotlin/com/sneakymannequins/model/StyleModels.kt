@@ -57,6 +57,8 @@ data class HudButton(
         val headerScale: Float = 0.6f,
         val headerTextMM: String = "<white>{message}",
         val bgHeader: Int? = null,
+        /** Additional Y-offset (in HUD-local units) applied to generated headers. */
+        val headerOffsetY: Float = 0f,
         val headerPaddingLen: Int = 0,
         val headerPaddingSide: String = "none",
         val headerColumn: Int = 0

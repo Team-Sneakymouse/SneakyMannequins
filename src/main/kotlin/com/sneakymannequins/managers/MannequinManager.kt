@@ -2231,17 +2231,18 @@ class MannequinManager(
             var finalName = prettyName(palId)
             if (config.headerPaddingLen > 0) {
                 finalName = when (config.headerPaddingSide) {
-                    "left" -> finalName.padStart(config.headerPaddingLen)
-                    "right" -> finalName.padEnd(config.headerPaddingLen)
+                    "left" -> finalName.padStart(config.headerPaddingLen, '\u00A0')
+                    "right" -> finalName.padEnd(config.headerPaddingLen, '\u00A0')
                     else -> finalName
                 }
             }
 
-            grid.addButton(
+            // Use manual offsets so headers can be nudged vertically without affecting row spacing.
+            grid.addButtonManual(
                     id = "${parentId}_pal_header_$palId",
                     textMM = config.headerTextMM.replace("{message}", finalName),
-                    column = config.headerColumn,
-                    row = row,
+                    offsetX = config.headerColumn * grid.cellSpacingX,
+                    offsetY = (-row * grid.cellSpacingY) + config.headerOffsetY,
                     bgDefault = config.bgHeader ?: HUD_BG_DEFAULT,
                     bgHighlight = config.bgHeader ?: HUD_BG_DEFAULT,
                     lineWidth = config.headerLineWidth,

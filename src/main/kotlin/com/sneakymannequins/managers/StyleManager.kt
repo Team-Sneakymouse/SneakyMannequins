@@ -292,6 +292,7 @@ class StyleManager(private val plugin: SneakyMannequins) {
                 } else null
 
         val bgHeader = parseArgb(sec.getString("bg-header"))
+        val headerOffsetY = sec.getDouble("header-offset-y", 0.0).toFloat()
 
         return HudButton(
                 name = name,
@@ -334,6 +335,7 @@ class StyleManager(private val plugin: SneakyMannequins) {
                 headerTextMM = sec.getString("header-text", "<white>{message}")
                                 ?: "<white>{message}",
                 bgHeader = bgHeader,
+                headerOffsetY = headerOffsetY,
                 headerPaddingLen = sec.getInt("header-padding-len", 0),
                 headerPaddingSide = sec.getString("header-padding-side", "none")?.lowercase()
                                 ?: "none",
