@@ -1,9 +1,11 @@
 package com.sneakymannequins.ui.outfit
 
 import com.sneakymannequins.SneakyMannequins
+import com.sneakymannequins.items.ItemModelApplier
 import com.sneakymouse.sneakyholos.util.TextUtility
 import net.kyori.adventure.text.Component
 import org.bukkit.Material
+import org.bukkit.configuration.ConfigurationSection
 import org.bukkit.configuration.file.FileConfiguration
 import org.bukkit.inventory.ItemStack
 
@@ -26,7 +28,7 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
 
     var backgroundMaterial: Material = Material.GRAY_STAINED_GLASS_PANE
         private set
-    var backgroundCustomModelData: Int? = null
+    var backgroundModelSpec: ItemModelApplier.Spec? = null
         private set
     var backgroundHideTooltip: Boolean = true
         private set
@@ -72,8 +74,7 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
         backgroundMaterial =
                 Material.matchMaterial(bg?.getString("material") ?: "gray_stained_glass_pane")
                         ?: Material.GRAY_STAINED_GLASS_PANE
-        backgroundCustomModelData =
-                bg?.getInt("custom-model-data")?.takeIf { bg.contains("custom-model-data") }
+        backgroundModelSpec = parseModelSpec(bg)
         backgroundHideTooltip = bg?.getBoolean("hide-tooltip", true) ?: true
         val fillExcept = root.getIntegerList("background.fill-all-except")
         backgroundFillExcept =
@@ -109,7 +110,7 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
         slotPreview = 16
         slotCorner = 26
         backgroundMaterial = Material.GRAY_STAINED_GLASS_PANE
-        backgroundCustomModelData = null
+        backgroundModelSpec = null
         backgroundHideTooltip = true
         backgroundFillExcept =
                 setOf(slotIconButton, slotNameButton, slotPreview, slotCorner)
@@ -134,9 +135,7 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
         val mat = Material.matchMaterial(section.getString("material") ?: "jigsaw") ?: Material.JIGSAW
         val stack = ItemStack(mat, 1)
         val meta = stack.itemMeta ?: return stack
-        if (section.contains("custom-model-data")) {
-            meta.setCustomModelData(section.getInt("custom-model-data"))
-        }
+        ItemModelApplier.apply(meta, parseModelSpec(section))
         meta.isHideTooltip = section.getBoolean("hide-tooltip", true)
         stack.itemMeta = meta
         return stack
@@ -146,10 +145,31 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
         return ItemStack(Material.JIGSAW, 1).apply {
             itemMeta =
                     itemMeta?.also { m ->
-                        m.setCustomModelData(cmd)
+                        ItemModelApplier.apply(
+                                m,
+                                ItemModelApplier.Spec(legacyCustomModelData = cmd)
+                        )
                         m.isHideTooltip = true
                     }
         }
+    }
+
+    private fun parseModelSpec(sec: ConfigurationSection?): ItemModelApplier.Spec? {
+        if (sec == null) return null
+        val itemModel = sec.getString("item-model")?.trim().takeIf { !it.isNullOrEmpty() }
+        val floatsRaw = sec.get("custom-model-data-floats")
+        val floats = parseFloatList(floatsRaw).takeIf { it.isNotEmpty() }
+        val range = sec.getString("custom-model-data-floats-range")?.trim()
+        val rangeFloats = range?.let { parseFloatRange(it) }?.takeIf { it.isNotEmpty() }
+        val mergedFloats = ((floats ?: emptyList()) + (rangeFloats ?: emptyList())).distinct()
+        val legacy =
+                sec.getInt("custom-model-data").takeIf { sec.contains("custom-model-data") }
+        if (itemModel == null && mergedFloats.isEmpty() && legacy == null) return null
+        return ItemModelApplier.Spec(
+                itemModel = itemModel,
+                customModelDataFloats = mergedFloats.takeIf { it.isNotEmpty() },
+                legacyCustomModelData = legacy
+        )
     }
 
     private fun loadIconsFromConfig(cfg: FileConfiguration): List<IconEntry> {
@@ -157,30 +177,101 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
         val out = mutableListOf<IconEntry>()
         for (materialKey in section.getKeys(false)) {
             val material = Material.matchMaterial(materialKey) ?: continue
-            for (entry in section.getStringList(materialKey)) {
-                if (entry.contains("-")) {
-                    val parts = entry.split("-")
-                    val start = parts[0].toIntOrNull() ?: continue
-                    val end = parts[1].toIntOrNull() ?: continue
-                    for (md in start..end) {
-                        out.add(IconEntry(material, md))
-                    }
-                } else {
-                    val md = entry.toIntOrNull() ?: continue
-                    out.add(IconEntry(material, md))
+            val raw = section.getList(materialKey) ?: section.getStringList(materialKey)
+            for (entry in raw) {
+                when (entry) {
+                    is String -> out.addAll(parseLegacyOrRange(material, entry))
+                    is Number -> out.add(IconEntry(material = material, legacyModelData = entry.toInt()))
+                    is Map<*, *> -> out.addAll(parseComponentIcon(material, entry))
                 }
             }
         }
         return out.ifEmpty { defaultIconList() }
     }
 
-    private fun defaultIconList(): List<IconEntry> {
+    private fun parseLegacyOrRange(material: Material, entry: String): List<IconEntry> {
+        val e = entry.trim()
+        if (e.isEmpty()) return emptyList()
+        if (e.contains("-")) {
+            val parts = e.split("-", limit = 2)
+            val start = parts[0].trim().toIntOrNull() ?: return emptyList()
+            val end = parts[1].trim().toIntOrNull() ?: return emptyList()
+            if (end < start) return emptyList()
+            return (start..end).map { md -> IconEntry(material = material, legacyModelData = md) }
+        }
+        val md = e.toIntOrNull() ?: return emptyList()
+        return listOf(IconEntry(material = material, legacyModelData = md))
+    }
+
+    private fun parseComponentIcon(material: Material, entry: Map<*, *>): List<IconEntry> {
+        val itemModel = (entry["item-model"] as? String)?.trim().takeIf { !it.isNullOrEmpty() }
+
+        val legacyModelData =
+                when (val rawCmd = entry["custom-model-data"]) {
+                    is Number -> rawCmd.toInt()
+                    is String -> rawCmd.trim().toIntOrNull()
+                    else -> null
+                }
+
+        val floats = parseFloatList(entry["custom-model-data-floats"])
+        val range = (entry["custom-model-data-floats-range"] as? String)?.trim()
+        val rangeFloats = range?.let { parseFloatRange(it) } ?: emptyList()
+        val allFloats = (floats + rangeFloats).distinct()
+
+        // Expand: each float becomes a distinct pickable entry.
+        if (allFloats.isNotEmpty()) {
+            return allFloats.map { f ->
+                IconEntry(material = material, itemModel = itemModel, customModelDataFloats = listOf(f))
+            }
+        }
+
+        // If no floats specified, still allow item-model-only (or legacy cmd) entry.
         return listOf(
-                IconEntry(Material.RABBIT_FOOT, 0),
-                IconEntry(Material.LEATHER_CHESTPLATE, 0),
-                IconEntry(Material.ARMOR_STAND, 0)
+                IconEntry(
+                        material = material,
+                        itemModel = itemModel,
+                        legacyModelData = legacyModelData
+                )
         )
     }
 
-    data class IconEntry(val material: Material, val modelData: Int)
+    private fun parseFloatList(raw: Any?): List<Float> {
+        return when (raw) {
+            is List<*> ->
+                    raw.mapNotNull {
+                        when (it) {
+                            is Number -> it.toFloat()
+                            is String -> it.trim().toFloatOrNull()
+                            else -> null
+                        }
+                    }
+            is Number -> listOf(raw.toFloat())
+            is String -> listOfNotNull(raw.trim().toFloatOrNull())
+            else -> emptyList()
+        }
+    }
+
+    private fun parseFloatRange(raw: String): List<Float> {
+        if (!raw.contains("-")) return emptyList()
+        val parts = raw.split("-", limit = 2)
+        val start = parts[0].trim().toIntOrNull() ?: return emptyList()
+        val end = parts[1].trim().toIntOrNull() ?: return emptyList()
+        if (end < start) return emptyList()
+        return (start..end).map { it.toFloat() }
+    }
+
+    private fun defaultIconList(): List<IconEntry> {
+        return listOf(
+                IconEntry(material = Material.RABBIT_FOOT, legacyModelData = 0),
+                IconEntry(material = Material.LEATHER_CHESTPLATE, legacyModelData = 0),
+                IconEntry(material = Material.ARMOR_STAND, legacyModelData = 0)
+        )
+    }
+
+    data class IconEntry(
+            val material: Material,
+            val itemModel: String? = null,
+            val customModelDataFloats: List<Float>? = null,
+            val legacyModelData: Int? = null
+    )
 }

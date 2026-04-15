@@ -1458,7 +1458,13 @@ class CommandMannequin(
 
     private fun grantOutfitItemDirectToInventory(player: Player, requestedLayerIds: List<String>) {
         runOutfitItemSessionPipeline(player, requestedLayerIds) { partial ->
-            val item = OutfitItem.build(plugin, layerManager, partial.uid, partial.layers)
+            val item =
+                    OutfitItem.build(
+                            plugin = plugin,
+                            layerManager = layerManager,
+                            uid = partial.uid,
+                            layers = partial.layers
+                    )
             player.inventory.addItem(item)
             player.sendMessage(
                     TextUtility.convertToComponent(

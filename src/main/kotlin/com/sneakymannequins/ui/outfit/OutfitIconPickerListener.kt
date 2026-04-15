@@ -76,15 +76,15 @@ class OutfitIconPickerListener(
                         PersistentDataType.STRING
                 )
                         ?: return
-
-        val parts = data.split(",")
-        if (parts.size != 2) return
-        val material = Material.matchMaterial(parts[0]) ?: return
-        val modelData = parts[1].toIntOrNull() ?: return
+        val decoded = decodeIconPick(data) ?: return
+        val material = decoded.first
+        val model = decoded.second
 
         val draft = OutfitItemCreationService.get(player.uniqueId) ?: return
         draft.material = material
-        draft.customModelData = modelData
+        draft.itemModel = model.itemModel
+        draft.customModelDataFloats = model.customModelDataFloats
+        draft.customModelData = model.legacyModelData
 
         Bukkit.getScheduler()
                 .runTask(
@@ -94,6 +94,41 @@ class OutfitIconPickerListener(
                             OutfitItemCreationUi.reopenMain(plugin, layerManager, player)
                         }
                 )
+    }
+
+    private data class IconPickDecoded(
+            val itemModel: String?,
+            val customModelDataFloats: List<Float>?,
+            val legacyModelData: Int?
+    )
+
+    private fun decodeIconPick(data: String): Pair<Material, IconPickDecoded>? {
+        // v2|MATERIAL|itemModel|floatsCsv|legacyInt
+        if (data.startsWith("v2|")) {
+            val parts = data.split("|")
+            if (parts.size < 3) return null
+            val material = Material.matchMaterial(parts.getOrNull(1) ?: "") ?: return null
+            val itemModel = parts.getOrNull(2)?.takeIf { it.isNotBlank() }
+            val floats =
+                    parts.getOrNull(3)
+                            ?.split(',')
+                            ?.mapNotNull { it.trim().takeIf { s -> s.isNotEmpty() }?.toFloatOrNull() }
+                            ?.takeIf { it.isNotEmpty() }
+            val legacy = parts.getOrNull(4)?.trim()?.takeIf { it.isNotEmpty() }?.toIntOrNull()
+            return material to
+                    IconPickDecoded(
+                            itemModel = itemModel,
+                            customModelDataFloats = floats,
+                            legacyModelData = legacy
+                    )
+        }
+
+        // Legacy format: "MATERIAL,modelDataInt"
+        val parts = data.split(",")
+        if (parts.size != 2) return null
+        val material = Material.matchMaterial(parts[0]) ?: return null
+        val modelData = parts[1].toIntOrNull() ?: return null
+        return material to IconPickDecoded(itemModel = null, customModelDataFloats = null, legacyModelData = modelData)
     }
 
     @EventHandler

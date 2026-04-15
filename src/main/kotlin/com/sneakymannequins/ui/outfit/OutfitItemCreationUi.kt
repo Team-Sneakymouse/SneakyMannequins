@@ -1,6 +1,7 @@
 package com.sneakymannequins.ui.outfit
 
 import com.sneakymannequins.SneakyMannequins
+import com.sneakymannequins.items.ItemModelApplier
 import com.sneakymannequins.items.OutfitItem
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymannequins.model.SessionData
@@ -52,7 +53,7 @@ object OutfitItemCreationUi {
         val bg = ItemStack(cfg.backgroundMaterial, 1)
         bg.itemMeta =
                 bg.itemMeta?.also { m ->
-                    cfg.backgroundCustomModelData?.let { m.setCustomModelData(it) }
+                    ItemModelApplier.apply(m, cfg.backgroundModelSpec)
                     m.isHideTooltip = cfg.backgroundHideTooltip
                 }
         for (slot in cfg.slotsToFillBackground()) {
@@ -97,6 +98,14 @@ object OutfitItemCreationUi {
                 )
         preview.itemMeta =
                 preview.itemMeta?.also { m ->
+                    ItemModelApplier.apply(
+                            m,
+                            ItemModelApplier.Spec(
+                                    itemModel = draft.itemModel,
+                                    customModelDataFloats = draft.customModelDataFloats,
+                                    legacyCustomModelData = draft.customModelData
+                            )
+                    )
                     m.persistentDataContainer.set(
                             OutfitItem.guiActionKey(plugin),
                             PersistentDataType.STRING,

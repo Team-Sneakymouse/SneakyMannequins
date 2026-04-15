@@ -1,6 +1,7 @@
 package com.sneakymannequins.ui.outfit
 
 import com.sneakymannequins.SneakyMannequins
+import com.sneakymannequins.items.ItemModelApplier
 import com.sneakymannequins.items.OutfitItem
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymouse.sneakyholos.util.TextUtility
@@ -89,6 +90,19 @@ class OutfitItemCreationListener(
                                                     displayName = displayName,
                                                     guiPreview = false
                                             )
+                                    finalStack.itemMeta =
+                                            finalStack.itemMeta?.also { m ->
+                                                ItemModelApplier.apply(
+                                                        m,
+                                                        ItemModelApplier.Spec(
+                                                                itemModel = draft.itemModel,
+                                                                customModelDataFloats =
+                                                                        draft.customModelDataFloats,
+                                                                legacyCustomModelData =
+                                                                        draft.customModelData
+                                                        )
+                                                )
+                                            }
                                     player.inventory.addItem(finalStack)
                                     OutfitItemCreationService.remove(player.uniqueId)
                                     player.closeInventory()

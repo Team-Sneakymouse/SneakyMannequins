@@ -1,6 +1,7 @@
 package com.sneakymannequins.ui.outfit
 
 import com.sneakymannequins.SneakyMannequins
+import com.sneakymannequins.items.ItemModelApplier
 import com.sneakymannequins.items.OutfitItem
 import com.sneakymouse.sneakyholos.util.TextUtility
 import org.bukkit.Material
@@ -18,7 +19,7 @@ object OutfitIconPickerUi {
 
         val start = page * 45
         icons.drop(start).take(45).forEachIndexed { index, icon ->
-            inv.setItem(index, iconStack(plugin, icon.material, icon.modelData))
+            inv.setItem(index, iconStack(plugin, icon))
         }
 
         val hasPrev = page > 0
@@ -56,20 +57,33 @@ object OutfitIconPickerUi {
         }
     }
 
-    private fun iconStack(plugin: SneakyMannequins, material: Material, modelData: Int): ItemStack {
-        return ItemStack(material, 1).apply {
+    private fun iconStack(plugin: SneakyMannequins, icon: OutfitItemGuiConfig.IconEntry): ItemStack {
+        return ItemStack(icon.material, 1).apply {
             itemMeta =
                     itemMeta?.also { m ->
-                        if (modelData != 0) {
-                            m.setCustomModelData(modelData)
-                        }
+                        ItemModelApplier.apply(
+                                m,
+                                ItemModelApplier.Spec(
+                                        itemModel = icon.itemModel,
+                                        customModelDataFloats = icon.customModelDataFloats,
+                                        legacyCustomModelData = icon.legacyModelData
+                                )
+                        )
                         m.isHideTooltip = true
                         m.persistentDataContainer.set(
                                 OutfitItem.iconPickerDataKey(plugin),
                                 PersistentDataType.STRING,
-                                "${material.name},$modelData"
+                                encodeIconPick(icon)
                         )
                     }
         }
+    }
+
+    private fun encodeIconPick(icon: OutfitItemGuiConfig.IconEntry): String {
+        val floats = icon.customModelDataFloats?.joinToString(",") ?: ""
+        val legacy = icon.legacyModelData?.toString() ?: ""
+        val model = icon.itemModel ?: ""
+        // Versioned encoding for forward compatibility.
+        return "v2|${icon.material.name}|$model|$floats|$legacy"
     }
 }

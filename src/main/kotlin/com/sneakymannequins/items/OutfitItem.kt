@@ -41,6 +41,7 @@ object OutfitItem {
             uid: String,
             layers: Map<String, LayerSessionData>,
             material: Material = Material.RABBIT_FOOT,
+            modelSpec: ItemModelApplier.Spec? = null,
             customModelData: Int? = null,
             displayName: Component? = null,
             guiPreview: Boolean = false
@@ -50,9 +51,11 @@ object OutfitItem {
 
         meta.displayName(displayName ?: Component.text("Outfit").color(NamedTextColor.GREEN))
 
-        if (customModelData != null) {
-            meta.setCustomModelData(customModelData)
-        }
+        // Prefer modern component-based model spec; fall back to legacy integer CMD if provided.
+        ItemModelApplier.apply(
+                meta,
+                modelSpec ?: ItemModelApplier.Spec(legacyCustomModelData = customModelData)
+        )
 
         val defsById = layerManager.definitionsInOrder().associateBy { it.id }
         val orderedLayerIds =

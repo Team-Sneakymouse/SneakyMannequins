@@ -9,6 +9,8 @@ data class OutfitItemDraft(
         val uid: String,
         val layers: Map<String, LayerSessionData>,
         var material: Material = Material.RABBIT_FOOT,
+        var itemModel: String? = null,
+        var customModelDataFloats: List<Float>? = null,
         var customModelData: Int? = null,
         var displayNamePlain: String? = null
 )
