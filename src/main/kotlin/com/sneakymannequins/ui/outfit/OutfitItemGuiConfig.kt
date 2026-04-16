@@ -26,14 +26,6 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
     var slotCorner: Int = 26
         private set
 
-    var backgroundMaterial: Material = Material.GRAY_STAINED_GLASS_PANE
-        private set
-    var backgroundModelSpec: ItemModelApplier.Spec? = null
-        private set
-    var backgroundHideTooltip: Boolean = true
-        private set
-    private var backgroundFillExcept: Set<Int> = emptySet()
-
     lateinit var cornerItem: ItemStack
         private set
 
@@ -70,20 +62,6 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
         slotPreview = root.getInt("slots.preview", 16).coerceIn(0, 26)
         slotCorner = root.getInt("slots.corner-decoration", 26).coerceIn(0, 26)
 
-        val bg = root.getConfigurationSection("background")
-        backgroundMaterial =
-                Material.matchMaterial(bg?.getString("material") ?: "gray_stained_glass_pane")
-                        ?: Material.GRAY_STAINED_GLASS_PANE
-        backgroundModelSpec = parseModelSpec(bg)
-        backgroundHideTooltip = bg?.getBoolean("hide-tooltip", true) ?: true
-        val fillExcept = root.getIntegerList("background.fill-all-except")
-        backgroundFillExcept =
-                if (fillExcept.isEmpty()) {
-                    setOf(slotIconButton, slotNameButton, slotPreview, slotCorner)
-                } else {
-                    fillExcept.map { it.coerceIn(0, 26) }.toSet()
-                }
-
         cornerItem = parseDecorItem(root.getConfigurationSection("corner-item"))
 
         iconPickerDecorationSlot =
@@ -109,11 +87,6 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
         slotNameButton = 14
         slotPreview = 16
         slotCorner = 26
-        backgroundMaterial = Material.GRAY_STAINED_GLASS_PANE
-        backgroundModelSpec = null
-        backgroundHideTooltip = true
-        backgroundFillExcept =
-                setOf(slotIconButton, slotNameButton, slotPreview, slotCorner)
         cornerItem = defaultJigsawDecor(3047)
         iconPickerDecorationSlot = 52
         iconPickerDecoration = defaultJigsawDecor(3050)
@@ -121,13 +94,6 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
         nameButtonMaterial = Material.NAME_TAG
         loadedIcons.clear()
         loadedIcons.addAll(defaultIconList())
-    }
-
-    fun slotsToFillBackground(): Set<Int> {
-        val reserved =
-                setOf(slotIconButton, slotNameButton, slotPreview, slotCorner) +
-                        backgroundFillExcept
-        return (0..26).filter { it !in reserved }.toSet()
     }
 
     private fun parseDecorItem(section: org.bukkit.configuration.ConfigurationSection?): ItemStack {

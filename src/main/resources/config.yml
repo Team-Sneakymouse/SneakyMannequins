@@ -160,17 +160,6 @@ outfit-item-gui:
     name-button: 14
     preview: 16
     corner-decoration: 26
-  background:
-    material: gray_stained_glass_pane
-    # 1.21.4+ (Paper) supports component-based models:
-    # item-model: "lom:clothing"
-    # custom-model-data-floats: [200]          # floats list
-    # custom-model-data-floats-range: "1-206"  # convenience range (expanded)
-    # Legacy (pre-1.21.4): integer custom model data
-    # custom-model-data: 0
-    hide-tooltip: true
-  # If empty, all slots except the four above are filled with the background item.
-  fill-all-except: []
   corner-item:
     material: jigsaw
     custom-model-data: 3047

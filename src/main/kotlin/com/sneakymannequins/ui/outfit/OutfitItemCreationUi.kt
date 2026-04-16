@@ -50,16 +50,6 @@ object OutfitItemCreationUi {
             inv.setItem(i, null)
         }
 
-        val bg = ItemStack(cfg.backgroundMaterial, 1)
-        bg.itemMeta =
-                bg.itemMeta?.also { m ->
-                    ItemModelApplier.apply(m, cfg.backgroundModelSpec)
-                    m.isHideTooltip = cfg.backgroundHideTooltip
-                }
-        for (slot in cfg.slotsToFillBackground()) {
-            inv.setItem(slot, bg.clone())
-        }
-
         inv.setItem(cfg.slotCorner, cfg.cornerItem.clone())
 
         inv.setItem(
