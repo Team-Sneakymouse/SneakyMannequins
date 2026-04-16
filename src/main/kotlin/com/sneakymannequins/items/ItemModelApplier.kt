@@ -2,6 +2,7 @@ package com.sneakymannequins.items
 
 import org.bukkit.NamespacedKey
 import org.bukkit.inventory.meta.ItemMeta
+import org.bukkit.inventory.meta.components.CustomModelDataComponent
 
 /**
  * Applies 1.21.4+ item model data-components when available.
@@ -29,7 +30,11 @@ object ItemModelApplier {
         val key = NamespacedKey.fromString(raw) ?: return
 
         // Paper 1.21.4+: ItemMeta#setItemModel(NamespacedKey)
+        // Call directly (more reliable than reflection; reflection failure was silent).
         runCatching {
+            meta.setItemModel(key)
+        }.recoverCatching {
+            // Safety fallback for non-Paper runtimes (shouldn't happen for this project).
             val m = meta.javaClass.methods.firstOrNull {
                 it.name == "setItemModel" &&
                         it.parameterTypes.size == 1 &&
@@ -63,55 +68,19 @@ object ItemModelApplier {
     }
 
     /**
-     * Attempts to set the CUSTOM_MODEL_DATA data component using Paper's API:
-     * `meta.setCustomModelDataComponent(CustomModelData.customModelData().floats(...).build())`.
+     * Attempts to set the custom model data component using the Bukkit/Paper 1.21.4 API:
+     * `meta.customModelDataComponent.floats = ...; meta.setCustomModelDataComponent(component)`.
      *
      * Returns true if it looks like it succeeded, false if the API is unavailable.
      */
     private fun applyCustomModelDataFloatsComponent(meta: ItemMeta, floats: List<Float>): Boolean {
-        val customModelDataClass =
-                runCatching { Class.forName("io.papermc.paper.datacomponent.item.CustomModelData") }
-                        .getOrNull()
-                        ?: return false
-
-        val builder =
-                runCatching {
-                    customModelDataClass.methods.firstOrNull {
-                        it.name == "customModelData" && it.parameterTypes.isEmpty()
-                    }?.invoke(null)
-                }
-                        .getOrNull()
-                        ?: return false
-
-        // builder.floats(List<Float>)
-        runCatching {
-            val floatsMethod =
-                    builder.javaClass.methods.firstOrNull {
-                        it.name == "floats" && it.parameterTypes.size == 1 && List::class.java.isAssignableFrom(it.parameterTypes[0])
-                    } ?: return false
-            floatsMethod.invoke(builder, floats)
-        }.getOrElse { return false }
-
-        val built =
-                runCatching {
-                    builder.javaClass.methods.firstOrNull {
-                        it.name == "build" && it.parameterTypes.isEmpty()
-                    }?.invoke(builder)
-                }
-                        .getOrNull()
-                        ?: return false
-
-        // meta.setCustomModelDataComponent(CustomModelData)
-        val setComponent =
-                meta.javaClass.methods.firstOrNull {
-                    it.name == "setCustomModelDataComponent" &&
-                            it.parameterTypes.size == 1 &&
-                            it.parameterTypes[0].name == "io.papermc.paper.datacomponent.item.CustomModelData"
-                }
-                        ?: return false
-
-        runCatching { setComponent.invoke(meta, built) }.getOrElse { return false }
-        return true
+        // On Paper 1.21.4, this method exists and uses org.bukkit.inventory.meta.components.CustomModelDataComponent.
+        return runCatching {
+            val current: CustomModelDataComponent = meta.customModelDataComponent
+            current.floats = floats
+            meta.setCustomModelDataComponent(current)
+            true
+        }.getOrDefault(false)
     }
 }
 
