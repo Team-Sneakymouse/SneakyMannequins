@@ -53,15 +53,18 @@ object ItemModelApplier {
             if (applied == true) return
         }
 
-        // Fallback to legacy integer CMD (works on older + newer, though deprecated in 1.21.4+).
+        // Fallback to legacy integer CMD (Paper exposes setCustomModelData(Integer), not int).
         if (legacyInt != null) {
             runCatching {
-                val m = meta.javaClass.methods.firstOrNull {
-                    it.name == "setCustomModelData" &&
-                            it.parameterTypes.size == 1 &&
-                            (it.parameterTypes[0] == Int::class.javaPrimitiveType ||
-                                    it.parameterTypes[0] == Int::class.javaObjectType)
-                } ?: return
+                meta.setCustomModelData(legacyInt)
+            }.recoverCatching {
+                val m =
+                        meta.javaClass.methods.firstOrNull { method ->
+                            method.name == "setCustomModelData" &&
+                                    method.parameterTypes.size == 1 &&
+                                    method.parameterTypes[0] == java.lang.Integer::class.java
+                        }
+                                ?: throw it
                 m.invoke(meta, legacyInt)
             }
         }

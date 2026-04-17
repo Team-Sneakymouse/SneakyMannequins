@@ -325,8 +325,18 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
         val range = sec.getString("custom-model-data-floats-range")?.trim()
         val rangeFloats = range?.let { parseFloatRange(it) }?.takeIf { it.isNotEmpty() }
         val mergedFloats = ((floats ?: emptyList()) + (rangeFloats ?: emptyList())).distinct()
-        val legacy =
-                sec.getInt("custom-model-data").takeIf { sec.contains("custom-model-data") }
+        // Use isSet + typed read: getInt alone returns 0 when unset; contains() can be unreliable
+        // for some YAML shapes. Paper expects integer legacy CMD here.
+        val legacy: Int? =
+                if (!sec.isSet("custom-model-data")) {
+                    null
+                } else {
+                    when (val raw = sec.get("custom-model-data")) {
+                        is Number -> raw.toInt()
+                        is String -> raw.trim().toIntOrNull()
+                        else -> sec.getInt("custom-model-data")
+                    }
+                }
         if (itemModel == null && mergedFloats.isEmpty() && legacy == null) return null
         return ItemModelApplier.Spec(
                 itemModel = itemModel,
