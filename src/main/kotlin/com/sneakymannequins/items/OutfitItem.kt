@@ -74,7 +74,9 @@ object OutfitItem {
 
         val lore =
                 buildList {
-                    add(procLoreLine(cfg, "Right-click to apply"))
+                    for (line in cfg.outfitItemExtraLoreBeforeLines) {
+                        add(TextUtility.convertToComponent(line))
+                    }
                     addAll(
                             orderedLayerIds.mapNotNull { layerId ->
                                 val layerData = layers[layerId] ?: return@mapNotNull null
@@ -90,7 +92,7 @@ object OutfitItem {
                                 procLoreLine(cfg, "$layerName: $partName")
                             }
                     )
-                    for (line in cfg.outfitItemExtraLoreLines) {
+                    for (line in cfg.outfitItemExtraLoreAfterLines) {
                         add(TextUtility.convertToComponent(line))
                     }
                     if (guiPreview) {

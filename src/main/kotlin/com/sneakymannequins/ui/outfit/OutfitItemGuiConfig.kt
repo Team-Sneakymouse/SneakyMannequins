@@ -67,14 +67,25 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
         private set
 
     /**
-     * Prepended to each auto-generated lore line (right-click hint, each layer summary, preview
-     * footer). Not applied to [outfitItemExtraLoreLines] (those are full lines).
+     * Prepended to each auto-generated layer summary line and the preview footer only. Not
+     * applied to [outfitItemExtraLoreBeforeLines] / [outfitItemExtraLoreAfterLines] (those are full
+     * lines).
      */
     var outfitItemLoreLinePrefix: String = ""
         private set
 
-    /** Extra lore lines after layer summaries; each entry is a full line (colors/formatting). */
-    var outfitItemExtraLoreLines: List<String> = emptyList()
+    /**
+     * Full lore lines shown before procedurally generated layer summaries (no
+     * [outfitItemLoreLinePrefix]).
+     */
+    var outfitItemExtraLoreBeforeLines: List<String> = emptyList()
+        private set
+
+    /**
+     * Full lore lines shown after layer summaries and before the preview-only footer (no
+     * [outfitItemLoreLinePrefix]).
+     */
+    var outfitItemExtraLoreAfterLines: List<String> = emptyList()
         private set
 
     /**
@@ -162,7 +173,8 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
         outfitItemNamePrefix = "&a"
         outfitItemDefaultDisplayNamePlain = "Outfit"
         outfitItemLoreLinePrefix = ""
-        outfitItemExtraLoreLines = emptyList()
+        outfitItemExtraLoreBeforeLines = listOf("&3Right-click to apply")
+        outfitItemExtraLoreAfterLines = emptyList()
         outfitItemExtraPersistentData = emptyList()
     }
 
@@ -175,19 +187,73 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
         outfitItemDefaultDisplayNamePlain =
                 section.getString("default-display-name") ?: "Outfit"
         outfitItemLoreLinePrefix = section.getString("lore-line-prefix") ?: ""
-        outfitItemExtraLoreLines = section.getStringList("extra-lore")
+        val loreBefore = section.getStringList("extra-lore-before")
+        val loreAfter = section.getStringList("extra-lore-after")
+        val legacyExtraLore = section.getStringList("extra-lore")
+        outfitItemExtraLoreBeforeLines = loreBefore
+        outfitItemExtraLoreAfterLines =
+                when {
+                    loreAfter.isNotEmpty() -> loreAfter
+                    legacyExtraLore.isNotEmpty() -> legacyExtraLore
+                    else -> emptyList()
+                }
         outfitItemExtraPersistentData =
-                parseOutfitItemExtraPersistentData(
-                        section.getConfigurationSection("extra-persistent-data")
-                )
+                parseOutfitItemExtraPersistentData(section.get("extra-persistent-data"))
     }
 
-    private fun parseOutfitItemExtraPersistentData(
-            section: ConfigurationSection?
+    /**
+     * Accepts a YAML **map** (`namespace:key: value`) or a **list** of single-key maps (as in
+     * `- "ns:key": "value"`). A plain list does not become a [ConfigurationSection], so the
+     * previous `getConfigurationSection`-only path never saw list-shaped data.
+     */
+    private fun parseOutfitItemExtraPersistentData(raw: Any?): List<Pair<NamespacedKey, String>> {
+        return when (raw) {
+            null -> emptyList()
+            is ConfigurationSection ->
+                    parseOutfitItemPersistentEntries(
+                            raw.getKeys(false).associateWith { key -> raw.get(key) }
+                    )
+            is Map<*, *> ->
+                    parseOutfitItemPersistentEntries(
+                            raw.entries.associate { (k, v) -> k.toString() to v }
+                    )
+            is List<*> -> {
+                val out = mutableListOf<Pair<NamespacedKey, String>>()
+                raw.forEachIndexed { index, elem ->
+                    when (elem) {
+                        is Map<*, *> ->
+                                out.addAll(
+                                        parseOutfitItemPersistentEntries(
+                                                elem.entries.associate { (k, v) ->
+                                                    k.toString() to v
+                                                }
+                                        )
+                                )
+                        else ->
+                                plugin.logger
+                                        .warning(
+                                                "[outfit-item-gui] outfit-item.extra-persistent-data[$index] must be a map (one namespace:key per entry); got: ${elem?.javaClass?.simpleName}"
+                                        )
+                    }
+                }
+                out
+            }
+            else -> {
+                plugin.logger
+                        .warning(
+                                "[outfit-item-gui] outfit-item.extra-persistent-data must be a map or a list of maps; got: ${raw::class.simpleName}"
+                        )
+                emptyList()
+            }
+        }
+    }
+
+    private fun parseOutfitItemPersistentEntries(
+            entries: Map<String, Any?>
     ): List<Pair<NamespacedKey, String>> {
-        if (section == null) return emptyList()
         val out = mutableListOf<Pair<NamespacedKey, String>>()
-        for (rawKey in section.getKeys(false)) {
+        for ((rawKey, rawValue) in entries) {
+            if (rawKey.isBlank()) continue
             val ns = NamespacedKey.fromString(rawKey)
             if (ns == null) {
                 plugin.logger
@@ -197,10 +263,10 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
                 continue
             }
             val value =
-                    when (val v = section.get(rawKey)) {
-                        is String -> v
+                    when (rawValue) {
+                        is String -> rawValue
                         null -> ""
-                        else -> v.toString()
+                        else -> rawValue.toString()
                     }
             out.add(ns to value)
         }

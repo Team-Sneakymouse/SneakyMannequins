@@ -179,13 +179,22 @@ outfit-item-gui:
     # Legacy & codes / MiniMessage (TextUtility). Prepended to the player-chosen name or default-display-name.
     name-prefix: "&a"
     default-display-name: "Outfit"
-    # Prepended to each auto-generated lore line (right-click hint, each layer line, preview footer). extra-lore entries are full lines and do NOT get this prefix.
+    # Prepended only to each layer summary line and the preview footer (not the blocks below).
     lore-line-prefix: ""
-    extra-lore: []
-    # Keys are full namespaced ids (namespace:key). Quote keys in YAML. Values stored as STRING; SneakyMannequins writes its own keys after these, so duplicate keys are overwritten by the plugin.
-    # Example:
+    # Full lore lines (legacy & / MiniMessage) before layer summaries — no lore-line-prefix.
+    extra-lore-before:
+      - "&3Right-click to apply"
+    # Full lore lines after layer summaries, before the preview-only “click to add” footer.
+    # If you still use the old `extra-lore` list and omit `extra-lore-after`, those lines are
+    # loaded as after-layer lore for compatibility.
+    extra-lore-after: []
+    # Keys are full namespaced ids (namespace:key). Values are stored as STRING; SneakyMannequins
+    # writes its own keys after these, so duplicate keys are overwritten by the plugin.
+    # Use either a map or a list of single-key maps (both work):
     # extra-persistent-data:
     #   "someotherplugin:item_id": "fake_value"
+    # extra-persistent-data:
+    #   - "someotherplugin:item_id": "fake_value"
     extra-persistent-data: {}
   # Optional: full stack for pagination buttons (slots 45 / 53). Same keys as `corner-item`
   # (`material`, `custom-model-data`, `item-model`, `custom-model-data-floats`,
