@@ -172,6 +172,20 @@ outfit-item-gui:
   buttons:
     icon-material: painting
     name-material: name_tag
+    icon-picker-prev-material: arrow
+    icon-picker-next-material: arrow
+  # Optional: full stack for pagination buttons (slots 45 / 53). Same keys as `corner-item`
+  # (`material`, `custom-model-data`, `item-model`, `custom-model-data-floats`,
+  # `custom-model-data-floats-range`, `hide-tooltip`). When set, overrides the matching
+  # `buttons.icon-picker-*-material` line for that side.
+  # icon-picker-nav-prev:
+  #   material: arrow
+  #   custom-model-data: 1001
+  #   hide-tooltip: true
+  # icon-picker-nav-next:
+  #   material: arrow
+  #   custom-model-data: 1002
+  #   hide-tooltip: true
 
 # Icons for the picker.
 # Each material is a list of either:

@@ -4,7 +4,6 @@ import com.sneakymannequins.SneakyMannequins
 import com.sneakymannequins.items.ItemModelApplier
 import com.sneakymannequins.items.OutfitItem
 import com.sneakymouse.sneakyholos.util.TextUtility
-import org.bukkit.Material
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.persistence.PersistentDataType
@@ -28,13 +27,23 @@ object OutfitIconPickerUi {
         if (hasPrev) {
             inv.setItem(
                     45,
-                    navButton(plugin, "prev_page", "&ePrevious page")
+                    navButton(
+                            plugin,
+                            cfg.iconPickerNavPrevItem,
+                            "prev_page",
+                            "&ePrevious page"
+                    )
             )
         }
         if (hasNext) {
             inv.setItem(
                     53,
-                    navButton(plugin, "next_page", "&eNext page")
+                    navButton(
+                            plugin,
+                            cfg.iconPickerNavNextItem,
+                            "next_page",
+                            "&eNext page"
+                    )
             )
         }
 
@@ -43,8 +52,13 @@ object OutfitIconPickerUi {
         player.openInventory(inv)
     }
 
-    private fun navButton(plugin: SneakyMannequins, id: String, name: String): ItemStack {
-        return ItemStack(Material.ARROW, 1).apply {
+    private fun navButton(
+            plugin: SneakyMannequins,
+            template: ItemStack,
+            id: String,
+            name: String
+    ): ItemStack {
+        return template.clone().apply {
             itemMeta =
                     itemMeta?.also { m ->
                         m.displayName(TextUtility.convertToComponent(name))

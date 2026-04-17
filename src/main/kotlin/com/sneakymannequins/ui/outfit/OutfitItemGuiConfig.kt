@@ -39,6 +39,21 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
     var nameButtonMaterial: Material = Material.NAME_TAG
         private set
 
+    /**
+     * Base item for the icon picker “previous page” button (slot 45); cloned on each open, then
+     * display name and GUI action are applied. Define [iconPickerNavPrevItem] via optional
+     * `icon-picker-nav-prev` (same shape as `corner-item`) for custom model data; otherwise
+     * `buttons.icon-picker-prev-material` is used.
+     */
+    lateinit var iconPickerNavPrevItem: ItemStack
+        private set
+
+    /**
+     * Base item for the icon picker “next page” button (slot 53); see [iconPickerNavPrevItem].
+     */
+    lateinit var iconPickerNavNextItem: ItemStack
+        private set
+
     private val loadedIcons = mutableListOf<IconEntry>()
 
     val icons: List<IconEntry>
@@ -75,6 +90,18 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
         nameButtonMaterial =
                 Material.matchMaterial(root.getString("buttons.name-material") ?: "name_tag")
                         ?: Material.NAME_TAG
+        iconPickerNavPrevItem =
+                parseIconPickerNavTemplate(
+                        root,
+                        itemSectionKey = "icon-picker-nav-prev",
+                        materialFallbackKey = "buttons.icon-picker-prev-material"
+                )
+        iconPickerNavNextItem =
+                parseIconPickerNavTemplate(
+                        root,
+                        itemSectionKey = "icon-picker-nav-next",
+                        materialFallbackKey = "buttons.icon-picker-next-material"
+                )
 
         loadedIcons.clear()
         loadedIcons.addAll(loadIconsFromConfig(cfg))
@@ -92,8 +119,30 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
         iconPickerDecoration = defaultJigsawDecor(3050)
         iconButtonMaterial = Material.PAINTING
         nameButtonMaterial = Material.NAME_TAG
+        iconPickerNavPrevItem = ItemStack(Material.ARROW, 1)
+        iconPickerNavNextItem = ItemStack(Material.ARROW, 1)
         loadedIcons.clear()
         loadedIcons.addAll(defaultIconList())
+    }
+
+    /**
+     * Optional `icon-picker-nav-prev` / `icon-picker-nav-next` blocks use the same keys as
+     * `corner-item` (`material`, `custom-model-data`, `item-model`, `custom-model-data-floats`,
+     * `custom-model-data-floats-range`, `hide-tooltip`). If absent, falls back to a plain stack
+     * from `buttons.icon-picker-*-material`.
+     */
+    private fun parseIconPickerNavTemplate(
+            root: ConfigurationSection,
+            itemSectionKey: String,
+            materialFallbackKey: String
+    ): ItemStack {
+        val section = root.getConfigurationSection(itemSectionKey)
+        if (section != null) {
+            return parseDecorItem(section)
+        }
+        val matKey = root.getString(materialFallbackKey) ?: "arrow"
+        val mat = Material.matchMaterial(matKey) ?: Material.ARROW
+        return ItemStack(mat, 1)
     }
 
     private fun parseDecorItem(section: org.bukkit.configuration.ConfigurationSection?): ItemStack {
