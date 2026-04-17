@@ -5,6 +5,7 @@ import com.sneakymannequins.items.ItemModelApplier
 import com.sneakymouse.sneakyholos.util.TextUtility
 import net.kyori.adventure.text.Component
 import org.bukkit.Material
+import org.bukkit.NamespacedKey
 import org.bukkit.configuration.ConfigurationSection
 import org.bukkit.configuration.file.FileConfiguration
 import org.bukkit.inventory.ItemStack
@@ -52,6 +53,35 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
      * Base item for the icon picker “next page” button (slot 53); see [iconPickerNavPrevItem].
      */
     lateinit var iconPickerNavNextItem: ItemStack
+        private set
+
+    /**
+     * Legacy `&` / MiniMessage prefix (via [TextUtility]) prepended to the outfit item display
+     * name: the player-entered name, or [outfitItemDefaultDisplayNamePlain] when unset.
+     */
+    var outfitItemNamePrefix: String = "&a"
+        private set
+
+    /** Plain text default when the player has not set a custom name (grant command, etc.). */
+    var outfitItemDefaultDisplayNamePlain: String = "Outfit"
+        private set
+
+    /**
+     * Prepended to each auto-generated lore line (right-click hint, each layer summary, preview
+     * footer). Not applied to [outfitItemExtraLoreLines] (those are full lines).
+     */
+    var outfitItemLoreLinePrefix: String = ""
+        private set
+
+    /** Extra lore lines after layer summaries; each entry is a full line (colors/formatting). */
+    var outfitItemExtraLoreLines: List<String> = emptyList()
+        private set
+
+    /**
+     * Additional PDC entries written before SneakyMannequins’ own keys (so ours override on
+     * conflict). Keys are full `namespace:key` strings (any namespace, for interoperability).
+     */
+    var outfitItemExtraPersistentData: List<Pair<NamespacedKey, String>> = emptyList()
         private set
 
     private val loadedIcons = mutableListOf<IconEntry>()
@@ -103,6 +133,8 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
                         materialFallbackKey = "buttons.icon-picker-next-material"
                 )
 
+        loadOutfitItemSettings(root.getConfigurationSection("outfit-item"))
+
         loadedIcons.clear()
         loadedIcons.addAll(loadIconsFromConfig(cfg))
     }
@@ -121,8 +153,58 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
         nameButtonMaterial = Material.NAME_TAG
         iconPickerNavPrevItem = ItemStack(Material.ARROW, 1)
         iconPickerNavNextItem = ItemStack(Material.ARROW, 1)
+        applyOutfitItemSettingsDefaults()
         loadedIcons.clear()
         loadedIcons.addAll(defaultIconList())
+    }
+
+    private fun applyOutfitItemSettingsDefaults() {
+        outfitItemNamePrefix = "&a"
+        outfitItemDefaultDisplayNamePlain = "Outfit"
+        outfitItemLoreLinePrefix = ""
+        outfitItemExtraLoreLines = emptyList()
+        outfitItemExtraPersistentData = emptyList()
+    }
+
+    private fun loadOutfitItemSettings(section: ConfigurationSection?) {
+        if (section == null) {
+            applyOutfitItemSettingsDefaults()
+            return
+        }
+        outfitItemNamePrefix = section.getString("name-prefix") ?: ""
+        outfitItemDefaultDisplayNamePlain =
+                section.getString("default-display-name") ?: "Outfit"
+        outfitItemLoreLinePrefix = section.getString("lore-line-prefix") ?: ""
+        outfitItemExtraLoreLines = section.getStringList("extra-lore")
+        outfitItemExtraPersistentData =
+                parseOutfitItemExtraPersistentData(
+                        section.getConfigurationSection("extra-persistent-data")
+                )
+    }
+
+    private fun parseOutfitItemExtraPersistentData(
+            section: ConfigurationSection?
+    ): List<Pair<NamespacedKey, String>> {
+        if (section == null) return emptyList()
+        val out = mutableListOf<Pair<NamespacedKey, String>>()
+        for (rawKey in section.getKeys(false)) {
+            val ns = NamespacedKey.fromString(rawKey)
+            if (ns == null) {
+                plugin.logger
+                        .warning(
+                                "[outfit-item-gui] Invalid namespaced key in outfit-item.extra-persistent-data (use namespace:key, e.g. otherplugin:foo): '$rawKey'"
+                        )
+                continue
+            }
+            val value =
+                    when (val v = section.get(rawKey)) {
+                        is String -> v
+                        null -> ""
+                        else -> v.toString()
+                    }
+            out.add(ns to value)
+        }
+        return out
     }
 
     /**

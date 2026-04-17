@@ -3,9 +3,10 @@ package com.sneakymannequins.items
 import com.sneakymannequins.SneakyMannequins
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymannequins.model.LayerSessionData
+import com.sneakymannequins.ui.outfit.OutfitItemGuiConfig
+import com.sneakymouse.sneakyholos.util.TextUtility
 import java.util.Locale
 import net.kyori.adventure.text.Component
-import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.Material
 import org.bukkit.NamespacedKey
 import org.bukkit.inventory.ItemStack
@@ -35,6 +36,11 @@ object OutfitItem {
     fun isGuiPreviewStack(pdc: PersistentDataContainer, plugin: SneakyMannequins): Boolean =
             pdc.has(guiPreviewKey(plugin), PersistentDataType.BYTE)
 
+    /**
+     * @param displayNamePlain Player-chosen name without formatting; combined with
+     *   `outfit-item-gui.outfit-item.name-prefix` from config. If null, uses configured default
+     *   display name.
+     */
     fun build(
             plugin: SneakyMannequins,
             layerManager: LayerManager,
@@ -43,13 +49,17 @@ object OutfitItem {
             material: Material = Material.RABBIT_FOOT,
             modelSpec: ItemModelApplier.Spec? = null,
             customModelData: Int? = null,
-            displayName: Component? = null,
+            displayNamePlain: String? = null,
             guiPreview: Boolean = false
     ): ItemStack {
         val stack = ItemStack(material, 1)
         val meta = stack.itemMeta ?: return stack
+        val cfg = plugin.outfitItemGuiConfig
 
-        meta.displayName(displayName ?: Component.text("Outfit").color(NamedTextColor.GREEN))
+        val nameBody =
+                displayNamePlain?.ifBlank { null }
+                        ?: cfg.outfitItemDefaultDisplayNamePlain
+        meta.displayName(TextUtility.convertToComponent(cfg.outfitItemNamePrefix + nameBody))
 
         // Prefer modern component-based model spec; fall back to legacy integer CMD if provided.
         ItemModelApplier.apply(
@@ -64,10 +74,7 @@ object OutfitItem {
 
         val lore =
                 buildList {
-                    add(
-                            Component.text("Right-click to apply")
-                                    .color(NamedTextColor.DARK_AQUA)
-                    )
+                    add(procLoreLine(cfg, "Right-click to apply"))
                     addAll(
                             orderedLayerIds.mapNotNull { layerId ->
                                 val layerData = layers[layerId] ?: return@mapNotNull null
@@ -80,21 +87,23 @@ object OutfitItem {
                                             layerManager.findPartById(layerId, optionId)
                                                     ?.displayName ?: beautify(optionId)
                                         }
-                                Component.text("$layerName: $partName")
-                                        .color(NamedTextColor.GRAY)
+                                procLoreLine(cfg, "$layerName: $partName")
                             }
                     )
+                    for (line in cfg.outfitItemExtraLoreLines) {
+                        add(TextUtility.convertToComponent(line))
+                    }
                     if (guiPreview) {
                         add(Component.empty())
-                        add(
-                                Component.text("Click to add to your inventory")
-                                        .color(NamedTextColor.YELLOW)
-                        )
+                        add(procLoreLine(cfg, "Click to add to your inventory"))
                     }
                 }
         meta.lore(lore)
 
         val pdc = meta.persistentDataContainer
+        for ((dataKey, value) in cfg.outfitItemExtraPersistentData) {
+            pdc.set(dataKey, PersistentDataType.STRING, value)
+        }
         pdc.set(key(plugin), PersistentDataType.STRING, uid)
         if (guiPreview) {
             pdc.set(guiPreviewKey(plugin), PersistentDataType.BYTE, 1)
@@ -103,6 +112,9 @@ object OutfitItem {
         stack.itemMeta = meta
         return stack
     }
+
+    private fun procLoreLine(cfg: OutfitItemGuiConfig, body: String) =
+            TextUtility.convertToComponent(cfg.outfitItemLoreLinePrefix + body)
 
     private fun beautify(id: String): String {
         val clean = id.replace('_', ' ').replace('-', ' ').trim()

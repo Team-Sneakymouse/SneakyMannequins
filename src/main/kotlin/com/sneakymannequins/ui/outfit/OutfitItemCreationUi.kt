@@ -6,8 +6,6 @@ import com.sneakymannequins.items.OutfitItem
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymannequins.model.SessionData
 import com.sneakymouse.sneakyholos.util.TextUtility
-import net.kyori.adventure.text.Component
-import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.persistence.PersistentDataType
@@ -73,8 +71,6 @@ object OutfitItemCreationUi {
                 )
         )
 
-        val displayName =
-                draft.displayNamePlain?.let { Component.text(it).color(NamedTextColor.GREEN) }
         val preview =
                 OutfitItem.build(
                         plugin,
@@ -83,7 +79,7 @@ object OutfitItemCreationUi {
                         draft.layers,
                         material = draft.material,
                         customModelData = draft.customModelData,
-                        displayName = displayName,
+                        displayNamePlain = draft.displayNamePlain,
                         guiPreview = true
                 )
         preview.itemMeta =

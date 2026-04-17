@@ -5,8 +5,6 @@ import com.sneakymannequins.items.ItemModelApplier
 import com.sneakymannequins.items.OutfitItem
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymouse.sneakyholos.util.TextUtility
-import net.kyori.adventure.text.Component
-import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.Bukkit
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
@@ -75,10 +73,6 @@ class OutfitItemCreationListener(
                                     if (!OutfitItem.isGuiPreviewStack(meta.persistentDataContainer, plugin)) {
                                         return@Runnable
                                     }
-                                    val displayName =
-                                            draft.displayNamePlain?.let {
-                                                Component.text(it).color(NamedTextColor.GREEN)
-                                            }
                                     val finalStack =
                                             OutfitItem.build(
                                                     plugin,
@@ -87,7 +81,7 @@ class OutfitItemCreationListener(
                                                     draft.layers,
                                                     material = draft.material,
                                                     customModelData = draft.customModelData,
-                                                    displayName = displayName,
+                                                    displayNamePlain = draft.displayNamePlain,
                                                     guiPreview = false
                                             )
                                     finalStack.itemMeta =
