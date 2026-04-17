@@ -2,6 +2,10 @@ plugins {
     kotlin("jvm")
 }
 
+repositories {
+    maven("https://repo.extendedclip.com/content/repositories/placeholderapi/")
+}
+
 dependencies {
     implementation(project(":SneakyHolos"))
     compileOnly("io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT")
@@ -10,6 +14,7 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.21")
     implementation("com.google.code.gson:gson:2.10.1")
     compileOnly("io.github.team-sneakymouse:sneakycharactermanager-paper:1.4.0")
+    compileOnly("me.clip:placeholderapi:2.11.6")
 
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")

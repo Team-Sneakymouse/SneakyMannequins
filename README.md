@@ -37,6 +37,14 @@ A status line at the top shows the last action taken.
 ### Configurable HUD Appearance
 Every button's text (with full [MiniMessage](https://docs.advntr.dev/minimessage/format.html) support), translation, line width, and background colours (default & highlighted) are configurable in `config.yml`. An optional `ItemDisplay` frame can be enabled as a backdrop art asset behind the buttons.
 
+### Outfit maker (`/mannequin item`)
+Players can mint a portable **outfit item** from the session UID hidden in their current skin texture (same decode path as `/mannequin debug checkskin`). The GUI is defined under **`outfit-item-gui`** in `config.yml`: slots, corner decoration, icon/name buttons, and the icon picker (title, decoration slot, optional **`icon-picker-nav-prev`** / **`icon-picker-nav-next`** item blocks with full item-model / legacy custom-model-data support, or simple `buttons.icon-picker-*-material` fallbacks).
+
+The finished stack is tuned under **`outfit-item-gui.outfit-item`**: configurable **name** prefix (legacy `&` / MiniMessage via TextUtility), **default display name**, **lore-line-prefix** on auto-generated layer summary lines and the preview footer, **`extra-lore-before`** / **`extra-lore-after`** (full lines each), and **`extra-persistent-data`** as a map or list of single-key maps using full **`namespace:key`** strings (values stored as string PDC; SneakyMannequins then writes its own keys so duplicates are overwritten safely).
+
+### PlaceholderAPI (optional)
+When [PlaceholderAPI](https://github.com/PlaceholderAPI/PlaceholderAPI) is installed, SneakyMannequins registers **`%sneakymannequins_skin_session_uid%`** (aliases: `skin_session_uid`, `skin-session-uid`). It returns the session UID read from the player’s skin image, using the same pipeline as **`/mannequin debug checkskin`**. The skin download runs **asynchronously**; the expansion returns a short-lived **pending** string (see **`placeholders.skin-session-uid-pending`**) until the first decode completes, then **caches** the result for **`placeholders.skin-session-uid-cache-ttl-seconds`** (per player, cleared on quit and on plugin reload).
+
 ### Command Triggers
 Server admins can attach console commands to mannequin events — hover, click, part-change (per-layer), and color-change. Placeholders like `{player}`, `{part}`, `{color}`, `{color_r}/{color_g}/{color_b}`, and `{x}/{y}/{z}` are substituted automatically. The defaults ship with themed sounds and coloured particle effects.
 
@@ -74,7 +82,8 @@ The full config lives at `plugins/SneakyMannequins/config.yml` (auto-generated f
 - **`layers.palettes`** — named colour palettes (hex RGB values).
 - **`layers.order`** — rendering order (bottom to top).
 - **`layers.definitions-file`** — optional path (relative to `plugins/SneakyMannequins/`) to a YAML file containing layer defaults and the `layers:` map (same schema as the old inline `layers.definitions` block: `palettes-first` / `palettes` / `palettes-last`, default `textures`, `brightness-influence`, `saturation-influence`, then `layers` with each part’s `display-name`, `directory`, flags, palette/texture lists, etc.). Default installs use `layers/definitions.yml` (shipped in the jar and copied with other `layers/` assets on first run). When this key is set, inline **`layers.definitions`** in `config.yml` is ignored. Remove `definitions-file` and keep a **`layers.definitions`** section only if you prefer everything in one file (upgrades can stay on that layout).
-- **`outfit-item-gui`** / **`outfit-item-icons`** — layout and icon list for `/mannequin item` (see `config.yml` defaults).
+- **`outfit-item-gui`** / **`outfit-item-icons`** — layout and icon list for `/mannequin item`; **`outfit-item`** under the same root controls display name, lore, and extra PDC on minted outfit items.
+- **`placeholders`** — PlaceholderAPI skin-session placeholder (`skin-session-uid-pending`, `skin-session-uid-cache-ttl-seconds`).
 
 ### Adding Content
 
@@ -119,6 +128,7 @@ This module is part of the [HoloUX Workspace](../) and depends on the `:SneakyHo
 ```
 SneakyMannequins (plugin submodule)
 ├── commands/         Command registration (Brigadier)
+├── integrations/     Optional hooks (e.g. PlaceholderAPI expansion)
 ├── managers/
 │   ├── MannequinManager   Lifecycle, HoloTrigger registration, triggers
 │   ├── LayerManager        Layer/option/palette loading, colour masking

@@ -60,6 +60,14 @@ integrations:
     # 5: Extension copies from leg overlay but ignores top of leg texture.
     jacket-dress-style: 5
 
+# PlaceholderAPI (optional). %sneakymannequins_skin_session_uid% reads the session id encoded in the
+# player's current skin texture (same pipeline as `/mannequin debug checkskin`).
+placeholders:
+  # Shown while the skin image is downloading / decoding (often only one resolve tick).
+  skin-session-uid-pending: ""
+  # Seconds to cache a successful decode per player (re-download after TTL).
+  skin-session-uid-cache-ttl-seconds: 300
+
 # ── Control Interaction ────────────────────────────────────────────────────────
 controls:
   # Radius (blocks) of the mannequin interaction entity.

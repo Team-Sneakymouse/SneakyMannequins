@@ -3,6 +3,8 @@ package com.sneakymannequins
 import com.sneakymannequins.commands.CommandMannequin
 import com.sneakymannequins.integrations.CharacterManagerBridge
 import com.sneakymannequins.integrations.CharacterManagerBridgeFactory
+import com.sneakymannequins.integrations.placeholderapi.SkinSessionUidResolver
+import com.sneakymannequins.integrations.placeholderapi.SneakyMannequinsPlaceholderExpansion
 import com.sneakymannequins.listeners.OutfitItemListener
 import com.sneakymannequins.listeners.TriggerListener
 import com.sneakymannequins.ui.outfit.OutfitGuiLifecycleListener
@@ -26,6 +28,7 @@ import io.papermc.paper.event.player.AsyncChatEvent
 import java.io.File
 import java.util.jar.JarFile
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
+import org.bukkit.Bukkit
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.player.PlayerMoveEvent
@@ -57,6 +60,9 @@ class SneakyMannequins : JavaPlugin(), Listener {
     private lateinit var mannequinManager: MannequinManager
     private lateinit var persistence: MannequinPersistence
     private var sessionManager: SessionManager? = null
+    lateinit var skinSessionUidResolver: SkinSessionUidResolver
+        private set
+    private var placeholderExpansion: SneakyMannequinsPlaceholderExpansion? = null
     lateinit var statsManager: StatsManager
         private set
     private lateinit var remaskManager: RemaskManager
@@ -81,6 +87,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
         statsManager = StatsManager(this, dataFolder)
         val sm = SessionManager(this, dataFolder, layerManager, characterManagerBridge, statsManager)
         sessionManager = sm
+        skinSessionUidResolver = SkinSessionUidResolver(this, sm)
         holoController = HoloController(this, HoloHandler1214()).also { it.start() }
         mannequinManager =
                 MannequinManager(
@@ -131,6 +138,18 @@ class SneakyMannequins : JavaPlugin(), Listener {
         if (characterManagerBridge.active) {
             logger.info("CharacterManager integration enabled.")
         }
+
+        if (Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) {
+            val expansion = SneakyMannequinsPlaceholderExpansion(this)
+            if (expansion.register()) {
+                placeholderExpansion = expansion
+                logger.info(
+                        "PlaceholderAPI expansion registered: %sneakymannequins_skin_session_uid%"
+                )
+            } else {
+                logger.warning("PlaceholderAPI is present but SneakyMannequins expansion failed to register.")
+            }
+        }
     }
 
     override fun onDisable() {
@@ -146,6 +165,8 @@ class SneakyMannequins : JavaPlugin(), Listener {
         if (this::holoController.isInitialized) {
             holoController.shutdown()
         }
+        placeholderExpansion?.unregister()
+        placeholderExpansion = null
         logger.info("SneakyMannequins plugin has been disabled!")
     }
 
@@ -166,7 +187,11 @@ class SneakyMannequins : JavaPlugin(), Listener {
 
     @EventHandler
     fun onQuit(event: PlayerQuitEvent) {
-        mannequinManager.forgetViewer(event.player.uniqueId)
+        val id = event.player.uniqueId
+        mannequinManager.forgetViewer(id)
+        if (this::skinSessionUidResolver.isInitialized) {
+            skinSessionUidResolver.invalidate(id)
+        }
     }
 
     @EventHandler
@@ -187,6 +212,9 @@ class SneakyMannequins : JavaPlugin(), Listener {
         layerManager.reload()
         mannequinManager.reloadAll()
         outfitItemGuiConfig.reload()
+        if (this::skinSessionUidResolver.isInitialized) {
+            skinSessionUidResolver.invalidateAll()
+        }
     }
 
     private fun firstTimeSetup() {
