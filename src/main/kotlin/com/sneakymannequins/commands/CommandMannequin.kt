@@ -1500,7 +1500,7 @@ class CommandMannequin(
                                 if (uid == null) {
                                     player.sendMessage(
                                             TextUtility.convertToComponent(
-                                                    "&cNo encoded session ID found in your skin. Apply a mannequin session first."
+                                                    "&cYour skin was not made with SneakyMannequins."
                                             )
                                     )
                                     return@Runnable
@@ -1509,7 +1509,7 @@ class CommandMannequin(
                                 if (sessionManager.load(uid) == null) {
                                     player.sendMessage(
                                             TextUtility.convertToComponent(
-                                                    "&cEncoded UID '&e$uid&c' was found, but no local session exists for it."
+                                                    "&cYour skin was not made with SneakyMannequins."
                                             )
                                     )
                                     return@Runnable
