@@ -50,6 +50,9 @@ class SessionManager(
     private val templatesDir = File(dataFolder, "templates")
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
 
+    /** Shared skin download + session UID decode per texture URL (see [SkinTextureSessionCache]). */
+    val skinTextureSessionCache = SkinTextureSessionCache(this)
+
     companion object {
         private const val UID_LENGTH = 8
         private const val UID_CHARS =
@@ -412,8 +415,6 @@ class SessionManager(
         return appliedSession.slimModel ?: preApplySlim
     }
 
-    private fun prepareSkin64Argb(skin: BufferedImage): BufferedImage = skinTopLeft64Argb(skin)
-
     fun finalizeSession(
             requester: Player,
             man: Mannequin,
@@ -435,29 +436,18 @@ class SessionManager(
             val skinUrl =
                     playerSkinUrl ?: throw IllegalStateException("Context player has no skin URL")
 
-            val downloadedSkin =
-                    downloadSkin(skinUrl).join()
-                            ?: throw IllegalStateException("Failed to download skin")
-
-            val baseSkin =
-                    if (downloadedSkin.type != BufferedImage.TYPE_INT_ARGB) {
-                        val converted =
-                                BufferedImage(
-                                        downloadedSkin.width,
-                                        downloadedSkin.height,
-                                        BufferedImage.TYPE_INT_ARGB
-                                )
-                        val g = converted.createGraphics()
-                        g.drawImage(downloadedSkin, 0, 0, null)
-                        g.dispose()
-                        converted
-                    } else downloadedSkin
-
-            // 1–3: Download skin, read UID from pixels only; resolve session B if JSON exists.
-            val skin64 = prepareSkin64Argb(baseSkin)
+            // 1–3: Download skin (shared per-URL cache), read UID from pixels; resolve session B if
+            // JSON exists.
+            val decodedSkin =
+                    try {
+                        skinTextureSessionCache.getOrStartDecode(skinUrl).join()
+                    } catch (e: Exception) {
+                        throw IllegalStateException("Failed to download or decode skin", e)
+                    }
+            val skin64 = decodedSkin.skin64
             val lastAppliedUid =
                     if (createNewUid || characterManagerBridge.active) {
-                        decodeUidFromImage(skin64)
+                        decodedSkin.uid
                     } else {
                         null
                     }

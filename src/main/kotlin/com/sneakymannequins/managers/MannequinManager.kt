@@ -1636,8 +1636,8 @@ class MannequinManager(
                 }
 
                 updateStatus(mannequinId, "Downloading skin...")
-                sessionManager.downloadSkin(skinUrl).thenAccept { image ->
-                    val uid = SessionManager.decodeUidFromImage(image)
+                sessionManager.skinTextureSessionCache.getOrStartDecode(skinUrl).thenAccept { decoded ->
+                    val uid = decoded.uid
                     if (uid != null) {
                         val session = sessionManager.load(uid)
                         if (session != null) {

@@ -1192,10 +1192,10 @@ class CommandMannequin(
         stack.sender.sendMessage(
                 TextUtility.convertToComponent("&eDownloading skin for ${target.name}...")
         )
-        sessionManager
-                .downloadSkin(skinUrl)
-                .thenAccept { skin ->
-                    val uid = SessionManager.decodeUidFromImage(skin)
+        sessionManager.skinTextureSessionCache
+                .getOrStartDecode(skinUrl)
+                .thenAccept { decoded ->
+                    val uid = decoded.uid
                     if (uid == null) {
                         stack.sender.sendMessage(
                                 TextUtility.convertToComponent(
@@ -1490,13 +1490,13 @@ class CommandMannequin(
         }
 
         player.sendMessage(TextUtility.convertToComponent("&eReading encoded session ID from your skin..."))
-        sessionManager
-                .downloadSkin(skinUrl)
-                .thenAccept { skin ->
+        sessionManager.skinTextureSessionCache
+                .getOrStartDecode(skinUrl)
+                .thenAccept { decoded ->
                     plugin.server.scheduler.runTask(
                             plugin,
                             Runnable {
-                                val uid = SessionManager.decodeUidFromImage(skin)
+                                val uid = decoded.uid
                                 if (uid == null) {
                                     player.sendMessage(
                                             TextUtility.convertToComponent(

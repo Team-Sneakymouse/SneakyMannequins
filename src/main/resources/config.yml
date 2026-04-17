@@ -65,8 +65,6 @@ integrations:
 placeholders:
   # Shown while the skin image is downloading / decoding (often only one resolve tick).
   skin-session-uid-pending: ""
-  # Seconds to cache a successful decode per player (re-download after TTL).
-  skin-session-uid-cache-ttl-seconds: 300
 
 # ── Control Interaction ────────────────────────────────────────────────────────
 controls:

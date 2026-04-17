@@ -27,7 +27,10 @@ class SneakyMannequinsPlaceholderExpansion(private val plugin: SneakyMannequins)
         }
         val p = params.lowercase().trim()
         if (p.isEmpty() || p == "skin_session_uid" || p == "skin-session-uid") {
-            return plugin.skinSessionUidResolver.resolveForPlaceholder(player)
+            return plugin.sessionManager.skinTextureSessionCache.peekSessionUidForPlaceholder(
+                    player,
+                    plugin.config.getString("placeholders.skin-session-uid-pending") ?: ""
+            )
         }
         return null
     }

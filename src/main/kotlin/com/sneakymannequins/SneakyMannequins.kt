@@ -3,7 +3,6 @@ package com.sneakymannequins
 import com.sneakymannequins.commands.CommandMannequin
 import com.sneakymannequins.integrations.CharacterManagerBridge
 import com.sneakymannequins.integrations.CharacterManagerBridgeFactory
-import com.sneakymannequins.integrations.placeholderapi.SkinSessionUidResolver
 import com.sneakymannequins.integrations.placeholderapi.SneakyMannequinsPlaceholderExpansion
 import com.sneakymannequins.listeners.OutfitItemListener
 import com.sneakymannequins.listeners.TriggerListener
@@ -59,8 +58,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
     private lateinit var styleManager: StyleManager
     private lateinit var mannequinManager: MannequinManager
     private lateinit var persistence: MannequinPersistence
-    private var sessionManager: SessionManager? = null
-    lateinit var skinSessionUidResolver: SkinSessionUidResolver
+    lateinit var sessionManager: SessionManager
         private set
     private var placeholderExpansion: SneakyMannequinsPlaceholderExpansion? = null
     lateinit var statsManager: StatsManager
@@ -87,7 +85,6 @@ class SneakyMannequins : JavaPlugin(), Listener {
         statsManager = StatsManager(this, dataFolder)
         val sm = SessionManager(this, dataFolder, layerManager, characterManagerBridge, statsManager)
         sessionManager = sm
-        skinSessionUidResolver = SkinSessionUidResolver(this, sm)
         holoController = HoloController(this, HoloHandler1214()).also { it.start() }
         mannequinManager =
                 MannequinManager(
@@ -115,7 +112,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
                         mannequinManager,
                         layerManager,
                         styleManager,
-                        sessionManager!!,
+                        sessionManager,
                         remaskManager,
                         etfConfigManager
                 )
@@ -123,7 +120,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
         server.pluginManager.registerEvents(this, this)
         server.pluginManager.registerEvents(TriggerListener(this), this)
         server.pluginManager.registerEvents(
-                OutfitItemListener(this, mannequinManager, sessionManager!!),
+                OutfitItemListener(this, mannequinManager, sessionManager),
                 this
         )
         server.pluginManager.registerEvents(etfConfigManager, this)
@@ -165,6 +162,9 @@ class SneakyMannequins : JavaPlugin(), Listener {
         if (this::holoController.isInitialized) {
             holoController.shutdown()
         }
+        if (this::sessionManager.isInitialized) {
+            sessionManager.skinTextureSessionCache.clearOnShutdown()
+        }
         placeholderExpansion?.unregister()
         placeholderExpansion = null
         logger.info("SneakyMannequins plugin has been disabled!")
@@ -187,11 +187,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
 
     @EventHandler
     fun onQuit(event: PlayerQuitEvent) {
-        val id = event.player.uniqueId
-        mannequinManager.forgetViewer(id)
-        if (this::skinSessionUidResolver.isInitialized) {
-            skinSessionUidResolver.invalidate(id)
-        }
+        mannequinManager.forgetViewer(event.player.uniqueId)
     }
 
     @EventHandler
@@ -212,9 +208,6 @@ class SneakyMannequins : JavaPlugin(), Listener {
         layerManager.reload()
         mannequinManager.reloadAll()
         outfitItemGuiConfig.reload()
-        if (this::skinSessionUidResolver.isInitialized) {
-            skinSessionUidResolver.invalidateAll()
-        }
     }
 
     private fun firstTimeSetup() {
