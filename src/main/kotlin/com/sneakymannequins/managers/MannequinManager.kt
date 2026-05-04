@@ -2277,7 +2277,9 @@ class MannequinManager(
                                 ((rgb.red and 0xFF) shl 16) or
                                 ((rgb.green and 0xFF) shl 8) or
                                 (rgb.blue and 0xFF)
-                val isSelected = selectedColor != null && baseRgb == selectedColor
+                val isSelected =
+                        selectedColor != null &&
+                                (baseRgb.rgb and 0xFFFFFF) == (selectedColor.rgb and 0xFFFFFF)
                 val luma =
                         (0.299 * baseRgb.red + 0.587 * baseRgb.green + 0.114 * baseRgb.blue) / 255.0
                 val xColor = if (luma > 0.6) "black" else "white"
@@ -2394,30 +2396,7 @@ class MannequinManager(
 
         // Update grid highlights
         val hud = holoController.getHud(player.uniqueId) ?: return
-        val style = styleManager.getStyle(mannequin.styleId) ?: return
-        val colorBtn = style.hudButtons.find { it.type == "color_grid" } ?: return
-        val allColorIds = hud.buttons.filter { it.id.startsWith("color_") }.map { it.id }
-        for (id in allColorIds) {
-            if (id == "color_default") {
-                hud.updateButtonBg(id, colorBtn.bgHeader ?: 0x60000000)
-                continue
-            }
-            val idParts = id.removePrefix("color_").split('_')
-            if (idParts.size < 2) continue
-            val partPalId = idParts[0]
-            val colorPart = idParts[1]
-            val palette = layerManager.palette(partPalId) ?: continue
-            val namedColor = palette.colors.find { it.name == colorPart } ?: continue
-            val rgb = namedColor.color
-            val isMatch = color != null && rgb == color
-
-            val luma = (0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue) / 255.0
-            val xColor = if (luma > 0.6) "black" else "white"
-            hud.updateButtonText(
-                    id,
-                    TextUtility.mmToJson(if (isMatch) "<$xColor><b>•</b></$xColor>" else " ")
-            )
-        }
+        refreshColorGrid(player, mannequin, state, hud)
     }
 
     private fun currentSelectedGridColor(
