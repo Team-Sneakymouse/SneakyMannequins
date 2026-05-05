@@ -89,6 +89,39 @@ class MannequinManager(
         private val characterManagerBridge: CharacterManagerBridge,
         private val holoController: HoloController
 ) {
+    /** Cancel/restore in-flight white flash, keyed by mannequin+layer. */
+    private val activeFlashRestoreTask = mutableMapOf<Pair<UUID, String>, Int>()
+    private val activeFlashRestoreSelection = mutableMapOf<Pair<UUID, String>, LayerSelection?>()
+
+    private fun cancelActiveFlash(mannequinId: UUID, layerId: String) {
+        val key = mannequinId to layerId
+        val taskId = activeFlashRestoreTask.remove(key)
+        if (taskId != null) {
+            plugin.server.scheduler.cancelTask(taskId)
+        }
+        val restoreSel = activeFlashRestoreSelection.remove(key) ?: return
+        val mannequin = mannequins[mannequinId] ?: return
+        // Restore exactly what was there, or remove selection entry if it didn't exist.
+        mannequin.selection =
+                if (restoreSel != null) {
+                    mannequin.selection.copy(
+                            selections = mannequin.selection.selections + (layerId to restoreSel)
+                    )
+                } else {
+                    mannequin.selection.copy(selections = mannequin.selection.selections - layerId)
+                }
+        render(mannequin, nearbyViewers(mannequin), forceInstant = true)
+        // Also refresh labels since selectedChannel placeholder may change.
+        refreshDynamicLabels(mannequinId)
+    }
+
+    /** Cancel/restore any in-flight flash for this mannequin (all layers). */
+    private fun cancelAllActiveFlashes(mannequinId: UUID) {
+        val keys = activeFlashRestoreTask.keys.filter { it.first == mannequinId }
+        for ((mid, layerId) in keys) {
+            cancelActiveFlash(mid, layerId)
+        }
+    }
     private val mannequins = mutableMapOf<UUID, Mannequin>()
     private val sentTo = mutableMapOf<UUID, MutableSet<UUID>>() // viewerId → mannequins seen
     /** mannequinId -> last action */
@@ -1281,6 +1314,9 @@ class MannequinManager(
 
                 // Only respawn the color grid + flash highlight when the layer actually changes.
                 if (layerChanged) {
+                    // If the player is switching layers rapidly, cancel any in-flight flash on this
+                    // mannequin first so no previous-layer sheen can linger.
+                    cancelAllActiveFlashes(mannequinId)
                     val mStyle = styleManager.getStyle(mannequin.styleId) ?: return
                     val colorMenuId = findMenuIdForType("color_grid", mStyle.hudButtons)
                     if (colorMenuId != null) {
@@ -1345,7 +1381,10 @@ class MannequinManager(
                                     fullColorMaskInfluence = true
                             )
 
-                            plugin.server.scheduler.runTaskLater(
+                            val key = mannequinId to nextLayerDef.id
+                            activeFlashRestoreSelection[key] = currentSel
+                            val taskId =
+                                    plugin.server.scheduler.runTaskLater(
                                     plugin,
                                     Runnable {
                                         if (mannequins[mannequinId] != mannequin) return@Runnable
@@ -1372,9 +1411,12 @@ class MannequinManager(
                                                 nearbyViewers(mannequin),
                                                 forceInstant = true
                                         )
+                                        activeFlashRestoreTask.remove(key)
+                                        activeFlashRestoreSelection.remove(key)
                                     },
                                     10L
-                            )
+                            ).taskId
+                            activeFlashRestoreTask[key] = taskId
                         }
                     }
                 }
@@ -1420,6 +1462,7 @@ class MannequinManager(
                             refreshColorGrid(player, mannequin, state, hud)
 
                             // Flash texture channels for 10 ticks
+                            cancelActiveFlash(mannequinId, layer.id)
                             val slots = resolveChannelSlots(layer, option, state, player)
                             val texDef = layerManager.texture(nextTex)
                             val hasBlendMap = texDef?.blendMapImage != null
@@ -1487,7 +1530,10 @@ class MannequinManager(
                                     fullColorMaskInfluence = true
                             )
 
-                            plugin.server.scheduler.runTaskLater(
+                            val key = mannequinId to layer.id
+                            activeFlashRestoreSelection[key] = nextSel
+                            val taskId =
+                                    plugin.server.scheduler.runTaskLater(
                                     plugin,
                                     Runnable {
                                         if (mannequins[mannequin.id] != mannequin) return@Runnable
@@ -1498,9 +1544,12 @@ class MannequinManager(
                                                                         (layer.id to nextSel)
                                                 )
                                         render(mannequin, viewers, forceInstant = true)
+                                        activeFlashRestoreTask.remove(key)
+                                        activeFlashRestoreSelection.remove(key)
                                     },
                                     10L
-                            )
+                            ).taskId
+                            activeFlashRestoreTask[key] = taskId
                         }
                     }
                 }
@@ -1511,6 +1560,7 @@ class MannequinManager(
                     if (option != null) {
                         val slots = resolveChannelSlots(layer, option, state, player)
                         if (slots.size > 1) {
+                            cancelActiveFlash(mannequinId, layer.id)
                             val currentIdx = state.channelIndex.getOrDefault(layer.id, 0)
                             val nextIdx =
                                     if (backwards) (currentIdx - 1 + slots.size) % slots.size
@@ -1572,7 +1622,10 @@ class MannequinManager(
 
                             // Restore original colors after 10 ticks (500ms)
                             val restoreSel = currentSel ?: LayerSelection(layer.id, option)
-                            plugin.server.scheduler.runTaskLater(
+                            val key = mannequin.id to layer.id
+                            activeFlashRestoreSelection[key] = currentSel
+                            val taskId =
+                                    plugin.server.scheduler.runTaskLater(
                                     plugin,
                                     Runnable {
                                         if (mannequins[mannequin.id] != mannequin) return@Runnable
@@ -1583,9 +1636,12 @@ class MannequinManager(
                                                                         (layer.id to restoreSel)
                                                 )
                                         render(mannequin, viewers, forceInstant = true)
+                                        activeFlashRestoreTask.remove(key)
+                                        activeFlashRestoreSelection.remove(key)
                                     },
                                     10L
-                            )
+                            ).taskId
+                            activeFlashRestoreTask[key] = taskId
                         }
                     }
                 }
