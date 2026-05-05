@@ -208,6 +208,8 @@ class RemaskManager(
         val mannequin = mannequinManager.getMannequin(session.mannequinId)
         if (mannequin != null) {
             mannequinManager.clearOverride(mannequin)
+            mannequinManager.render(mannequin, mannequinManager.nearbyViewers(mannequin), forceAll = true)
+            mannequinManager.onMaskLayoutChanged(mannequin.id, session.layerId)
         }
     }
 

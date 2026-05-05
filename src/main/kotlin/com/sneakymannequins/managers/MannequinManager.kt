@@ -1770,6 +1770,59 @@ class MannequinManager(
         }
     }
 
+    /** Respawn any currently-open submenu so dynamic items re-evaluate. */
+    private fun refreshOpenSubmenus(
+            player: Player,
+            mannequin: Mannequin,
+            state: ControlState,
+            hud: HoloHUD
+    ) {
+        val style = styleManager.getStyle(mannequin.styleId) ?: return
+        for (btn in style.hudButtons) {
+            if (btn.type != "submenu") continue
+            val menuId = btn.name
+            val visible = hud.buttons.any { it.id.startsWith("${menuId}_") }
+            if (!visible) continue
+            despawnMenu(menuId, player, hud, quiet = true)
+            spawnMenu(btn, player, mannequin, state, hud, quiet = true)
+        }
+    }
+
+    /**
+     * Called after a part's mask channels/subchannels have changed (remask, channelmerge,
+     * channeldelete). Updates the selected part option reference, clamps UI indices, then refreshes
+     * UI for all players currently interacting with this mannequin.
+     */
+    fun onMaskLayoutChanged(mannequinId: UUID, layerId: String) {
+        val mannequin = mannequins[mannequinId] ?: return
+        val state = controlState[mannequinId] ?: return
+
+        // 1) Ensure selection references the fresh option instance from LayerManager.
+        val sel = mannequin.selection.selections[layerId]
+        val selOpt = sel?.option
+        if (sel != null && selOpt != null) {
+            val fresh = layerManager.findPartById(layerId, selOpt.id)
+            if (fresh != null && fresh !== selOpt) {
+                mannequin.selection =
+                        mannequin.selection.copy(
+                                selections =
+                                        mannequin.selection.selections + (layerId to sel.copy(option = fresh))
+                        )
+            }
+        }
+
+        // 2) Clamp indices so selectors never point out of range.
+        resetUiIndices(mannequinId, layerId)
+
+        // 3) Refresh labels + open submenus for all interactors.
+        refreshDynamicLabels(mannequinId)
+        for (player in plugin.server.onlinePlayers) {
+            val hud = holoController.getHud(player.uniqueId) ?: continue
+            if (hud.mannequinId != mannequinId) continue
+            refreshOpenSubmenus(player, mannequin, state, hud)
+        }
+    }
+
     private fun findBaseLayer(): LayerDefinition? {
         val definitions = layerManager.definitionsInOrder()
         return definitions.find { it.isBase } ?: definitions.firstOrNull()

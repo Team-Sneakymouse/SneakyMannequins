@@ -12,6 +12,9 @@ import com.sneakymannequins.model.TextureRef
 import com.sneakymannequins.model.TextureSpec
 import com.sneakymannequins.util.BlinkEyeGeometry
 import com.sneakymannequins.util.SkinUv
+import com.google.gson.JsonElement
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import java.awt.Color
 import java.awt.image.BufferedImage
 import java.net.URL
@@ -336,6 +339,79 @@ class LayerManager(private val plugin: SneakyMannequins) {
         return options
     }
 
+    /**
+     * After on-disk mask changes (remask / channelmerge / channeldelete), update just the in-memory
+     * [LayerOption] for that part using the `metadata.json` we just wrote.
+     *
+     * This avoids relying on a full layer reload for something we already know is correct.
+     */
+    private fun refreshLoadedOptionFromMetadata(layerId: String, partId: String, dir: Path): LayerOption? {
+        val actualLayerId =
+                loadedLayers.keys.firstOrNull { it.equals(layerId, ignoreCase = true) } ?: return null
+        val (def, options) = loadedLayers[actualLayerId] ?: return null
+
+        val meta = loadMetadata(dir)
+        @Suppress("UNCHECKED_CAST")
+        val mappings = meta["mappings"] as? Map<String, Any> ?: emptyMap()
+
+        val masks = mutableMapOf<Int, Path>()
+        val masksDefault = mutableMapOf<Int, Path>()
+        val masksSlim = mutableMapOf<Int, Path>()
+
+        (mappings["masks"] as? Map<String, String>)?.forEach { (idx, file) ->
+            val i = idx.toIntOrNull() ?: return@forEach
+            masks[i] = dir.resolve(file)
+        }
+        (mappings["masksDefault"] as? Map<String, String>)?.forEach { (idx, file) ->
+            val i = idx.toIntOrNull() ?: return@forEach
+            masksDefault[i] = dir.resolve(file)
+        }
+        (mappings["masksSlim"] as? Map<String, String>)?.forEach { (idx, file) ->
+            val i = idx.toIntOrNull() ?: return@forEach
+            masksSlim[i] = dir.resolve(file)
+        }
+
+        val idx = options.indexOfFirst { it.id.equals(partId, ignoreCase = true) }
+        if (idx < 0) return null
+
+        val existing = options[idx]
+        val updated =
+                existing.copy(
+                        // Only refresh the asset paths + mask maps.
+                        fileMaster =
+                                (mappings["master"] as? String)?.let { dir.resolve(it) }
+                                        ?: existing.fileMaster,
+                        fileDefault =
+                                (mappings["default"] as? String)?.let { dir.resolve(it) }
+                                        ?: existing.fileDefault,
+                        fileSlim =
+                                (mappings["slim"] as? String)?.let { dir.resolve(it) }
+                                        ?: existing.fileSlim,
+                        masks = masks,
+                        masksDefault = masksDefault,
+                        masksSlim = masksSlim,
+                        directory = dir,
+                        hasArms = meta["hasArms"] as? Boolean ?: existing.hasArms,
+                        isAlex = meta["isAlex"] as? Boolean ?: existing.isAlex,
+                        isDress = meta["isDress"] as? Boolean ?: existing.isDress,
+                        dressLength = (meta["dressLength"] as? Number)?.toInt() ?: existing.dressLength,
+                        isBlink = meta["isBlink"] as? Boolean ?: existing.isBlink,
+                        blinkStyle = (meta["blinkStyle"] as? Number)?.toInt() ?: existing.blinkStyle,
+                        blinkHeight = (meta["blinkHeight"] as? Number)?.toInt() ?: existing.blinkHeight,
+                        blinkEyeColumns =
+                                (meta["blinkEyeColumns"] as? List<*>)?.mapNotNull { (it as? Number)?.toInt() }
+                                        ?: existing.blinkEyeColumns,
+                        blinkEyelidX = (meta["blinkEyelidX"] as? Number)?.toInt() ?: existing.blinkEyelidX,
+                        blinkEyelidY = (meta["blinkEyelidY"] as? Number)?.toInt() ?: existing.blinkEyelidY,
+                        jacketStyle = (meta["jacketStyle"] as? Number)?.toInt() ?: existing.jacketStyle
+                )
+
+        val newList = options.toMutableList()
+        newList[idx] = updated
+        loadedLayers[actualLayerId] = def to newList
+        return updated
+    }
+
     private fun loadLayerOptions(
             directory: Path,
             definition: LayerDefinition,
@@ -545,6 +621,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
 
         @Suppress("UNCHECKED_CAST")
         val mappings = metadata["mappings"] as? Map<String, Any> ?: emptyMap()
+        val hasExplicitMaskMappings = mappings.isNotEmpty()
 
         if (mappings.isNotEmpty()) {
             (mappings["master"] as? String)?.let { agg.masterPath = dir.resolve(it) }
@@ -562,7 +639,9 @@ class LayerManager(private val plugin: SneakyMannequins) {
             }
         }
 
-        // Fallback or additional scanning if mappings are incomplete
+        // Scan directory for additional assets. When metadata has explicit mask mappings,
+        // those mappings are treated as the source of truth for mask indices. This prevents
+        // stale/leftover `_mask_*.png` files from incorrectly inflating channel counts.
         Files.list(dir).use { stream ->
             stream.forEach { path ->
                 val name = path.nameWithoutExtension.lowercase()
@@ -570,6 +649,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 if (!filename.endsWith(".png")) return@forEach
 
                 if (name.contains("_mask_")) {
+                    if (hasExplicitMaskMappings) return@forEach
                     val idx = name.substringAfterLast("_mask_").toIntOrNull() ?: return@forEach
                     if (name.contains("_default_")) {
                         if (!agg.masksDefault.containsKey(idx)) agg.masksDefault[idx] = path
@@ -823,83 +903,66 @@ class LayerManager(private val plugin: SneakyMannequins) {
     private fun loadMetadata(directory: Path): Map<String, Any> {
         val file = directory.resolve("metadata.json")
         if (!file.exists()) return emptyMap()
-        return try {
+        return runCatching {
             val content = Files.readString(file)
-            val map = mutableMapOf<String, Any>()
+            val rootEl = JsonParser.parseString(content)
+            val root = rootEl.asJsonObject
 
-            // Simple fields
-            Regex("\"displayName\":\\s*\"([^\"]+)\"").find(content)?.let {
-                map["displayName"] = it.groupValues[1]
-            }
-            Regex("\"internalKey\":\\s*\"([^\"]+)\"").find(content)?.let {
-                map["internalKey"] = it.groupValues[1]
-            }
-            Regex("\"hasArms\":\\s*(true|false)").find(content)?.let {
-                map["hasArms"] = it.groupValues[1].toBoolean()
-            }
-            Regex("\"isAlex\":\\s*(true|false)").find(content)?.let {
-                map["isAlex"] = it.groupValues[1].toBoolean()
-            }
-            Regex("\"isDress\":\\s*(true|false)").find(content)?.let {
-                map["isDress"] = it.groupValues[1].toBoolean()
-            }
-            Regex("\"dressLength\":\\s*(\\d+)").find(content)?.let {
-                map["dressLength"] = it.groupValues[1].toInt()
-            }
-            Regex("\"isBlink\":\\s*(true|false)").find(content)?.let {
-                map["isBlink"] = it.groupValues[1].toBoolean()
-            }
-            Regex("\"blinkStyle\":\\s*(\\d+)").find(content)?.let {
-                map["blinkStyle"] = it.groupValues[1].toInt()
-            }
-            Regex("\"blinkHeight\":\\s*(\\d+)").find(content)?.let {
-                map["blinkHeight"] = it.groupValues[1].toInt()
-            }
-            Regex("\"blinkEyeColumns\":\\s*\\[([^]]*)\\]").find(content)?.let { m ->
-                val nums =
-                        Regex("\\d+")
-                                .findAll(m.groupValues[1])
-                                .map { it.value.toInt() }
-                                .toList()
-                if (nums.isNotEmpty()) map["blinkEyeColumns"] = nums
-            }
-            Regex("\"blinkEyelidX\":\\s*(\\d+)").find(content)?.let {
-                map["blinkEyelidX"] = it.groupValues[1].toInt()
-            }
-            Regex("\"blinkEyelidY\":\\s*(\\d+)").find(content)?.let {
-                map["blinkEyelidY"] = it.groupValues[1].toInt()
-            }
-            Regex("\"jacketStyle\":\\s*(\\d+)").find(content)?.let {
-                map["jacketStyle"] = it.groupValues[1].toInt()
-            }
+            fun JsonObject.optString(key: String): String? =
+                    if (has(key) && get(key).isJsonPrimitive) get(key).asString else null
+            fun JsonObject.optInt(key: String): Int? =
+                    if (has(key) && get(key).isJsonPrimitive) runCatching { get(key).asInt }.getOrNull() else null
+            fun JsonObject.optBool(key: String): Boolean? =
+                    if (has(key) && get(key).isJsonPrimitive) runCatching { get(key).asBoolean }.getOrNull() else null
 
-            // Asset Mappings (Manual extraction for consistency)
-            val mappings = mutableMapOf<String, Any>()
-            Regex("\"(master|default|slim)\":\\s*\"([^\"]+)\"").findAll(content).forEach { m ->
-                mappings[m.groupValues[1]] = m.groupValues[2]
-            }
-
-            fun extractMaskMap(key: String): Map<String, String> {
-                val match = Regex("\"$key\":\\s*\\{([^}]+)\\}").find(content)
-                val m = mutableMapOf<String, String>()
-                match?.let {
-                    Regex("\"(\\d+)\":\\s*\"([^\"]+)\"").findAll(it.groupValues[1]).forEach { res ->
-                        m[res.groupValues[1]] = res.groupValues[2]
-                    }
+            fun JsonObject.optIntList(key: String): List<Int>? {
+                val el = get(key) ?: return null
+                if (!el.isJsonArray) return null
+                val out = mutableListOf<Int>()
+                el.asJsonArray.forEach { e ->
+                    if (e.isJsonPrimitive) runCatching { out += e.asInt }.getOrNull()
                 }
-                return m
+                return out
             }
 
-            mappings["masks"] = extractMaskMap("masks")
-            mappings["masksDefault"] = extractMaskMap("masksDefault")
-            mappings["masksSlim"] = extractMaskMap("masksSlim")
+            fun parseMaskMap(el: JsonElement?): Map<String, String> {
+                val obj = el?.takeIf { it.isJsonObject }?.asJsonObject ?: return emptyMap()
+                val out = mutableMapOf<String, String>()
+                for ((k, v) in obj.entrySet()) {
+                    if (v.isJsonPrimitive) out[k] = v.asString
+                }
+                return out
+            }
 
-            if (mappings.isNotEmpty()) map["mappings"] = mappings
+            val map = mutableMapOf<String, Any>()
+            root.optString("displayName")?.let { map["displayName"] = it }
+            root.optString("internalKey")?.let { map["internalKey"] = it }
+            root.optBool("hasArms")?.let { map["hasArms"] = it }
+            root.optBool("isAlex")?.let { map["isAlex"] = it }
+            root.optBool("isDress")?.let { map["isDress"] = it }
+            root.optInt("dressLength")?.let { map["dressLength"] = it }
+            root.optBool("isBlink")?.let { map["isBlink"] = it }
+            root.optInt("blinkStyle")?.let { map["blinkStyle"] = it }
+            root.optInt("blinkHeight")?.let { map["blinkHeight"] = it }
+            root.optIntList("blinkEyeColumns")?.let { map["blinkEyeColumns"] = it }
+            root.optInt("blinkEyelidX")?.let { map["blinkEyelidX"] = it }
+            root.optInt("blinkEyelidY")?.let { map["blinkEyelidY"] = it }
+            root.optInt("jacketStyle")?.let { map["jacketStyle"] = it }
+
+            val mappingsObj = root.getAsJsonObject("mappings")
+            if (mappingsObj != null) {
+                val mappings = mutableMapOf<String, Any>()
+                mappingsObj.optString("master")?.let { mappings["master"] = it }
+                mappingsObj.optString("default")?.let { mappings["default"] = it }
+                mappingsObj.optString("slim")?.let { mappings["slim"] = it }
+                mappings["masks"] = parseMaskMap(mappingsObj.get("masks"))
+                mappings["masksDefault"] = parseMaskMap(mappingsObj.get("masksDefault"))
+                mappings["masksSlim"] = parseMaskMap(mappingsObj.get("masksSlim"))
+                map["mappings"] = mappings
+            }
 
             map
-        } catch (e: Exception) {
-            emptyMap()
-        }
+        }.getOrDefault(emptyMap())
     }
 
     fun preprocessPart(sourcePath: Path) {
@@ -1486,7 +1549,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 blink.blinkEyelidX,
                 blink.blinkEyelidY
         )
-        reloadLayer(layerId)
+        refreshLoadedOptionFromMetadata(layerId, partId, dir)
         return "Remasked '$partId' in '$layerId' using ${strategy.name}: ${clusters.size} mask(s) generated and propagated"
     }
 
@@ -1686,8 +1749,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
 
         // Keep metadata.json mappings in sync with on-disk masks.
         rewriteMaskMappingsInMetadata(dir)
-
-        reloadLayer(layerId)
+        refreshLoadedOptionFromMetadata(layerId, partId, dir)
         val remainingMaster = rwMaster.mappingOldToNew.values.distinct().size
         val remainingDef = rwDef.mappingOldToNew.values.distinct().size
         val remainingSlim = rwSlim.mappingOldToNew.values.distinct().size
@@ -1724,8 +1786,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
 
         // Keep metadata.json mappings in sync with on-disk masks.
         rewriteMaskMappingsInMetadata(dir)
-
-        reloadLayer(layerId)
+        refreshLoadedOptionFromMetadata(layerId, partId, dir)
         val remainingMaster = rwMaster.mappingOldToNew.values.distinct().size
         val remainingDef = rwDef.mappingOldToNew.values.distinct().size
         val remainingSlim = rwSlim.mappingOldToNew.values.distinct().size

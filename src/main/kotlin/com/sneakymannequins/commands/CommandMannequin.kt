@@ -1020,6 +1020,7 @@ class CommandMannequin(
 
         sender.sendMessage(TextUtility.convertToComponent("&a$msg"))
         mannequinManager.render(mannequin, mannequinManager.nearbyViewers(mannequin), forceAll = true)
+        mannequinManager.onMaskLayoutChanged(mannequin.id, layerId)
     }
 
     private fun handleChannelDelete(sender: Player, args: Array<out String>) {
@@ -1083,6 +1084,7 @@ class CommandMannequin(
 
         sender.sendMessage(TextUtility.convertToComponent("&a$msg"))
         mannequinManager.render(mannequin, mannequinManager.nearbyViewers(mannequin), forceAll = true)
+        mannequinManager.onMaskLayoutChanged(mannequin.id, layerId)
     }
 
     private fun handleDelete(player: Player, args: Array<out String>) {
