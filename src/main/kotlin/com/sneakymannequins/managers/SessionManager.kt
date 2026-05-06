@@ -532,6 +532,10 @@ class SessionManager(
 
             val selection = sessionToSelection(merged)
             val layersDef = layerManager.definitionsInOrder()
+            val hueSuppressSatLow =
+                    plugin.config.getDouble("plugin.tinting.hue-suppress-saturation-low", 0.03).toFloat()
+            val hueSuppressSatHigh =
+                    plugin.config.getDouble("plugin.tinting.hue-suppress-saturation-high", 0.10).toFloat()
 
             val sessionImage =
                     SkinComposer.compose(
@@ -555,7 +559,9 @@ class SessionManager(
                                     plugin.config.getInt(
                                             "integrations.entity-texture-features.jacket-dress-style",
                                             5
-                                    )
+                                    ),
+                            hueSuppressSaturationLow = hueSuppressSatLow,
+                            hueSuppressSaturationHigh = hueSuppressSatHigh
                     )
             
             val finalImage = if (craig) com.sneakymannequins.util.SkinTransform.craig(sessionImage) else sessionImage

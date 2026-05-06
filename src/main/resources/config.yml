@@ -47,6 +47,20 @@ plugin:
     # Prevents creating a full mask for just a few noise pixels.
     neutral-threshold-percent: 0.05
 
+  # Tinting / color-mask behavior
+  tinting:
+    # Suppress hue remapping for near-neutral pixels (low saturation) to prevent
+    # unstable hue “speckles” when recoloring grayscale assets.
+    #
+    # Behavior:
+    # - sat <= low: pixel hue is treated as the channel average (stable); recolor still applies.
+    # - sat >= high: current behavior (per-pixel hue delta) applies.
+    # - between: smooth transition.
+    #
+    # Recommended: keep low < high and both in [0.0, 1.0].
+    hue-suppress-saturation-low: 0.03
+    hue-suppress-saturation-high: 0.10
+
 # ── Optional Integrations ──────────────────────────────────────────────────────
 integrations:
   # Enables optional CharacterManager integration for player skin preloading and session finalization.

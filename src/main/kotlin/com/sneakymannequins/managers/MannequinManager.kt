@@ -762,6 +762,10 @@ class MannequinManager(
             fullColorMaskInfluence: Boolean = false
     ): Int {
         val definitions = layerManager.definitionsInOrder()
+        val hueSuppressSatLow =
+                plugin.config.getDouble("plugin.tinting.hue-suppress-saturation-low", 0.03).toFloat()
+        val hueSuppressSatHigh =
+                plugin.config.getDouble("plugin.tinting.hue-suppress-saturation-high", 0.10).toFloat()
         val composed =
                 SkinComposer.compose(
                         definitions,
@@ -786,7 +790,9 @@ class MannequinManager(
                         		"integrations.entity-texture-features.jacket-dress-style",
                         		5
                         	),
-                        fullColorMaskInfluence = fullColorMaskInfluence
+                        fullColorMaskInfluence = fullColorMaskInfluence,
+                        hueSuppressSaturationLow = hueSuppressSatLow,
+                        hueSuppressSaturationHigh = hueSuppressSatHigh
                 )
         val nextFrame = PixelFrame.fromImage(composed)
         val diff =
@@ -905,6 +911,10 @@ class MannequinManager(
             )
         }
         val definitions = layerManager.definitionsInOrder()
+        val hueSuppressSatLow =
+                plugin.config.getDouble("plugin.tinting.hue-suppress-saturation-low", 0.03).toFloat()
+        val hueSuppressSatHigh =
+                plugin.config.getDouble("plugin.tinting.hue-suppress-saturation-high", 0.10).toFloat()
         val composed =
                 SkinComposer.compose(
                         definitions,
@@ -929,6 +939,9 @@ class MannequinManager(
                         		"integrations.entity-texture-features.jacket-dress-style",
                         		5
                         	)
+                        ,
+                        hueSuppressSaturationLow = hueSuppressSatLow,
+                        hueSuppressSaturationHigh = hueSuppressSatHigh
                 )
         mannequin.lastFrame = PixelFrame.fromImage(composed)
         val changes = mutableListOf<PixelChange>()
@@ -3030,6 +3043,10 @@ class MannequinManager(
 
     private fun composeCurrentSkin(mannequin: Mannequin): java.awt.image.BufferedImage {
         val definitions = layerManager.definitionsInOrder()
+        val hueSuppressSatLow =
+                plugin.config.getDouble("plugin.tinting.hue-suppress-saturation-low", 0.03).toFloat()
+        val hueSuppressSatHigh =
+                plugin.config.getDouble("plugin.tinting.hue-suppress-saturation-high", 0.10).toFloat()
         return SkinComposer.compose(
                 definitions,
                 mannequin.selection,
@@ -3059,7 +3076,9 @@ class MannequinManager(
                 		"integrations.entity-texture-features.jacket-dress-style",
                 		5
                 	),
-                showOverlay = mannequin.showOverlay
+                showOverlay = mannequin.showOverlay,
+                hueSuppressSaturationLow = hueSuppressSatLow,
+                hueSuppressSaturationHigh = hueSuppressSatHigh
         )
     }
 

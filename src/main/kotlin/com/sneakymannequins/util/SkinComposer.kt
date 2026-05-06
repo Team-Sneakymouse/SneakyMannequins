@@ -11,6 +11,25 @@ private const val SKIN_SIZE = 64
 
 /** Combines selected layers into a final 64x64 ARGB skin image. */
 object SkinComposer {
+    private fun clamp01(x: Float): Float = x.coerceIn(0f, 1f)
+
+    private fun smoothstep(edge0: Float, edge1: Float, x: Float): Float {
+        if (edge0 == edge1) return if (x < edge0) 0f else 1f
+        val t = clamp01((x - edge0) / (edge1 - edge0))
+        return t * t * (3f - 2f * t)
+    }
+
+    private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t
+
+    /** Circular interpolation in [0, 1). */
+    private fun lerpHue(h0: Float, h1: Float, t: Float): Float {
+        // Map to (-0.5, 0.5] shortest-path delta, then interpolate and wrap back into [0,1).
+        var d = (h1 - h0) % 1f
+        if (d > 0.5f) d -= 1f
+        if (d < -0.5f) d += 1f
+        return (h0 + d * t + 1f) % 1f
+    }
+
 
     /**
      * @param optionResolver optional function that resolves the current (fresh)
@@ -39,6 +58,8 @@ object SkinComposer {
             jacketEnabled: Boolean = false,
             defaultJacketStyle: Int = 5,
             showOverlay: Boolean = true,
+            hueSuppressSaturationLow: Float = 0.03f,
+            hueSuppressSaturationHigh: Float = 0.10f,
             /** When true, brightness- and saturation-influence are treated as 100% for color masking (UX flash). */
             fullColorMaskInfluence: Boolean = false
     ): BufferedImage {
@@ -133,7 +154,9 @@ object SkinComposer {
                                         maskImage,
                                         blendImage,
                                         brightnessInfluence,
-                                        saturationInfluence
+                                    saturationInfluence,
+                                    hueSuppressSaturationLow,
+                                    hueSuppressSaturationHigh
                                 )
                         continue
                     }
@@ -145,7 +168,9 @@ object SkinComposer {
                                     flatColor,
                                     maskImage,
                                     brightnessInfluence,
-                                    saturationInfluence
+                                saturationInfluence,
+                                hueSuppressSaturationLow,
+                                hueSuppressSaturationHigh
                             )
                 }
 
@@ -231,7 +256,9 @@ object SkinComposer {
             mask: Color,
             channelMask: BufferedImage?,
             brightnessInfluence: Float = 0.3f,
-            saturationInfluence: Float = 1.0f
+            saturationInfluence: Float = 1.0f,
+            hueSuppressSaturationLow: Float = 0.03f,
+            hueSuppressSaturationHigh: Float = 0.10f
     ): BufferedImage {
         val tinted = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
         val maskHsb = Color.RGBtoHSB(mask.red, mask.green, mask.blue, null)
@@ -301,21 +328,36 @@ object SkinComposer {
                 val b = argb and 0xFF
                 val hsb = Color.RGBtoHSB(r, g, b, null)
 
-                val newHue = (hsb[0] + hueDelta + 1f) % 1f
-                val newSat =
+                // Hue becomes numerically unstable as saturation -> 0. Suppress per-pixel hue
+                // variation by blending the pixel hue toward the channel average hue before applying
+                // the channel hue delta.
+                val hueWeight = smoothstep(hueSuppressSaturationLow, hueSuppressSaturationHigh, hsb[1])
+                val stableHueBase = lerpHue(avgHue, hsb[0], hueWeight)
+                val newHue = (stableHueBase + hueDelta + 1f) % 1f
+
+                // When avgSat/avgBri are low, multiplicative scaling can massively amplify tiny
+                // differences. Blend between additive and multiplicative remaps based on the channel
+                // average to keep near-neutral art stable.
+                val satAdd =
+                        (hsb[1] + (targetSat - avgSat) * saturationInfluence).coerceIn(0f, 1f)
+                val satMul =
                         if (avgSat > 0.0001f) {
                             val satScale = targetSat / avgSat
                             (hsb[1] * (1f + saturationInfluence * (satScale - 1f))).coerceIn(0f, 1f)
-                        } else {
-                            (hsb[1] + (targetSat - avgSat) * saturationInfluence).coerceIn(0f, 1f)
-                        }
-                val newBri =
+                        } else satAdd
+                val satAvgWeight = smoothstep(0.05f, 0.20f, avgSat)
+                val newSat = lerp(satAdd, satMul, satAvgWeight).coerceIn(0f, 1f)
+
+                val briAdd =
+                        (hsb[2] + (targetBri - avgBri) * brightnessInfluence).coerceIn(0f, 1f)
+                val briMul =
                         if (avgBri > 0.0001f) {
                             val briScale = targetBri / avgBri
                             (hsb[2] * (1f + brightnessInfluence * (briScale - 1f))).coerceIn(0f, 1f)
-                        } else {
-                            (hsb[2] + (targetBri - avgBri) * brightnessInfluence).coerceIn(0f, 1f)
-                        }
+                        } else briAdd
+                val briAvgWeight = smoothstep(0.05f, 0.20f, avgBri)
+                val newBri = lerp(briAdd, briMul, briAvgWeight).coerceIn(0f, 1f)
+
                 val newRgb = Color.HSBtoRGB(newHue, newSat, newBri)
                 tinted.setRGB(x, y, (alpha shl 24) or (newRgb and 0x00FFFFFF))
             }
@@ -386,7 +428,9 @@ object SkinComposer {
             channelMask: BufferedImage,
             blendMap: BufferedImage,
             brightnessInfluence: Float = 0.3f,
-            saturationInfluence: Float = 1.0f
+            saturationInfluence: Float = 1.0f,
+            hueSuppressSaturationLow: Float = 0.03f,
+            hueSuppressSaturationHigh: Float = 0.10f
     ): BufferedImage {
         val tinted = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
 
@@ -503,21 +547,29 @@ object SkinComposer {
                 val oB = argb and 0xFF
                 val hsb = Color.RGBtoHSB(oR, oG, oB, null)
 
-                val newHue = (hsb[0] + hueDelta + 1f) % 1f
-                val newSat =
+                val hueWeight = smoothstep(hueSuppressSaturationLow, hueSuppressSaturationHigh, hsb[1])
+                val stableHueBase = lerpHue(avgHue, hsb[0], hueWeight)
+                val newHue = (stableHueBase + hueDelta + 1f) % 1f
+
+                val satAdd =
+                        (hsb[1] + (perPixelSat - avgSat) * saturationInfluence).coerceIn(0f, 1f)
+                val satMul =
                         if (avgSat > 0.0001f) {
                             val satScale = perPixelSat / avgSat
                             (hsb[1] * (1f + saturationInfluence * (satScale - 1f))).coerceIn(0f, 1f)
-                        } else {
-                            (hsb[1] + (perPixelSat - avgSat) * saturationInfluence).coerceIn(0f, 1f)
-                        }
-                val newBri =
+                        } else satAdd
+                val satAvgWeight = smoothstep(0.05f, 0.20f, avgSat)
+                val newSat = lerp(satAdd, satMul, satAvgWeight).coerceIn(0f, 1f)
+
+                val briAdd =
+                        (hsb[2] + (perPixelBri - avgBri) * brightnessInfluence).coerceIn(0f, 1f)
+                val briMul =
                         if (avgBri > 0.0001f) {
                             val briScale = perPixelBri / avgBri
                             (hsb[2] * (1f + brightnessInfluence * (briScale - 1f))).coerceIn(0f, 1f)
-                        } else {
-                            (hsb[2] + (perPixelBri - avgBri) * brightnessInfluence).coerceIn(0f, 1f)
-                        }
+                        } else briAdd
+                val briAvgWeight = smoothstep(0.05f, 0.20f, avgBri)
+                val newBri = lerp(briAdd, briMul, briAvgWeight).coerceIn(0f, 1f)
 
                 val newRgb = Color.HSBtoRGB(newHue, newSat, newBri)
                 tinted.setRGB(x, y, (alpha shl 24) or (newRgb and 0x00FFFFFF))
