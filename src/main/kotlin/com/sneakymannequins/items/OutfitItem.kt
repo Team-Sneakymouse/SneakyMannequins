@@ -60,6 +60,7 @@ object OutfitItem {
                 displayNamePlain?.ifBlank { null }
                         ?: cfg.outfitItemDefaultDisplayNamePlain
         meta.displayName(TextUtility.convertToComponent(cfg.outfitItemNamePrefix + nameBody))
+        meta.setMaxStackSize(99)
 
         // Prefer modern component-based model spec; fall back to legacy integer CMD if provided.
         ItemModelApplier.apply(
