@@ -160,6 +160,7 @@ class SessionManager(
     ): SessionData {
         val uid = generateUid()
         val layers = snapshotLayers(mannequin)
+        val charContext = characterManagerBridge.currentCharacter(player)
         val session =
                 SessionData(
                         uid = uid,
@@ -167,8 +168,8 @@ class SessionManager(
                         createdAt = Instant.now().toString(),
                         slimModel = mannequin.slimModel,
                         layers = layers,
-                        characterUuid = characterUuid,
-                        characterName = characterName
+                        characterUuid = characterUuid ?: charContext?.characterUuid,
+                        characterName = characterName ?: charContext?.characterName
                 )
         val jsonString = gson.toJson(session)
         try {
@@ -269,15 +270,16 @@ class SessionManager(
             }
         }
 
+        val charContext = characterManagerBridge.currentCharacter(player)
         val template =
-                SessionData(
+                source.copy(
                         uid = safeName,
                         creator = player.uniqueId.toString(),
                         createdAt = Instant.now().toString(),
-                        slimModel = if (inheritBodyType) source.slimModel else null,
                         layers = filteredLayers,
-                        characterUuid = source.characterUuid,
-                        characterName = source.characterName
+                        slimModel = if (inheritBodyType) source.slimModel else null,
+                        characterUuid = charContext?.characterUuid,
+                        characterName = charContext?.characterName
                 )
         val jsonString = gson.toJson(template)
         CompletableFuture.runAsync { templateFile.writeText(jsonString) }
@@ -306,6 +308,7 @@ class SessionManager(
         }
 
         val newUid = generateUid()
+        val charContext = characterManagerBridge.currentCharacter(player)
         val session =
                 SessionData(
                         uid = newUid,
@@ -313,28 +316,29 @@ class SessionManager(
                         createdAt = Instant.now().toString(),
                         slimModel = if (inheritBodyType) source.slimModel else null,
                         layers = filteredLayers,
-                        characterUuid = source.characterUuid,
-                        characterName = source.characterName
+                        characterUuid = charContext?.characterUuid,
+                        characterName = charContext?.characterName
                 )
 
         persistSession(session)
         return session to null
     }
 
-    fun merge(s1: SessionData, s2: SessionData, defaultSlim: Boolean): SessionData {
+    fun merge(s1: SessionData, s2: SessionData, defaultSlim: Boolean, player: Player): SessionData {
         val mergedLayers = s2.layers.toMutableMap()
         mergedLayers.putAll(s1.layers)
 
         val mergedSlim = s1.slimModel ?: s2.slimModel ?: defaultSlim
+        val charContext = characterManagerBridge.currentCharacter(player)
 
         return SessionData(
                 uid = "merged",
-                creator = s2.creator,
+                creator = player.uniqueId.toString(),
                 createdAt = Instant.now().toString(),
                 slimModel = mergedSlim,
                 layers = mergedLayers,
-                characterUuid = s1.characterUuid ?: s2.characterUuid,
-                characterName = s1.characterName ?: s2.characterName
+                characterUuid = charContext?.characterUuid,
+                characterName = charContext?.characterName
         )
     }
 
@@ -459,34 +463,32 @@ class SessionManager(
                             out.putAll(mannequinSession.layers)
                             val resultSlim = resultSlimAfterApply(mannequinSession, defaultSlim)
                             val newUid = generateUid()
+                            val charContext = characterManagerBridge.currentCharacter(contextPlayer)
                             SessionData(
                                     uid = newUid,
                                     creator = contextPlayerUniqueId.toString(),
                                     createdAt = Instant.now().toString(),
                                     slimModel = resultSlim,
                                     layers = out,
-                                    characterUuid =
-                                            mannequinSession.characterUuid
-                                                    ?: baseSession.characterUuid,
-                                    characterName =
-                                            mannequinSession.characterName
-                                                    ?: baseSession.characterName
+                                    characterUuid = charContext?.characterUuid,
+                                    characterName = charContext?.characterName
                             ).also { persistSession(it, recordStats) }
                         } else {
-                            merge(mannequinSession, baseSession, defaultSlim)
+                            merge(mannequinSession, baseSession, defaultSlim, contextPlayer)
                         }
                     } else {
                         if (createNewUid) {
                             val resultSlim = resultSlimAfterApply(mannequinSession, defaultSlim)
                             val newUid = generateUid()
+                            val charContext = characterManagerBridge.currentCharacter(contextPlayer)
                             SessionData(
                                     uid = newUid,
                                     creator = contextPlayerUniqueId.toString(),
                                     createdAt = Instant.now().toString(),
                                     slimModel = resultSlim,
                                     layers = mannequinSession.layers,
-                                    characterUuid = mannequinSession.characterUuid,
-                                    characterName = mannequinSession.characterName
+                                    characterUuid = charContext?.characterUuid,
+                                    characterName = charContext?.characterName
                             ).also { persistSession(it, recordStats) }
                         } else {
                             mannequinSession.copy(

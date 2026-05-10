@@ -1641,7 +1641,7 @@ class CommandMannequin(
                         }
 
         val defaultSlim = contextPlayer.playerProfile.textures.skinModel == SkinModel.SLIM
-        val merged = sessionManager.merge(sourceSession, targetSession, defaultSlim)
+        val merged = sessionManager.merge(sourceSession, targetSession, defaultSlim, player)
 
         // Save for debug purposes
         val savedSession =
