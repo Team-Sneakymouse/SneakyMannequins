@@ -14,7 +14,7 @@ import org.bukkit.entity.Player
  */
 class SkinTextureSessionCache(private val sessionManager: SessionManager) {
 
-    data class DecodedSkin(val uid: String?, val skin64: BufferedImage)
+    data class DecodedSkin(val uid: String?, val skin64: BufferedImage, val fullImage: BufferedImage)
 
     private val futures = ConcurrentHashMap<String, CompletableFuture<DecodedSkin>>()
 
@@ -66,6 +66,7 @@ class SkinTextureSessionCache(private val sessionManager: SessionManager) {
                                     BufferedImage.TYPE_INT_ARGB
                             )
                     val g = converted.createGraphics()
+                    g.composite = java.awt.AlphaComposite.Src
                     g.drawImage(downloadedSkin, 0, 0, null)
                     g.dispose()
                     converted
@@ -74,6 +75,6 @@ class SkinTextureSessionCache(private val sessionManager: SessionManager) {
                 }
         val skin64 = SessionManager.skinTopLeft64Argb(baseSkin)
         val uid = SessionManager.decodeUidFromImage(skin64)
-        return DecodedSkin(uid, skin64)
+        return DecodedSkin(uid, skin64, baseSkin)
     }
 }

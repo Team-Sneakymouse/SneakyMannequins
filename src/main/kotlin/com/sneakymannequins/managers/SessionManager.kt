@@ -84,6 +84,7 @@ class SessionManager(
         fun skinTopLeft64Argb(skin: BufferedImage): BufferedImage {
             val out = BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB)
             val g = out.createGraphics()
+            g.composite = java.awt.AlphaComposite.Src
             when {
                 skin.width < 64 || skin.height < 64 ->
                         g.drawImage(skin, 0, 0, 64, 64, null)
@@ -96,8 +97,8 @@ class SessionManager(
         }
 
         fun decodeUidFromImage(image: BufferedImage): String? {
-            val grid = skinTopLeft64Argb(image)
-            if (grid.width < 64 || grid.height < 64) return null
+            val grid = if (image.width == 64 && image.height == 64) image else skinTopLeft64Argb(image)
+            if (grid.width < 4 || grid.height < 50) return null
 
             // Primary: Legacy layout (3, 48) and (3, 49) using all channels including alpha.
             val p1 = grid.getRGB(3, 48)
@@ -116,29 +117,7 @@ class SessionManager(
                 return str
             }
 
-            // Fallback: Opaque RGB layout (3,48)(4,48)(5,48) used in some intermediate versions.
-            decodeUidOpaqueRgb(grid)?.let { return it }
-
             return null
-        }
-
-        /** Intermediate layout: three fully opaque pixels (3,48)(4,48)(5,48), UID in RGB only. */
-        private fun decodeUidOpaqueRgb(grid: BufferedImage): String? {
-            if (grid.width < 6 || grid.height < 49) return null
-            val p0 = grid.getRGB(3, 48)
-            val p1 = grid.getRGB(4, 48)
-            val p2 = grid.getRGB(5, 48)
-            val bytes = ByteArray(8)
-            bytes[0] = ((p0 ushr 16) and 0xFF).toByte()
-            bytes[1] = ((p0 ushr 8) and 0xFF).toByte()
-            bytes[2] = (p0 and 0xFF).toByte()
-            bytes[3] = ((p1 ushr 16) and 0xFF).toByte()
-            bytes[4] = ((p1 ushr 8) and 0xFF).toByte()
-            bytes[5] = (p1 and 0xFF).toByte()
-            bytes[6] = ((p2 ushr 16) and 0xFF).toByte()
-            bytes[7] = ((p2 ushr 8) and 0xFF).toByte()
-            val str = String(bytes, Charsets.US_ASCII)
-            return if (str.length == 8 && str.all { it in UID_CHARS }) str else null
         }
 
         /** True for UIDs produced by [generateUid] (and persisted session files). */
@@ -446,6 +425,7 @@ class SessionManager(
                         throw IllegalStateException("Failed to download or decode skin", e)
                     }
             val skin64 = decodedSkin.skin64
+            val fullImage = decodedSkin.fullImage
             val lastAppliedUid =
                     if (createNewUid || characterManagerBridge.active) {
                         decodedSkin.uid
@@ -527,7 +507,7 @@ class SessionManager(
             // With a stored session B (from decoded UID + existing JSON), merge is authoritative;
             // the downloaded PNG is only for reading the UID. Without B, composite A onto the skin.
             val composeBase: BufferedImage? =
-                    if (createNewUid && baseSession != null) null else skin64
+                    if (createNewUid && baseSession != null) null else fullImage
 
             val selection = sessionToSelection(merged)
             val layersDef = layerManager.definitionsInOrder()
