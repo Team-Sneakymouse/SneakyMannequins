@@ -61,25 +61,20 @@ class SessionManager(
         fun encodeUidToImage(image: BufferedImage, uid: String) {
             val paddedUid = uid.padEnd(UID_LENGTH, '0').take(UID_LENGTH)
             val b = paddedUid.toByteArray(Charsets.US_ASCII)
-            // Store only in RGB with alpha 0xFF. Old layout put UID bytes in the alpha channel too,
-            // which made pixels semi-transparent; PNG/Minecraft often normalizes or strips them.
+            // Legacy layout: Use (3, 48) and (3, 49) with full 4-byte ARGB storage per pixel.
+            // This avoids UV map overlaps at (4, 48) and (5, 48).
             val p0 =
-                    (0xFF shl 24) or
-                            ((b[0].toInt() and 0xFF) shl 16) or
-                            ((b[1].toInt() and 0xFF) shl 8) or
-                            (b[2].toInt() and 0xFF)
+                    ((b[0].toInt() and 0xFF) shl 24) or
+                            ((b[1].toInt() and 0xFF) shl 16) or
+                            ((b[2].toInt() and 0xFF) shl 8) or
+                            (b[3].toInt() and 0xFF)
             val p1 =
-                    (0xFF shl 24) or
-                            ((b[3].toInt() and 0xFF) shl 16) or
-                            ((b[4].toInt() and 0xFF) shl 8) or
-                            (b[5].toInt() and 0xFF)
-            val p2 =
-                    (0xFF shl 24) or
-                            ((b[6].toInt() and 0xFF) shl 16) or
-                            ((b[7].toInt() and 0xFF) shl 8)
+                    ((b[4].toInt() and 0xFF) shl 24) or
+                            ((b[5].toInt() and 0xFF) shl 16) or
+                            ((b[6].toInt() and 0xFF) shl 8) or
+                            (b[7].toInt() and 0xFF)
             image.setRGB(3, 48, p0)
-            image.setRGB(4, 48, p1)
-            image.setRGB(5, 48, p2)
+            image.setRGB(3, 49, p1)
         }
 
         /**
@@ -104,28 +99,30 @@ class SessionManager(
             val grid = skinTopLeft64Argb(image)
             if (grid.width < 64 || grid.height < 64) return null
 
-            decodeUidOpaqueRgb(grid)?.let { return it }
-
-            // Legacy: 8 bytes in two pixels (including alpha channel — fragile for PNG/skin hosts).
+            // Primary: Legacy layout (3, 48) and (3, 49) using all channels including alpha.
             val p1 = grid.getRGB(3, 48)
             val p2 = grid.getRGB(3, 49)
-            val legacy = ByteArray(8)
-            legacy[0] = ((p1 ushr 24) and 0xFF).toByte()
-            legacy[1] = ((p1 ushr 16) and 0xFF).toByte()
-            legacy[2] = ((p1 ushr 8) and 0xFF).toByte()
-            legacy[3] = (p1 and 0xFF).toByte()
-            legacy[4] = ((p2 ushr 24) and 0xFF).toByte()
-            legacy[5] = ((p2 ushr 16) and 0xFF).toByte()
-            legacy[6] = ((p2 ushr 8) and 0xFF).toByte()
-            legacy[7] = (p2 and 0xFF).toByte()
-            val str = String(legacy, Charsets.US_ASCII)
+            val bytes = ByteArray(8)
+            bytes[0] = ((p1 ushr 24) and 0xFF).toByte()
+            bytes[1] = ((p1 ushr 16) and 0xFF).toByte()
+            bytes[2] = ((p1 ushr 8) and 0xFF).toByte()
+            bytes[3] = (p1 and 0xFF).toByte()
+            bytes[4] = ((p2 ushr 24) and 0xFF).toByte()
+            bytes[5] = ((p2 ushr 16) and 0xFF).toByte()
+            bytes[6] = ((p2 ushr 8) and 0xFF).toByte()
+            bytes[7] = (p2 and 0xFF).toByte()
+            val str = String(bytes, Charsets.US_ASCII)
             if (str.length == 8 && str.all { it in UID_CHARS }) {
                 return str
             }
+
+            // Fallback: Opaque RGB layout (3,48)(4,48)(5,48) used in some intermediate versions.
+            decodeUidOpaqueRgb(grid)?.let { return it }
+
             return null
         }
 
-        /** Current layout: three fully opaque pixels (3,48)(4,48)(5,48), UID in RGB only. */
+        /** Intermediate layout: three fully opaque pixels (3,48)(4,48)(5,48), UID in RGB only. */
         private fun decodeUidOpaqueRgb(grid: BufferedImage): String? {
             if (grid.width < 6 || grid.height < 49) return null
             val p0 = grid.getRGB(3, 48)
