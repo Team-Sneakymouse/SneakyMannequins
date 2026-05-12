@@ -17,7 +17,7 @@ object OutfitItemCreationUi {
         OutfitItemCreationService.put(player.uniqueId, draft)
         val cfg = plugin.outfitItemGuiConfig
         val holder = OutfitMainGuiHolder(plugin, player.uniqueId, draft, cfg.mainTitle)
-        populate(holder.getInventory(), plugin, layerManager, cfg, draft)
+        populate(holder.getInventory(), plugin, player, layerManager, cfg, draft)
         player.openInventory(holder.getInventory())
     }
 
@@ -25,7 +25,7 @@ object OutfitItemCreationUi {
         val draft = OutfitItemCreationService.get(player.uniqueId) ?: return
         val open = player.openInventory.topInventory
         if (open.holder !is OutfitMainGuiHolder) return
-        populate(open, plugin, layerManager, plugin.outfitItemGuiConfig, draft)
+        populate(open, plugin, player, layerManager, plugin.outfitItemGuiConfig, draft)
     }
 
     /** Opens the main outfit GUI again without replacing the stored draft (e.g. after chat name entry). */
@@ -33,13 +33,14 @@ object OutfitItemCreationUi {
         val draft = OutfitItemCreationService.get(player.uniqueId) ?: return
         val cfg = plugin.outfitItemGuiConfig
         val holder = OutfitMainGuiHolder(plugin, player.uniqueId, draft, cfg.mainTitle)
-        populate(holder.getInventory(), plugin, layerManager, cfg, draft)
+        populate(holder.getInventory(), plugin, player, layerManager, cfg, draft)
         player.openInventory(holder.getInventory())
     }
 
     private fun populate(
             inv: org.bukkit.inventory.Inventory,
             plugin: SneakyMannequins,
+            player: Player,
             layerManager: LayerManager,
             cfg: OutfitItemGuiConfig,
             draft: OutfitItemDraft
@@ -74,6 +75,7 @@ object OutfitItemCreationUi {
         val preview =
                 OutfitItem.build(
                         plugin,
+                        player,
                         layerManager,
                         draft.uid,
                         draft.layers,

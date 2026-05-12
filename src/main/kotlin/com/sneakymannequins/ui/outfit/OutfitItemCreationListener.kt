@@ -76,6 +76,7 @@ class OutfitItemCreationListener(
                                     val finalStack =
                                             OutfitItem.build(
                                                     plugin,
+                                                    player,
                                                     layerManager,
                                                     draft.uid,
                                                     draft.layers,

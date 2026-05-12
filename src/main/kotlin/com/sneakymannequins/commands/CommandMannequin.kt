@@ -1463,6 +1463,7 @@ class CommandMannequin(
             val item =
                     OutfitItem.build(
                             plugin = plugin,
+                            player,
                             layerManager = layerManager,
                             uid = partial.uid,
                             layers = partial.layers

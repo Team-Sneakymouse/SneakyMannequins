@@ -12,6 +12,7 @@ import org.bukkit.NamespacedKey
 import org.bukkit.inventory.ItemStack
 import org.bukkit.persistence.PersistentDataContainer
 import org.bukkit.persistence.PersistentDataType
+import org.bukkit.entity.Player
 
 object OutfitItem {
     private const val PDC_KEY = "outfit_uid"
@@ -43,6 +44,7 @@ object OutfitItem {
      */
     fun build(
             plugin: SneakyMannequins,
+            player: Player,
             layerManager: LayerManager,
             uid: String,
             layers: Map<String, LayerSessionData>,
@@ -94,7 +96,7 @@ object OutfitItem {
                             }
                     )
                     for (line in cfg.outfitItemExtraLoreAfterLines) {
-                        add(TextUtility.convertToComponent(line))
+                        add(TextUtility.convertToComponent(line, player))
                     }
                     if (guiPreview) {
                         add(Component.empty())
