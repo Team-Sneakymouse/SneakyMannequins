@@ -189,12 +189,10 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
         outfitItemLoreLinePrefix = section.getString("lore-line-prefix") ?: ""
         val loreBefore = section.getStringList("extra-lore-before")
         val loreAfter = section.getStringList("extra-lore-after")
-        val legacyExtraLore = section.getStringList("extra-lore")
         outfitItemExtraLoreBeforeLines = loreBefore
         outfitItemExtraLoreAfterLines =
                 when {
                     loreAfter.isNotEmpty() -> loreAfter
-                    legacyExtraLore.isNotEmpty() -> legacyExtraLore
                     else -> emptyList()
                 }
         outfitItemExtraPersistentData =
