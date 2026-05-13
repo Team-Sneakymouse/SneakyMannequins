@@ -15,6 +15,7 @@ import com.sneakymannequins.util.SkinUv
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.google.gson.JsonPrimitive
 import java.awt.Color
 import java.awt.image.BufferedImage
 import java.net.URL
@@ -773,31 +774,58 @@ class LayerManager(private val plugin: SneakyMannequins) {
                     .ifEmpty { "Option" }
 
     fun nextBasePartName(player: Player, layerId: String): String {
-        val entry = loadedLayers[layerId] ?: return "Base 1"
+        val resolvedId =
+                loadedLayers.keys.firstOrNull { it.equals(layerId, ignoreCase = true) } ?: layerId
+        val entry = loadedLayers[resolvedId] ?: return "Base 1"
         val def = entry.first
         val globalDir = def.directory
         val userDir = globalDir.resolve("uploads").resolve(player.uniqueId.toString())
 
         var maxIndex = 0
-        val regex = Regex("^base[ _](\\d+)(?:\\.png)?$")
+        val regex = Regex("^base[ _](\\d+)(?:\\.png)?$", RegexOption.IGNORE_CASE)
 
-        fun scan(dir: java.nio.file.Path) {
-            if (!Files.exists(dir)) return
-            Files.list(dir).use { stream ->
+        fun considerBaseNameFile(nameLower: String) {
+            val match = regex.find(nameLower) ?: return
+            val idx = match.groupValues[1].toIntOrNull() ?: return
+            if (idx > maxIndex) maxIndex = idx
+        }
+
+        if (Files.exists(globalDir)) {
+            Files.list(globalDir).use { stream ->
                 stream.forEach { path ->
-                    val name = path.fileName.toString().lowercase()
-                    val match = regex.find(name)
-                    if (match != null) {
-                        val idx = match.groupValues[1].toIntOrNull() ?: 0
-                        if (idx > maxIndex) maxIndex = idx
+                    if (Files.isRegularFile(path)) {
+                        considerBaseNameFile(path.fileName.toString().lowercase())
                     }
                 }
             }
         }
 
-        scan(globalDir)
-        scan(userDir)
-        return "Base ${maxIndex + 1}"
+        var dirPartCount = 0
+        if (Files.exists(userDir)) {
+            val paths = Files.list(userDir).use { it.toList() }
+            val dirNamesLower =
+                    paths
+                            .filter { Files.isDirectory(it) }
+                            .map { it.fileName.toString().lowercase() }
+                            .toSet()
+            for (path in paths) {
+                when {
+                    Files.isDirectory(path) && hasPartMetadataJson(path) -> dirPartCount++
+                    Files.isRegularFile(path) &&
+                            path.fileName.toString().lowercase().endsWith(".png") -> {
+                        val stem = path.fileName.toString().removeSuffix(".png").lowercase()
+                        if (stem in dirNamesLower) {
+                            // e.g. `partId.png` next to processed `partId/` (hash or slug); count folder only.
+                            continue
+                        }
+                        considerBaseNameFile(path.fileName.toString().lowercase())
+                    }
+                }
+            }
+        }
+
+        val next = maxOf(maxIndex, dirPartCount) + 1
+        return "Base $next"
     }
 
     fun uploadPart(
@@ -861,6 +889,111 @@ class LayerManager(private val plugin: SneakyMannequins) {
 
             "Successfully uploaded part '$displayName' to layer '${def.displayName}'."
         }
+    }
+
+    /**
+     * Ensures a personal base-layer part exists for this player's current profile skin URL (keyed by
+     * [SessionManager.skinTextureStorageKey]), downloading and running [preprocessPart] when missing.
+     * Returns the full option id (`ownerUuid:internalKey`) or null on failure.
+     */
+    fun ensurePlayerSkinTextureBasePart(
+            player: Player,
+            layerId: String,
+            skinUrl: URL,
+            sessionManager: SessionManager,
+            uncraig: Boolean = false
+    ): CompletableFuture<String?> {
+        val resolvedLayerId =
+                loadedLayers.keys.firstOrNull { it.equals(layerId, ignoreCase = true) }
+                        ?: return CompletableFuture.completedFuture(null)
+        val def = loadedLayers[resolvedLayerId]?.first ?: return CompletableFuture.completedFuture(null)
+        val storageKey = SessionManager.skinTextureStorageKey(skinUrl)
+        val userRoot = def.directory.resolve("uploads").resolve(player.uniqueId.toString())
+        val partDir = userRoot.resolve(storageKey)
+
+        val existingOpt =
+                allOptions(resolvedLayerId).find {
+                    it.owner == player.uniqueId && it.internalKey == storageKey
+                }
+        if (existingOpt != null) {
+            return CompletableFuture.completedFuture(existingOpt.id)
+        }
+
+        if (Files.isDirectory(partDir) && hasPartMetadataJson(partDir)) {
+            return CompletableFuture.supplyAsync {
+                registerUploadPartFromDirectory(resolvedLayerId, def, player, partDir, storageKey)
+            }
+        }
+
+        return sessionManager.downloadSkin(skinUrl).thenApplyAsync { rawImage ->
+            var image = rawImage
+            if (uncraig) {
+                image = com.sneakymannequins.util.SkinTransform.uncraig(image)
+            }
+            if (image.width != 64 || image.height != 64) {
+                throw IllegalStateException("Image must be 64x64")
+            }
+            Files.createDirectories(userRoot)
+            val sourcePath = userRoot.resolve("$storageKey.png")
+            ImageIO.write(image, "PNG", sourcePath.toFile())
+
+            val displayName = nextBasePartName(player, resolvedLayerId)
+            preprocessPart(sourcePath, displayName)
+
+            if (allOptions(resolvedLayerId).any {
+                        it.owner == player.uniqueId && it.internalKey == storageKey
+                    }
+            ) {
+                allOptions(resolvedLayerId)
+                        .find { it.owner == player.uniqueId && it.internalKey == storageKey }!!
+                        .id
+            } else {
+                val metadata = loadMetadata(partDir)
+                val dn = metadata["displayName"] as? String ?: displayName
+                val agg = OptionAggregate(storageKey, dn, directory = partDir)
+                populateAggregate(agg, partDir)
+                val opt = createOptionFromAggregate(agg, def, null)
+                if (opt == null) {
+                    null
+                } else {
+                    val userOpt =
+                            opt.copy(
+                                    id = "${player.uniqueId}:${opt.id}",
+                                    owner = player.uniqueId,
+                                    internalKey = opt.id
+                            )
+                    addOption(resolvedLayerId, userOpt)
+                    userOpt.id
+                }
+            }
+        }
+    }
+
+    private fun registerUploadPartFromDirectory(
+            layerId: String,
+            def: LayerDefinition,
+            player: Player,
+            partDir: Path,
+            storageKey: String
+    ): String? {
+        if (allOptions(layerId).any { it.owner == player.uniqueId && it.internalKey == storageKey }) {
+            return allOptions(layerId)
+                    .find { it.owner == player.uniqueId && it.internalKey == storageKey }
+                    ?.id
+        }
+        val metadata = loadMetadata(partDir)
+        val displayName = metadata["displayName"] as? String ?: toDisplayName(storageKey)
+        val agg = OptionAggregate(storageKey, displayName, directory = partDir)
+        populateAggregate(agg, partDir)
+        val opt = createOptionFromAggregate(agg, def, null) ?: return null
+        val userOpt =
+                opt.copy(
+                        id = "${player.uniqueId}:${opt.id}",
+                        owner = player.uniqueId,
+                        internalKey = opt.id
+                )
+        addOption(layerId, userOpt)
+        return userOpt.id
     }
 
     fun deletePart(player: Player, layerId: String, partId: String): String {
@@ -965,7 +1098,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
         }.getOrDefault(emptyMap())
     }
 
-    fun preprocessPart(sourcePath: Path) {
+    fun preprocessPart(sourcePath: Path, displayNameOverride: String? = null) {
         val partName = sourcePath.nameWithoutExtension
         val targetDir = sourcePath.parent.resolve(partName)
         if (!targetDir.exists()) Files.createDirectories(targetDir)
@@ -1048,7 +1181,8 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 blink.blinkHeight,
                 blink.blinkEyeColumns,
                 blink.blinkEyelidX,
-                blink.blinkEyelidY
+                blink.blinkEyelidY,
+                displayNameOverride
         )
     }
 
@@ -1807,7 +1941,8 @@ class LayerManager(private val plugin: SneakyMannequins) {
             blinkHeight: Int = 0,
             blinkEyeColumns: List<Int> = emptyList(),
             blinkEyelidX: Int? = null,
-            blinkEyelidY: Int? = null
+            blinkEyelidY: Int? = null,
+            displayNameOverride: String? = null
     ) {
         val mappingsMaster = mutableMapOf<Int, String>()
         val mappingsDefault = mutableMapOf<Int, String>()
@@ -1843,11 +1978,15 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 "blinkEyelidY": $ey"""
                 } else ""
 
+        val displayNameJson =
+                JsonPrimitive(displayNameOverride ?: toDisplayName(partName)).toString()
+        val internalKeyJson = JsonPrimitive(slugify(partName)).toString()
+
         val json =
                 """
             {
-                "displayName": "${toDisplayName(partName)}",
-                "internalKey": "${slugify(partName)}",
+                "displayName": $displayNameJson,
+                "internalKey": $internalKeyJson,
                 "hasArms": $hasArms,
                 "isAlex": $isAlex,
                 "isDress": $isDress,

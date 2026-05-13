@@ -19,6 +19,7 @@ import java.net.URL
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.BitSet
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ThreadLocalRandom
@@ -118,6 +119,23 @@ class SessionManager(
             }
 
             return null
+        }
+
+        /**
+         * Stable filesystem key for a profile skin URL: Mojang `textures.minecraft.net/texture/<64
+         * hex>` id (lowercase), or the first 32 hex chars of SHA-256 of the full URL string.
+         */
+        fun skinTextureStorageKey(url: URL): String {
+            val external = url.toExternalForm()
+            val m =
+                    Regex(
+                                    "https?://textures\\.minecraft\\.net/texture/([a-fA-F0-9]{64})(?:\\?.*)?$",
+                                    RegexOption.IGNORE_CASE
+                            )
+                            .find(external)
+            if (m != null) return m.groupValues[1].lowercase(Locale.US)
+            val digest = MessageDigest.getInstance("SHA-256").digest(external.toByteArray(Charsets.UTF_8))
+            return digest.take(16).joinToString("") { b -> "%02x".format(b) }
         }
 
         /** True for UIDs produced by [generateUid] (and persisted session files). */
@@ -395,6 +413,60 @@ class SessionManager(
         return appliedSession.slimModel ?: preApplySlim
     }
 
+    /**
+     * True when [session]'s layers fully paint every inner-base UV pixel for the same Steve/Alex
+     * choice [resultSlimAfterApply] would use when finalizing (not only the context player's model).
+     */
+    private fun sessionFullyCoversInnerBase(session: SessionData, preApplySlim: Boolean): Boolean {
+        val composeSlim = resultSlimAfterApply(session, preApplySlim)
+        return isComplete(session, composeSlim)
+    }
+
+    /**
+     * True when [injectPersistedSkinBaseLayer] would replace the base layer (missing, null option,
+     * or [none]). If the session already selects a real body part, we must not call
+     * [LayerManager.ensurePlayerSkinTextureBasePart] — that writes to disk even when injection is a
+     * no-op.
+     */
+    private fun baseLayerNeedsPersistedSkinFill(
+            layers: Map<String, LayerSessionData>,
+            canonicalBaseLayerId: String
+    ): Boolean {
+        val existing =
+                layers.entries
+                        .find { it.key.equals(canonicalBaseLayerId, ignoreCase = true) }
+                        ?.value
+        return when {
+            existing == null -> true
+            existing.option == null -> true
+            existing.option == "none" -> true
+            else -> false
+        }
+    }
+
+    /**
+     * When there is no session B, select the persisted Mojang-skin base part on [canonicalBaseLayerId]
+     * unless the incoming session already chose a non-[none] base option.
+     */
+    private fun injectPersistedSkinBaseLayer(
+            layers: Map<String, LayerSessionData>,
+            canonicalBaseLayerId: String,
+            fullOptionId: String
+    ): Map<String, LayerSessionData> {
+        val existing =
+                layers.entries
+                        .find { it.key.equals(canonicalBaseLayerId, ignoreCase = true) }
+                        ?.value
+        if (existing?.option != null && existing.option != "none") {
+            return layers
+        }
+        val out = layers.toMutableMap()
+        out.keys.filter { it.equals(canonicalBaseLayerId, ignoreCase = true) }.forEach { out.remove(it) }
+        out[canonicalBaseLayerId] =
+                (existing ?: LayerSessionData(option = null)).copy(option = fullOptionId)
+        return out
+    }
+
     fun finalizeSession(
             requester: Player,
             man: Mannequin,
@@ -434,13 +506,65 @@ class SessionManager(
                     }
             val baseSession = lastAppliedUid?.let { load(it) }
             val defaultSlim = playerSkinModel == SkinModel.SLIM
+
+            val baseLayerId =
+                    layerManager.definitionsInOrder().find { it.isBase }?.id
+                            ?: layerManager.definitionsInOrder().firstOrNull()?.id
+
+            var usedPersistedSkinCompose = false
+            val sourceSession =
+                    if (baseSession == null &&
+                            baseLayerId != null &&
+                            baseLayerNeedsPersistedSkinFill(mannequinSession.layers, baseLayerId) &&
+                            !sessionFullyCoversInnerBase(mannequinSession, defaultSlim)
+                    ) {
+                        val optIdResult =
+                                runCatching {
+                                    layerManager
+                                            .ensurePlayerSkinTextureBasePart(
+                                                    contextPlayer,
+                                                    baseLayerId,
+                                                    skinUrl,
+                                                    this,
+                                                    uncraig = false
+                                            )
+                                            .join()
+                                }
+                        val optId = optIdResult.getOrNull()
+                        optIdResult.exceptionOrNull()?.let { ex ->
+                            plugin.logger.warning(
+                                    "Could not ensure persisted skin base for ${contextPlayer.name}: ${ex.message}"
+                            )
+                        }
+                        if (optId != null) {
+                            usedPersistedSkinCompose = true
+                            mannequinSession.copy(
+                                    layers =
+                                            injectPersistedSkinBaseLayer(
+                                                    mannequinSession.layers,
+                                                    baseLayerId,
+                                                    optId
+                                            )
+                            )
+                        } else {
+                            if (optIdResult.isSuccess) {
+                                plugin.logger.warning(
+                                        "Could not ensure persisted skin base for ${contextPlayer.name}; composing on downloaded skin bitmap."
+                                )
+                            }
+                            mannequinSession
+                        }
+                    } else {
+                        mannequinSession
+                    }
+
             var merged: SessionData =
                     if (baseSession != null) {
                         if (createNewUid) {
                             // 4–6: Discard bitmap for compose when B exists; merge A onto B (same id → A wins);
                             // new UID already assigned below, then compose + encode + apply.
                             val out = baseSession.layers.toMutableMap()
-                            out.putAll(mannequinSession.layers)
+                            out.putAll(sourceSession.layers)
                             val resultSlim = resultSlimAfterApply(mannequinSession, defaultSlim)
                             val newUid = generateUid()
                             val charContext = characterManagerBridge.currentCharacter(contextPlayer)
@@ -454,7 +578,7 @@ class SessionManager(
                                     characterName = charContext?.characterName
                             ).also { persistSession(it, recordStats) }
                         } else {
-                            merge(mannequinSession, baseSession, defaultSlim, contextPlayer)
+                            merge(sourceSession, baseSession, defaultSlim, contextPlayer)
                         }
                     } else {
                         if (createNewUid) {
@@ -466,12 +590,12 @@ class SessionManager(
                                     creator = contextPlayerUniqueId.toString(),
                                     createdAt = Instant.now().toString(),
                                     slimModel = resultSlim,
-                                    layers = mannequinSession.layers,
+                                    layers = sourceSession.layers,
                                     characterUuid = charContext?.characterUuid,
                                     characterName = charContext?.characterName
                             ).also { persistSession(it, recordStats) }
                         } else {
-                            mannequinSession.copy(
+                            sourceSession.copy(
                                     slimModel = mannequinSession.slimModel ?: defaultSlim
                             )
                         }
@@ -505,9 +629,15 @@ class SessionManager(
             }
 
             // With a stored session B (from decoded UID + existing JSON), merge is authoritative;
-            // the downloaded PNG is only for reading the UID. Without B, composite A onto the skin.
+            // the downloaded PNG is only for reading the UID. Without B, either composite A onto the
+            // downloaded skin, or — when a persisted skin base part was injected — compose from layers
+            // only (same as merge-with-B path).
             val composeBase: BufferedImage? =
-                    if (createNewUid && baseSession != null) null else fullImage
+                    when {
+                        createNewUid && baseSession != null -> null
+                        usedPersistedSkinCompose -> null
+                        else -> fullImage
+                    }
 
             val selection = sessionToSelection(merged)
             val layersDef = layerManager.definitionsInOrder()
