@@ -2,19 +2,32 @@ package com.sneakymannequins.integrations
 
 import com.sneakymannequins.SneakyMannequins
 import org.bukkit.entity.Player
+import net.sneakycharactermanager.paper.handlers.character.CharacterLoader
 
 data class CharacterContext(val characterUuid: String, val characterName: String)
 
 interface CharacterManagerBridge {
     val active: Boolean
     fun currentCharacter(player: Player): CharacterContext?
-    fun updateSkin(player: Player, characterUuid: String, url: String, slim: Boolean)
+    fun updateSkin(
+            player: Player,
+            characterUuid: String,
+            url: String,
+            slim: Boolean,
+            skinStateName: String = "Regular"
+    )
 }
 
 class NoOpCharacterManagerBridge : CharacterManagerBridge {
     override val active: Boolean = false
     override fun currentCharacter(player: Player): CharacterContext? = null
-    override fun updateSkin(player: Player, characterUuid: String, url: String, slim: Boolean) {}
+    override fun updateSkin(
+            player: Player,
+            characterUuid: String,
+            url: String,
+            slim: Boolean,
+            skinStateName: String
+    ) {}
 }
 
 class ActiveCharacterManagerBridge : CharacterManagerBridge {
@@ -30,13 +43,14 @@ class ActiveCharacterManagerBridge : CharacterManagerBridge {
         )
     }
 
-    override fun updateSkin(player: Player, characterUuid: String, url: String, slim: Boolean) {
-        net.sneakycharactermanager.paper.handlers.character.CharacterLoader.updateSkin(
-                player,
-                characterUuid,
-                url,
-                slim
-        )
+    override fun updateSkin(
+            player: Player,
+            characterUuid: String,
+            url: String,
+            slim: Boolean,
+            skinStateName: String
+    ) {
+        CharacterLoader.updateSkin(player, characterUuid, url, slim, skinStateName)
     }
 }
 

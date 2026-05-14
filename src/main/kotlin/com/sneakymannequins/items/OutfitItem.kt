@@ -7,6 +7,7 @@ import com.sneakymannequins.ui.outfit.OutfitItemGuiConfig
 import com.sneakymouse.sneakyholos.util.TextUtility
 import java.util.Locale
 import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.bukkit.Material
 import org.bukkit.NamespacedKey
 import org.bukkit.inventory.ItemStack
@@ -20,6 +21,9 @@ object OutfitItem {
     private const val GUI_PREVIEW_KEY = "outfit_gui_preview"
     private const val ICON_PICKER_DATA_KEY = "outfit_icon_pick"
 
+    /** Default skin state name when not applying from an outfit item. */
+    const val REGULAR_SKIN_STATE_NAME: String = "Regular"
+
     fun key(plugin: SneakyMannequins): NamespacedKey = NamespacedKey(plugin, PDC_KEY)
 
     fun guiActionKey(plugin: SneakyMannequins): NamespacedKey = NamespacedKey(plugin, GUI_ACTION_KEY)
@@ -30,6 +34,17 @@ object OutfitItem {
 
     fun readUid(pdc: PersistentDataContainer, plugin: SneakyMannequins): String? =
             pdc.get(key(plugin), PersistentDataType.STRING)
+
+    /**
+     * Visible item title as plain text (no color/decoration codes), for SneakyCharacterManager skin
+     * state labels. Falls back to [REGULAR_SKIN_STATE_NAME] when absent or blank.
+     */
+    fun skinStateNameFromOutfitStack(stack: ItemStack): String {
+        val meta = stack.itemMeta ?: return REGULAR_SKIN_STATE_NAME
+        val comp = meta.displayName() ?: return REGULAR_SKIN_STATE_NAME
+        val plain = PlainTextComponentSerializer.plainText().serialize(comp).trim()
+        return plain.ifEmpty { REGULAR_SKIN_STATE_NAME }
+    }
 
     fun hasUid(pdc: PersistentDataContainer, plugin: SneakyMannequins): Boolean =
             pdc.has(key(plugin), PersistentDataType.STRING)

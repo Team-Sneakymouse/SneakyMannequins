@@ -3,6 +3,7 @@ package com.sneakymannequins.managers
 import com.sneakymannequins.SneakyMannequins
 import com.sneakymannequins.events.*
 import com.sneakymannequins.integrations.CharacterManagerBridge
+import com.sneakymannequins.items.OutfitItem
 import com.sneakymannequins.model.ColorTabMode
 import com.sneakymannequins.model.ChannelSlot
 import com.sneakymannequins.model.LayerDefinition
@@ -2669,13 +2670,15 @@ class MannequinManager(
      * @param requester The player who triggered the process (for feedback messages)
      * @param mannequin The mannequin source
      * @param contextPlayer The player whose skin/character context should be used
+     * @param skinStateName Label for SneakyCharacterManager saved skin states (default [OutfitItem.REGULAR_SKIN_STATE_NAME]).
      */
     fun finalizeAndApply(
             requester: Player,
             mannequin: Mannequin,
             contextPlayer: Player,
             sessionOverride: SessionData? = null,
-            craig: Boolean = false
+            craig: Boolean = false,
+            skinStateName: String = OutfitItem.REGULAR_SKIN_STATE_NAME
     ) {
         var actualSessionOverride = sessionOverride
 
@@ -2727,7 +2730,8 @@ class MannequinManager(
                                                 contextPlayer,
                                                 charContext.characterUuid,
                                                 url,
-                                                slim
+                                                slim,
+                                                skinStateName
                                         )
                                         requester.sendMessage(
                                                 TextUtility.convertToComponent(
@@ -2796,7 +2800,8 @@ class MannequinManager(
             requester: Player,
             contextPlayer: Player,
             session: SessionData,
-            craig: Boolean = false
+            craig: Boolean = false,
+            skinStateName: String = OutfitItem.REGULAR_SKIN_STATE_NAME
     ) {
         sessionManager
                 .finalizeSessionFromSessionData(
@@ -2821,7 +2826,8 @@ class MannequinManager(
                                                 contextPlayer,
                                                 charContext.characterUuid,
                                                 url,
-                                                slim
+                                                slim,
+                                                skinStateName
                                         )
                                         requester.sendMessage(
                                                 TextUtility.convertToComponent(
@@ -2869,8 +2875,8 @@ class MannequinManager(
     }
 
     /** @see finalizeAndApplySession */
-    fun applyOutfitSession(player: Player, session: SessionData) {
-        finalizeAndApplySession(player, player, session)
+    fun applyOutfitSession(player: Player, session: SessionData, skinStateName: String) {
+        finalizeAndApplySession(player, player, session, skinStateName = skinStateName)
     }
 
     private fun sendSessionSavedChat(player: Player, uid: String) {

@@ -36,11 +36,11 @@ class OutfitItemListener(
         if (!isRight) return
 
         val player = event.player
-        val (_, uid) = findOutfitStack(player, event.hand) ?: return
+        val (stack, uid) = findOutfitStack(player, event.hand) ?: return
 
         // PDC existence is the only contract; cancel vanilla behavior.
         event.isCancelled = true
-        tryApply(player, uid)
+        tryApply(player, stack, uid)
     }
 
     /**
@@ -84,7 +84,7 @@ class OutfitItemListener(
         cooldownUntilEpochMs.remove(id)
     }
 
-    private fun tryApply(player: org.bukkit.entity.Player, uid: String) {
+    private fun tryApply(player: org.bukkit.entity.Player, stack: ItemStack, uid: String) {
         val now = System.currentTimeMillis()
         cooldownUntilEpochMs[player.uniqueId]?.let { until ->
             if (now < until) {
@@ -109,7 +109,11 @@ class OutfitItemListener(
                         }
 
         player.sendMessage(TextUtility.convertToComponent("&eApplying outfit..."))
-        mannequinManager.applyOutfitSession(player, session)
+        mannequinManager.applyOutfitSession(
+                player,
+                session,
+                OutfitItem.skinStateNameFromOutfitStack(stack)
+        )
         cooldownUntilEpochMs[player.uniqueId] =
                 System.currentTimeMillis() + OUTFIT_USE_COOLDOWN_MS
     }

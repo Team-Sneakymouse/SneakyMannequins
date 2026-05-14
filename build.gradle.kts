@@ -13,7 +13,7 @@ dependencies {
     compileOnly("io.netty:netty-all:4.1.112.Final")
     implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.21")
     implementation("com.google.code.gson:gson:2.10.1")
-    compileOnly("io.github.team-sneakymouse:sneakycharactermanager-paper:1.4.0")
+    compileOnly("io.github.team-sneakymouse:sneakycharactermanager-paper:1.5.0")
     compileOnly("me.clip:placeholderapi:2.11.6")
 
     testImplementation(kotlin("test"))
