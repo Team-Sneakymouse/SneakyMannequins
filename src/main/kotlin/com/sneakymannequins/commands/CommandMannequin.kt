@@ -8,6 +8,7 @@ import com.sneakymannequins.managers.EtfConfigManager
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymannequins.managers.LayerManager.MaskStrategy
 import com.sneakymannequins.managers.MannequinManager
+import com.sneakymannequins.listeners.OutfitSessionApplyCoordinator
 import com.sneakymannequins.managers.RemaskManager
 import com.sneakymannequins.managers.SessionManager
 import com.sneakymannequins.managers.StyleManager
@@ -28,7 +29,8 @@ class CommandMannequin(
         private val styleManager: StyleManager,
         private val sessionManager: SessionManager,
         private val remaskManager: RemaskManager,
-        private val etfConfigManager: EtfConfigManager
+        private val etfConfigManager: EtfConfigManager,
+        private val outfitSessionApplyCoordinator: OutfitSessionApplyCoordinator
 ) : CommandBase("mannequin") {
 
     companion object {
@@ -59,6 +61,9 @@ class CommandMannequin(
             "remove" -> player?.let { removeNearest(it) }
                             ?: stack.sender.sendMessage("You must be a player to use this command")
             "item" -> player?.let { handleItem(it, args) }
+                            ?: stack.sender.sendMessage("You must be a player to use this command")
+            "applysession" ->
+                    player?.let { handleApplySession(it, args) }
                             ?: stack.sender.sendMessage("You must be a player to use this command")
             "template" -> handleTemplate(stack, args)
             "remask" -> player?.let { handleRemask(it, args) }
@@ -94,6 +99,7 @@ class CommandMannequin(
                         "remove" to "Remove nearest mannequin",
                         "reload" to "Reload plugin configuration",
                         "history" to "View your session history",
+                        "applysession <uid>" to "Apply a saved outfit session to yourself (same as outfit item)",
                         "item <layer...>" to "Create an Outfit item from your encoded session",
                         "template" to "Manage session templates",
                         "remask" to "Remask selected part on nearest mannequin",
@@ -123,6 +129,7 @@ class CommandMannequin(
                                     "etf",
                                     "me",
                                     "history",
+                                    "applysession",
                                     "item",
                                     "template",
                                     "debug"
@@ -190,6 +197,11 @@ class CommandMannequin(
                                         .filter { it.startsWith(args[1], ignoreCase = true) }
                                         .toMutableList()
                         "template" ->
+                                sessionManager
+                                        .listSessionUids()
+                                        .filter { it.startsWith(args[1], ignoreCase = true) }
+                                        .toMutableList()
+                        "applysession" ->
                                 sessionManager
                                         .listSessionUids()
                                         .filter { it.startsWith(args[1], ignoreCase = true) }
@@ -1456,6 +1468,17 @@ class CommandMannequin(
         runOutfitItemSessionPipeline(player, requestedLayerIds) { partial ->
             OutfitItemCreationUi.open(plugin, layerManager, player, partial)
         }
+    }
+
+    private fun handleApplySession(player: Player, args: Array<out String>) {
+        if (args.size < 2) {
+            player.sendMessage(
+                    TextUtility.convertToComponent("&cUsage: /mannequin applysession <uid>")
+            )
+            return
+        }
+        val uid = args[1]
+        outfitSessionApplyCoordinator.tryApply(player, uid, OutfitItem.REGULAR_SKIN_STATE_NAME)
     }
 
     private fun grantOutfitItemDirectToInventory(player: Player, requestedLayerIds: List<String>) {

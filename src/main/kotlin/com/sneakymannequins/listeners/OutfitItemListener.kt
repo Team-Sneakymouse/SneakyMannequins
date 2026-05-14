@@ -2,10 +2,6 @@ package com.sneakymannequins.listeners
 
 import com.sneakymannequins.SneakyMannequins
 import com.sneakymannequins.items.OutfitItem
-import com.sneakymannequins.managers.MannequinManager
-import com.sneakymannequins.managers.SessionManager
-import com.sneakymouse.sneakyholos.util.TextUtility
-import java.util.UUID
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
@@ -17,13 +13,8 @@ import org.bukkit.inventory.ItemStack
 
 class OutfitItemListener(
         private val plugin: SneakyMannequins,
-        private val mannequinManager: MannequinManager,
-        private val sessionManager: SessionManager
+        private val outfitSessionApplyCoordinator: OutfitSessionApplyCoordinator
 ) : Listener {
-
-    private val lastHandledTick = mutableMapOf<UUID, Int>()
-    /** Epoch millis until this player may use any outfit item again (after a successful apply). */
-    private val cooldownUntilEpochMs = mutableMapOf<UUID, Long>()
 
     /**
      * Air clicks are often cancelled before NORMAL priority; [ignoreCancelled] must be false.
@@ -79,47 +70,15 @@ class OutfitItemListener(
 
     @EventHandler
     fun onQuit(event: PlayerQuitEvent) {
-        val id = event.player.uniqueId
-        lastHandledTick.remove(id)
-        cooldownUntilEpochMs.remove(id)
+        outfitSessionApplyCoordinator.clearPlayer(event.player.uniqueId)
     }
 
     private fun tryApply(player: org.bukkit.entity.Player, stack: ItemStack, uid: String) {
-        val now = System.currentTimeMillis()
-        cooldownUntilEpochMs[player.uniqueId]?.let { until ->
-            if (now < until) {
-                return
-            }
-        }
-
-        val currentTick = plugin.server.currentTick
-        val lastTick = lastHandledTick[player.uniqueId]
-        if (lastTick == currentTick) return
-        lastHandledTick[player.uniqueId] = currentTick
-
-        val session =
-                sessionManager.resolveSession(uid, player, mannequinManager)
-                        ?: run {
-                            player.sendMessage(
-                                    TextUtility.convertToComponent(
-                                            "&cOutfit session '&e$uid&c' not found."
-                                    )
-                            )
-                            return
-                        }
-
-        player.sendMessage(TextUtility.convertToComponent("&eApplying outfit..."))
-        mannequinManager.applyOutfitSession(
+        outfitSessionApplyCoordinator.tryApply(
                 player,
-                session,
+                uid,
                 OutfitItem.skinStateNameFromOutfitStack(stack)
         )
-        cooldownUntilEpochMs[player.uniqueId] =
-                System.currentTimeMillis() + OUTFIT_USE_COOLDOWN_MS
-    }
-
-    private companion object {
-        const val OUTFIT_USE_COOLDOWN_MS = 5000L
     }
 }
 

@@ -5,6 +5,7 @@ import com.sneakymannequins.integrations.CharacterManagerBridge
 import com.sneakymannequins.integrations.CharacterManagerBridgeFactory
 import com.sneakymannequins.integrations.placeholderapi.SneakyMannequinsPlaceholderExpansion
 import com.sneakymannequins.listeners.OutfitItemListener
+import com.sneakymannequins.listeners.OutfitSessionApplyCoordinator
 import com.sneakymannequins.listeners.TriggerListener
 import com.sneakymannequins.ui.outfit.OutfitGuiLifecycleListener
 import com.sneakymannequins.ui.outfit.OutfitIconPickerListener
@@ -101,6 +102,8 @@ class SneakyMannequins : JavaPlugin(), Listener {
                             it.loadFromDisk()
                             it.startTickLoop()
                         }
+        val outfitSessionApplyCoordinator =
+                OutfitSessionApplyCoordinator(sessionManager, mannequinManager)
         remaskManager = RemaskManager(this, mannequinManager, layerManager).also { it.start() }
         etfConfigManager = EtfConfigManager(this, mannequinManager, layerManager)
 
@@ -114,13 +117,14 @@ class SneakyMannequins : JavaPlugin(), Listener {
                         styleManager,
                         sessionManager,
                         remaskManager,
-                        etfConfigManager
+                        etfConfigManager,
+                        outfitSessionApplyCoordinator
                 )
         )
         server.pluginManager.registerEvents(this, this)
         server.pluginManager.registerEvents(TriggerListener(this), this)
         server.pluginManager.registerEvents(
-                OutfitItemListener(this, mannequinManager, sessionManager),
+                OutfitItemListener(this, outfitSessionApplyCoordinator),
                 this
         )
         server.pluginManager.registerEvents(etfConfigManager, this)
