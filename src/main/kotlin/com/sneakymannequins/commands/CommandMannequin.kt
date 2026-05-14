@@ -19,6 +19,7 @@ import java.io.File
 import java.net.URL
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
+import net.kyori.adventure.text.format.TextDecoration
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import org.bukkit.profile.PlayerTextures.SkinModel
@@ -1470,8 +1471,47 @@ class CommandMannequin(
             player.sendMessage(entry)
         }
         if (totalPages > 1) {
+            val sep =
+                    Component.text(" │ ").color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)
+            val pageLabel =
+                    Component.text("page $safePage/$totalPages")
+                            .color(NamedTextColor.GRAY)
+                            .decoration(TextDecoration.ITALIC, false)
+            val prev: Component =
+                    if (safePage > 1) {
+                        TextUtility.clickableRunCommandComponent(
+                                "◀ Prev",
+                                "/mannequin history ${safePage - 1}",
+                                NamedTextColor.GREEN,
+                                "Page ${safePage - 1} / $totalPages",
+                        )
+                    } else {
+                        Component.text("◀ Prev")
+                                .color(NamedTextColor.DARK_GRAY)
+                                .decoration(TextDecoration.ITALIC, false)
+                    }
+            val next: Component =
+                    if (safePage < totalPages) {
+                        TextUtility.clickableRunCommandComponent(
+                                "Next ▶",
+                                "/mannequin history ${safePage + 1}",
+                                NamedTextColor.GREEN,
+                                "Page ${safePage + 1} / $totalPages",
+                        )
+                    } else {
+                        Component.text("Next ▶")
+                                .color(NamedTextColor.DARK_GRAY)
+                                .decoration(TextDecoration.ITALIC, false)
+                    }
             player.sendMessage(
-                    TextUtility.convertToComponent("&7Use /mannequin history <page> to navigate.")
+                    Component.text("  ")
+                            .color(NamedTextColor.GRAY)
+                            .decoration(TextDecoration.ITALIC, false)
+                            .append(prev)
+                            .append(sep)
+                            .append(pageLabel)
+                            .append(sep)
+                            .append(next)
             )
         }
     }
