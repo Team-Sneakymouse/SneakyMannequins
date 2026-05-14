@@ -497,7 +497,8 @@ class MannequinManager(
         val defMap = definitions.associateBy { it.id }
         val newSelections = mannequin.selection.selections.toMutableMap()
 
-        for ((layerId, layerData) in session.layers) {
+        val sessionForApply = session.withoutLayerDisabledFlags()
+        for ((layerId, layerData) in sessionForApply.layers) {
             if (!defMap.containsKey(layerId)) continue
             val opts = layerManager.optionsFor(layerId)
             val option =

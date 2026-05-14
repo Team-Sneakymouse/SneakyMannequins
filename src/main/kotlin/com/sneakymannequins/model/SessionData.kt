@@ -14,7 +14,14 @@ data class SessionData(
         val layers: Map<String, LayerSessionData>,
         val characterUuid: String? = null,
         val characterName: String? = null
-)
+) {
+    /**
+     * Clears [LayerSessionData.disabled] on every layer so mannequins and Copy Me show all stored
+     * parts; player skin finalization still uses the persisted flags from disk.
+     */
+    fun withoutLayerDisabledFlags(): SessionData =
+            copy(layers = layers.mapValues { (_, v) -> v.copy(disabled = false) })
+}
 
 /**
  * Per-layer portion of a saved session. All colours are stored as hex strings (e.g. "#FF0000") for
@@ -24,7 +31,9 @@ data class LayerSessionData(
         val option: String?,
         val channelColors: Map<String, String> = emptyMap(),
         val texturedColors: Map<String, Map<String, String>> = emptyMap(),
-        val selectedTexture: String? = null
+        val selectedTexture: String? = null,
+        /** When true, this layer is skipped when composing the final player skin (option is kept). */
+        val disabled: Boolean = false
 ) {
     companion object {
         fun fromSelection(sel: LayerSelection): LayerSessionData {

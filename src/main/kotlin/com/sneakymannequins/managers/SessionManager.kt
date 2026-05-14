@@ -377,6 +377,7 @@ class SessionManager(
         val covered = BitSet(64 * 64)
 
         for ((layerId, layerData) in session.layers) {
+            if (layerData.disabled) continue
             val optionId = layerData.option ?: continue
             val options = layerManager.allOptions(layerId)
             val option = options.find { it.id == optionId } ?: continue
@@ -715,7 +716,9 @@ class SessionManager(
 
     private fun sessionToSelection(session: SessionData): SkinSelection {
         val selections =
-                session.layers.mapValues { (layerId, data) ->
+                session.layers
+                        .filter { (_, data) -> !data.disabled }
+                        .mapValues { (layerId, data) ->
                     val option = layerManager.allOptions(layerId).find { it.id == data.option }
                     LayerSelection(
                             layerId = layerId,
@@ -823,6 +826,7 @@ class SessionManager(
         for (layerId in layers.keys.sorted()) {
             val layer = layers[layerId] ?: continue
             sb.append(layerId).append(':')
+            sb.append(if (layer.disabled) "1" else "0").append(':')
             sb.append(layer.option ?: "").append(':')
             sb.append(layer.selectedTexture ?: "").append('|')
 

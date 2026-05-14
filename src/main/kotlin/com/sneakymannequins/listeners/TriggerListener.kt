@@ -88,6 +88,25 @@ class TriggerListener(private val plugin: SneakyMannequins) : Listener {
         dispatch("session-load", ph)
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    fun onPlayerLayerVisibilityChange(event: PlayerLayerVisibilityChangeEvent) {
+        val ph =
+                basePlaceholders(event).apply {
+                    put("layer", event.layerId)
+                    put("mode", event.mode)
+                    put("disabled", if (event.disabled) "true" else "false")
+                }
+        val perLayer =
+                plugin.config.getStringList(
+                        "triggers.player-layer-visibility.${event.layerId}"
+                )
+        val commands =
+                perLayer.ifEmpty {
+                    plugin.config.getStringList("triggers.player-layer-visibility.default")
+                }
+        dispatchCommands(commands, ph)
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────────
 
     private fun basePlaceholders(event: MannequinEvent): MutableMap<String, String> {

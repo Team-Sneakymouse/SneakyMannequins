@@ -7,6 +7,9 @@ import org.bukkit.event.Event
 import org.bukkit.event.HandlerList
 import java.util.UUID
 
+/** Used when a trigger has no mannequin entity (e.g. `/mannequin layer`); coords still use [Location]. */
+val NO_MANNEQUIN_ID: UUID = UUID(0L, 0L)
+
 /**
  * Base event for all SneakyMannequins events.
  * Third-party plugins can listen to this to receive every mannequin event,
@@ -118,4 +121,24 @@ class MannequinSessionLoadEvent(
 ) : MannequinEvent(mannequinId, location, player) {
     override fun getHandlers(): HandlerList = handlerList
     companion object { @JvmStatic val handlerList = HandlerList() }
+}
+
+/**
+ * Fired on the main thread before a `/mannequin layer` change is finalized onto the player's skin.
+ * [mannequinId] is [NO_MANNEQUIN_ID]; [mannequinLocation] is the player's location at fire time.
+ * Cancelling prevents both skin finalization and config triggers.
+ */
+class PlayerLayerVisibilityChangeEvent(
+        player: Player,
+        location: Location,
+        val layerId: String,
+        /** `toggle`, `on`, or `off` as entered. */
+        val mode: String,
+        /** Resulting hidden state: `true` means the layer is not drawn on the composed skin. */
+        val disabled: Boolean
+) : MannequinEvent(NO_MANNEQUIN_ID, location, player) {
+    override fun getHandlers(): HandlerList = handlerList
+    companion object {
+        @JvmStatic val handlerList = HandlerList()
+    }
 }

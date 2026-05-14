@@ -1,6 +1,7 @@
 package com.sneakymannequins.commands
 
 import com.sneakymannequins.SneakyMannequins
+import com.sneakymannequins.events.PlayerLayerVisibilityChangeEvent
 import com.sneakymannequins.items.OutfitItem
 import com.sneakymannequins.model.SessionData
 import com.sneakymannequins.ui.outfit.OutfitItemCreationUi
@@ -65,6 +66,9 @@ class CommandMannequin(
             "applysession" ->
                     player?.let { handleApplySession(it, args) }
                             ?: stack.sender.sendMessage("You must be a player to use this command")
+            "layer" ->
+                    player?.let { handleLayer(it, args) }
+                            ?: stack.sender.sendMessage("You must be a player to use this command")
             "template" -> handleTemplate(stack, args)
             "remask" -> player?.let { handleRemask(it, args) }
                             ?: stack.sender.sendMessage("You must be a player to use this command")
@@ -100,6 +104,7 @@ class CommandMannequin(
                         "reload" to "Reload plugin configuration",
                         "history" to "View your session history",
                         "applysession <uid>" to "Apply a saved outfit session to yourself (same as outfit item)",
+                        "layer <layer> toggle|on|off" to "Hide or show a layer on your skin (session remembers the part)",
                         "item <layer...>" to "Create an Outfit item from your encoded session",
                         "template" to "Manage session templates",
                         "remask" to "Remask selected part on nearest mannequin",
@@ -130,6 +135,7 @@ class CommandMannequin(
                                     "me",
                                     "history",
                                     "applysession",
+                                    "layer",
                                     "item",
                                     "template",
                                     "debug"
@@ -206,6 +212,13 @@ class CommandMannequin(
                                         .listSessionUids()
                                         .filter { it.startsWith(args[1], ignoreCase = true) }
                                         .toMutableList()
+                        "layer" ->
+                                layerManager
+                                        .definitionsInOrder()
+                                        .filter { !it.isBase }
+                                        .map { it.id }
+                                        .filter { it.startsWith(args[1], ignoreCase = true) }
+                                        .toMutableList()
                         "item" ->
                                 layerManager
                                         .definitionsInOrder()
@@ -237,6 +250,10 @@ class CommandMannequin(
                                     .filter { it.startsWith(args[2], ignoreCase = true) }
                                     .toMutableList()
                         }
+                        "layer" ->
+                                listOf("toggle", "on", "off")
+                                        .filter { it.startsWith(args[2], ignoreCase = true) }
+                                        .toMutableList()
                         "debug" ->
                                 when (args[1].lowercase()) {
                                     "item" ->
@@ -1479,6 +1496,174 @@ class CommandMannequin(
         }
         val uid = args[1]
         outfitSessionApplyCoordinator.tryApply(player, uid, OutfitItem.REGULAR_SKIN_STATE_NAME)
+    }
+
+    private fun handleLayer(player: Player, args: Array<out String>) {
+        if (args.size < 3) {
+            player.sendMessage(
+                    TextUtility.convertToComponent(
+                            "&cUsage: /mannequin layer <layer> toggle|on|off"
+                    )
+            )
+            return
+        }
+
+        val layerQuery = args[1]
+        val modeStr = args[2].lowercase()
+        val layerDef =
+                layerManager.definitionsInOrder().find { it.id.equals(layerQuery, ignoreCase = true) }
+                        ?: run {
+                            player.sendMessage(
+                                    TextUtility.convertToComponent(
+                                            "&cUnknown layer '&e$layerQuery&c'."
+                                    )
+                            )
+                            return
+                        }
+        if (layerDef.isBase) {
+            player.sendMessage(
+                    TextUtility.convertToComponent(
+                            "&cThe base layer cannot be hidden with this command."
+                    )
+            )
+            return
+        }
+
+        val newDisabled =
+                when (modeStr) {
+                    "toggle" -> null
+                    "on" -> false
+                    "off" -> true
+                    else -> {
+                        player.sendMessage(
+                                TextUtility.convertToComponent(
+                                        "&cUsage: /mannequin layer <layer> toggle|on|off"
+                                )
+                        )
+                        return
+                    }
+                }
+
+        val skinUrl = player.playerProfile.textures.skin
+        if (skinUrl == null) {
+            player.sendMessage(TextUtility.convertToComponent("&cYou have no skin URL."))
+            return
+        }
+
+        player.sendMessage(
+                TextUtility.convertToComponent("&eReading your saved session from your skin...")
+        )
+        sessionManager.skinTextureSessionCache
+                .getOrStartDecode(skinUrl)
+                .thenAccept { decoded ->
+                    plugin.server.scheduler.runTask(
+                            plugin,
+                            Runnable {
+                                val uid = decoded.uid
+                                if (uid == null) {
+                                    player.sendMessage(
+                                            TextUtility.convertToComponent(
+                                                    "&cYour skin was not made with SneakyMannequins."
+                                            )
+                                    )
+                                    return@Runnable
+                                }
+                                val session = sessionManager.load(uid)
+                                if (session == null) {
+                                    player.sendMessage(
+                                            TextUtility.convertToComponent(
+                                                    "&cYour skin was not made with SneakyMannequins."
+                                            )
+                                    )
+                                    return@Runnable
+                                }
+
+                                val sessionKey =
+                                        session.layers.keys.find {
+                                            it.equals(layerDef.id, ignoreCase = true)
+                                        }
+                                                ?: run {
+                                                    player.sendMessage(
+                                                            TextUtility.convertToComponent(
+                                                                    "&cThat layer is not in your saved session."
+                                                            )
+                                                    )
+                                                    return@Runnable
+                                                }
+
+                                val layerData = session.layers[sessionKey] ?: return@Runnable
+                                when (modeStr) {
+                                    "on" -> {
+                                        if (!layerData.disabled) {
+                                            player.sendMessage(
+                                                    TextUtility.convertToComponent(
+                                                            "&eThat layer is already visible."
+                                                    )
+                                            )
+                                            return@Runnable
+                                        }
+                                    }
+                                    "off" -> {
+                                        if (layerData.disabled) {
+                                            player.sendMessage(
+                                                    TextUtility.convertToComponent(
+                                                            "&eThat layer is already hidden."
+                                                    )
+                                            )
+                                            return@Runnable
+                                        }
+                                    }
+                                }
+                                val disabled =
+                                        newDisabled ?: !layerData.disabled
+                                val updatedLayers = session.layers.toMutableMap()
+                                updatedLayers[sessionKey] = layerData.copy(disabled = disabled)
+                                val updatedSession = session.copy(layers = updatedLayers)
+
+                                val visibilityEvent =
+                                        PlayerLayerVisibilityChangeEvent(
+                                                player,
+                                                player.location.clone(),
+                                                layerDef.id,
+                                                modeStr,
+                                                disabled
+                                        )
+                                plugin.server.pluginManager.callEvent(visibilityEvent)
+                                if (visibilityEvent.isCancelled) {
+                                    player.sendMessage(
+                                            TextUtility.convertToComponent(
+                                                    "&cLayer visibility change was cancelled."
+                                            )
+                                    )
+                                    return@Runnable
+                                }
+
+                                player.sendMessage(
+                                        TextUtility.convertToComponent(
+                                                "&eApplying outfit..."
+                                        )
+                                )
+                                mannequinManager.finalizeAndApplySession(
+                                        player,
+                                        player,
+                                        updatedSession
+                                )
+                            }
+                    )
+                }
+                .exceptionally { ex ->
+                    plugin.server.scheduler.runTask(
+                            plugin,
+                            Runnable {
+                                player.sendMessage(
+                                        TextUtility.convertToComponent(
+                                                "&cFailed to read skin: ${ex.message}"
+                                        )
+                                )
+                            }
+                    )
+                    null
+                }
     }
 
     private fun grantOutfitItemDirectToInventory(player: Player, requestedLayerIds: List<String>) {

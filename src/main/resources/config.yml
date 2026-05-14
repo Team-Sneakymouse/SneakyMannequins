@@ -100,10 +100,11 @@ controls:
 
 # Command triggers – console commands executed when certain mannequin events occur.
 # Available placeholders (replaced before dispatch):
-#   {player}  – player name          {x} {y} {z} – mannequin location
+#   {player}  – player name          {x} {y} {z} – mannequin location (player location for `/mannequin layer`)
 #   {button}  – HUD button name      {layer}      – current layer key
 #   {part}    – selected part name   {color}      – selected colour name
 #   {channel} – selected channel #
+#   For player-layer-visibility: {mode} (toggle|on|off), {disabled} (true|false after the change)
 # Leave a list empty or remove it to disable that trigger.
 triggers:
   # A mannequin enters a player's view radius for the first time
@@ -170,6 +171,12 @@ triggers:
   # Session loaded. Extra placeholder: {uid}
   session-load:
     - "playsound minecraft:item.book.page_turn ambient {player} {x} {y} {z} 0.5 1.0"
+
+  # `/mannequin layer` — hide/show a layer on the player's composed skin (no mannequin; {x}{y}{z} = player).
+  # Per-layer lists under `player-layer-visibility.<layerId>` override `default` (same pattern as part-change).
+  player-layer-visibility:
+    default:
+      - "playsound minecraft:item.armor.equip_leather ambient {player} {x} {y} {z} 0.5 1.1"
 
 # ── Outfit item maker GUI (/mannequin item) ─────────────────────────────────────
 outfit-item-gui:
