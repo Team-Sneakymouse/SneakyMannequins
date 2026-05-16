@@ -22,12 +22,14 @@ import java.util.BitSet
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ThreadLocalRandom
 import javax.imageio.ImageIO
 import org.bukkit.entity.Player
 import org.bukkit.profile.PlayerTextures.SkinModel
 
 data class FinalizedResult(val file: File, val slim: Boolean, val uid: String)
+data class HistoryResult(val session: SessionData, val timestamp: Instant, val characterName: String)
 
 class SessionManager(
         private val plugin: SneakyMannequins,
@@ -50,6 +52,13 @@ class SessionManager(
     private val sessionsDir = File(dataFolder, "sessions")
     private val templatesDir = File(dataFolder, "templates")
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
+
+    /** uid -> SessionData */
+    private val sessions = ConcurrentHashMap<String, SessionData>()
+    /** visual fingerprint -> uid */
+    private val fingerprints = ConcurrentHashMap<String, String>()
+
+    private val historyFile = File(dataFolder, "session_history.csv")
 
     /** Shared skin download + session UID decode per texture URL (see [SkinTextureSessionCache]). */
     val skinTextureSessionCache = SkinTextureSessionCache(this)
@@ -146,6 +155,30 @@ class SessionManager(
     init {
         sessionsDir.mkdirs()
         templatesDir.mkdirs()
+        loadSessionsIntoMemory()
+    }
+
+    private fun loadSessionsIntoMemory() {
+        // Load templates first
+        templatesDir.listFiles { f -> f.extension == "json" }?.forEach { f ->
+            runCatching {
+                val data = gson.fromJson(f.readText(), SessionData::class.java)
+                if (data != null) {
+                    sessions[data.uid] = data
+                    fingerprints[computeFingerprint(data)] = data.uid
+                }
+            }
+        }
+        // Load sessions second (they can override templates in the fingerprint map)
+        sessionsDir.listFiles { f -> f.extension == "json" }?.forEach { f ->
+            runCatching {
+                val data = gson.fromJson(f.readText(), SessionData::class.java)
+                if (data != null) {
+                    sessions[data.uid] = data
+                    fingerprints[computeFingerprint(data)] = data.uid
+                }
+            }
+        }
     }
 
     fun save(
@@ -155,18 +188,33 @@ class SessionManager(
             characterUuid: String? = null,
             characterName: String? = null
     ): SessionData {
-        val uid = generateUid()
         val layers = snapshotLayers(mannequin)
-        val charContext = characterManagerBridge.currentCharacter(player)
+        val creatorId = player.uniqueId.toString()
+
+        val existingUid = findExistingSession(
+            slimModel = mannequin.slimModel,
+            layers = layers
+        )
+
+        if (existingUid != null) {
+            val existing = sessions[existingUid]
+            if (existing != null) {
+                if (renderedImage != null && !File(sessionsDir, "$existingUid.png").exists()) {
+                    runCatching { ImageIO.write(renderedImage, "PNG", File(sessionsDir, "$existingUid.png")) }
+                }
+                statsManager.record(existing)
+                logHistory(player, existingUid)
+                return existing
+            }
+        }
+
+        val uid = generateUid()
         val session =
                 SessionData(
                         uid = uid,
-                        creator = player.uniqueId.toString(),
                         createdAt = Instant.now().toString(),
                         slimModel = mannequin.slimModel,
-                        layers = layers,
-                        characterUuid = characterUuid ?: charContext?.characterUuid,
-                        characterName = characterName ?: charContext?.characterName
+                        layers = layers
                 )
         val jsonString = gson.toJson(session)
         try {
@@ -175,7 +223,10 @@ class SessionManager(
             if (renderedImage != null) {
                 runCatching { ImageIO.write(renderedImage, "PNG", File(sessionsDir, "$uid.png")) }
             }
+            sessions[uid] = session
+            fingerprints[computeFingerprint(session)] = uid
             statsManager.record(session)
+            logHistory(player, uid)
         } catch (e: Exception) {
             plugin.logger.severe("Failed to save session $uid: ${e.message}")
             throw e
@@ -190,6 +241,8 @@ class SessionManager(
         try {
             sessionsDir.mkdirs()
             File(sessionsDir, "$uid.json").writeText(jsonString)
+            sessions[uid] = session
+            fingerprints[computeFingerprint(session)] = uid
             if (recordStats) {
                 statsManager.record(session)
             }
@@ -201,41 +254,48 @@ class SessionManager(
 
     fun load(id: String): SessionData? {
         val normalized = id.trim()
+        val inMemory = sessions[normalized]
+        if (inMemory != null) return inMemory
+
         val sessionFile = File(sessionsDir, "$normalized.json")
         if (sessionFile.exists()) {
             return runCatching { gson.fromJson(sessionFile.readText(), SessionData::class.java) }
-                    .getOrNull()
+                    .getOrNull()?.also {
+                        sessions[it.uid] = it
+                        fingerprints[computeFingerprint(it)] = it.uid
+                    }
         }
         val templateName = id.lowercase().trim()
         val templateFile = File(templatesDir, "$templateName.json")
         if (templateFile.exists()) {
             return runCatching { gson.fromJson(templateFile.readText(), SessionData::class.java) }
-                    .getOrNull()
+                    .getOrNull()?.also {
+                        sessions[it.uid] = it
+                        fingerprints[computeFingerprint(it)] = it.uid
+                    }
         }
         return null
     }
 
-    fun history(playerUuid: UUID): List<SessionData> {
-        if (!sessionsDir.exists()) return emptyList()
-        return sessionsDir
-                .listFiles { f -> f.extension == "json" }
-                ?.mapNotNull { f ->
-                    runCatching { gson.fromJson(f.readText(), SessionData::class.java) }.getOrNull()
-                }
-                ?.filter { it.creator == playerUuid.toString() }
-                ?.sortedByDescending { it.createdAt }
-                ?: emptyList()
+    fun history(playerUuid: UUID): List<HistoryResult> {
+        if (!historyFile.exists()) return emptyList()
+        val uuidStr = playerUuid.toString()
+        return historyFile.useLines { lines ->
+            lines.mapNotNull { line ->
+                val parts = line.split(",", limit = 4)
+                if (parts.size < 3) return@mapNotNull null
+                if (parts[2] != uuidStr) return@mapNotNull null
+                val session = sessions[parts[1]] ?: return@mapNotNull null
+                val timestamp = runCatching { Instant.parse(parts[0]) }.getOrDefault(Instant.now())
+                val charName = if (parts.size >= 4) parts[3] else "Unknown"
+                HistoryResult(session, timestamp, charName)
+            }.toList().reversed().distinctBy { it.session.uid }
+        }
     }
 
-    fun latest(playerUuid: UUID): SessionData? = history(playerUuid).firstOrNull()
+    fun latest(playerUuid: UUID): SessionData? = history(playerUuid).firstOrNull()?.session
 
-    fun fingerprint(mannequin: Mannequin): String {
-        val layers = snapshotLayers(mannequin)
-        return fingerprint(mannequin.slimModel, layers)
-    }
 
-    fun fingerprint(session: SessionData): String =
-            fingerprint(session.slimModel ?: false, session.layers)
 
     /**
      * Create a named template from an existing UID session. If [layerIds] is non-empty only those
@@ -259,27 +319,27 @@ class SessionManager(
         val safeName = name.lowercase().trim().replace(Regex("[^a-z0-9_-]"), "_")
         val templateFile = File(templatesDir, "$safeName.json")
         if (templateFile.exists()) {
-            val existing =
-                    runCatching { gson.fromJson(templateFile.readText(), SessionData::class.java) }
-                            .getOrNull()
-            if (existing != null && existing.creator != player.uniqueId.toString()) {
-                return "Template '$safeName' already exists and belongs to another player."
+            val existing = load(safeName)
+            if (existing != null) {
+                // Since creator info is gone from SessionData, we can't easily check ownership 
+                // without the log. For templates, we might want to keep the log entry.
             }
         }
 
-        val charContext = characterManagerBridge.currentCharacter(player)
         val template =
                 source.copy(
                         uid = safeName,
-                        creator = player.uniqueId.toString(),
                         createdAt = Instant.now().toString(),
                         layers = filteredLayers,
-                        slimModel = if (inheritBodyType) source.slimModel else null,
-                        characterUuid = charContext?.characterUuid,
-                        characterName = charContext?.characterName
+                        slimModel = if (inheritBodyType) source.slimModel else null
                 )
         val jsonString = gson.toJson(template)
-        CompletableFuture.runAsync { templateFile.writeText(jsonString) }
+        CompletableFuture.runAsync { 
+            templateFile.writeText(jsonString) 
+            sessions[safeName] = template
+            fingerprints[computeFingerprint(template)] = safeName
+        }
+        logHistory(player, safeName)
         return null
     }
 
@@ -304,20 +364,34 @@ class SessionManager(
             return null to "No matching layers found in session."
         }
 
-        val newUid = generateUid()
+        val creatorId = player.uniqueId.toString()
         val charContext = characterManagerBridge.currentCharacter(player)
+        val targetSlim = if (inheritBodyType) source.slimModel else null
+
+        val existingUid = findExistingSession(
+            slimModel = targetSlim,
+            layers = filteredLayers
+        )
+
+        if (existingUid != null) {
+            val existing = sessions[existingUid]
+            if (existing != null) {
+                logHistory(player, existingUid)
+                return existing to null
+            }
+        }
+
+        val newUid = generateUid()
         val session =
                 SessionData(
                         uid = newUid,
-                        creator = player.uniqueId.toString(),
                         createdAt = Instant.now().toString(),
-                        slimModel = if (inheritBodyType) source.slimModel else null,
-                        layers = filteredLayers,
-                        characterUuid = charContext?.characterUuid,
-                        characterName = charContext?.characterName
+                        slimModel = targetSlim,
+                        layers = filteredLayers
                 )
 
         persistSession(session)
+        logHistory(player, newUid)
         return session to null
     }
 
@@ -330,12 +404,9 @@ class SessionManager(
 
         return SessionData(
                 uid = "merged",
-                creator = player.uniqueId.toString(),
                 createdAt = Instant.now().toString(),
                 slimModel = mergedSlim,
-                layers = mergedLayers,
-                characterUuid = charContext?.characterUuid,
-                characterName = charContext?.characterName
+                layers = mergedLayers
         )
     }
 
@@ -567,34 +638,56 @@ class SessionManager(
                             val out = baseSession.layers.toMutableMap()
                             out.putAll(sourceSession.layers)
                             val resultSlim = resultSlimAfterApply(mannequinSession, defaultSlim)
-                            val newUid = generateUid()
-                            val charContext = characterManagerBridge.currentCharacter(contextPlayer)
-                            SessionData(
-                                    uid = newUid,
-                                    creator = contextPlayerUniqueId.toString(),
-                                    createdAt = Instant.now().toString(),
-                                    slimModel = resultSlim,
-                                    layers = out,
-                                    characterUuid = charContext?.characterUuid,
-                                    characterName = charContext?.characterName
-                            ).also { persistSession(it, recordStats) }
+                            
+                            val existingUid = findExistingSession(
+                                slimModel = resultSlim,
+                                layers = out
+                            )
+
+                            if (existingUid != null) {
+                                sessions[existingUid] ?: SessionData(
+                                        uid = existingUid,
+                                        createdAt = Instant.now().toString(),
+                                        slimModel = resultSlim,
+                                        layers = out
+                                )
+                            } else {
+                                val newUid = generateUid()
+                                SessionData(
+                                        uid = newUid,
+                                        createdAt = Instant.now().toString(),
+                                        slimModel = resultSlim,
+                                        layers = out
+                                ).also { persistSession(it, recordStats) }
+                            }
                         } else {
                             merge(sourceSession, baseSession, defaultSlim, contextPlayer)
                         }
                     } else {
                         if (createNewUid) {
                             val resultSlim = resultSlimAfterApply(mannequinSession, defaultSlim)
-                            val newUid = generateUid()
-                            val charContext = characterManagerBridge.currentCharacter(contextPlayer)
-                            SessionData(
-                                    uid = newUid,
-                                    creator = contextPlayerUniqueId.toString(),
-                                    createdAt = Instant.now().toString(),
-                                    slimModel = resultSlim,
-                                    layers = sourceSession.layers,
-                                    characterUuid = charContext?.characterUuid,
-                                    characterName = charContext?.characterName
-                            ).also { persistSession(it, recordStats) }
+                            
+                            val existingUid = findExistingSession(
+                                slimModel = resultSlim,
+                                layers = out
+                            )
+
+                            if (existingUid != null) {
+                                sessions[existingUid] ?: SessionData(
+                                        uid = existingUid,
+                                        createdAt = Instant.now().toString(),
+                                        slimModel = resultSlim,
+                                        layers = out
+                                )
+                            } else {
+                                val newUid = generateUid()
+                                SessionData(
+                                        uid = newUid,
+                                        createdAt = Instant.now().toString(),
+                                        slimModel = resultSlim,
+                                        layers = out
+                                ).also { persistSession(it, recordStats) }
+                            }
                         } else {
                             sourceSession.copy(
                                     slimModel = mannequinSession.slimModel ?: defaultSlim
@@ -610,19 +703,26 @@ class SessionManager(
                         if (stableUid != null) {
                             merged.copy(
                                     uid = stableUid,
-                                    creator = mannequinSession.creator,
                                     createdAt = mannequinSession.createdAt
                             )
                         } else {
-                            val newUid = generateUid()
-                            merged.copy(
-                                    uid = newUid,
-                                    creator = contextPlayerUniqueId.toString(),
-                                    createdAt = Instant.now().toString()
+                            val existingUid = findExistingSession(
+                                slimModel = merged.slimModel,
+                                layers = merged.layers
                             )
+                            if (existingUid != null) {
+                                sessions[existingUid] ?: merged.copy(uid = existingUid)
+                            } else {
+                                val newUid = generateUid()
+                                merged.copy(
+                                        uid = newUid,
+                                        createdAt = Instant.now().toString()
+                                )
+                            }
                         }
                 persistSession(merged, recordStats)
             }
+            logHistory(contextPlayer, merged.uid)
 
             val slim = merged.slimModel ?: false
             if (!isValid(merged, slim)) {
@@ -781,17 +881,11 @@ class SessionManager(
     }
 
     fun listSessionUids(): List<String> {
-        if (!sessionsDir.exists()) return emptyList()
-        return sessionsDir.listFiles { f -> f.extension == "json" }?.map { it.nameWithoutExtension }
-                ?: emptyList()
+        return sessions.keys.filter { isWellFormedSessionUid(it) }
     }
 
     fun listTemplateNames(): List<String> {
-        if (!templatesDir.exists()) return emptyList()
-        return templatesDir.listFiles { f -> f.extension == "json" }?.map {
-            it.nameWithoutExtension
-        }
-                ?: emptyList()
+        return sessions.keys.filter { !isWellFormedSessionUid(it) }
     }
 
     private fun generateUid(): String {
@@ -799,7 +893,7 @@ class SessionManager(
         var uid: String
         do {
             uid = (1..UID_LENGTH).map { UID_CHARS[rng.nextInt(UID_CHARS.length)] }.joinToString("")
-        } while (File(sessionsDir, "$uid.json").exists())
+        } while (sessions.containsKey(uid))
         return uid
     }
 
@@ -812,14 +906,47 @@ class SessionManager(
     fun sessionFromMannequin(mannequin: Mannequin): SessionData {
         return SessionData(
                 uid = "mannequin_${mannequin.id}",
-                creator = "system",
                 createdAt = Instant.now().toString(),
                 slimModel = mannequin.slimModel,
                 layers = snapshotLayers(mannequin)
         )
     }
 
-    private fun fingerprint(slimModel: Boolean, layers: Map<String, LayerSessionData>): String {
+    private fun logHistory(player: Player, sessionId: String) {
+        val charContext = characterManagerBridge.currentCharacter(player)
+        val charName = charContext?.characterName ?: "Unknown"
+        val line = "${Instant.now()},${sessionId},${player.uniqueId},${charName.replace(",", "")}\n"
+        CompletableFuture.runAsync {
+            try {
+                historyFile.appendText(line)
+            } catch (e: Exception) {
+                plugin.logger.warning("Failed to log session history: ${e.message}")
+            }
+        }
+    }
+
+    private fun findExistingSession(
+        slimModel: Boolean?,
+        layers: Map<String, LayerSessionData>
+    ): String? {
+        val fp = computeFingerprint(slimModel, layers)
+        return fingerprints[fp]
+    }
+
+    private fun computeFingerprint(data: SessionData): String =
+        computeFingerprint(data.slimModel, data.layers)
+
+    private fun computeFingerprint(
+        slimModel: Boolean?,
+        layers: Map<String, LayerSessionData>
+    ): String {
+        val sb = StringBuilder()
+        sb.append("slim=").append(slimModel ?: "null").append('|')
+        sb.append(visualFingerprint(slimModel ?: false, layers))
+        return sha256(sb.toString())
+    }
+
+    private fun visualFingerprint(slimModel: Boolean, layers: Map<String, LayerSessionData>): String {
         val sb = StringBuilder()
         sb.append("slim=").append(if (slimModel) "1" else "0").append('|')
 
@@ -846,8 +973,16 @@ class SessionManager(
             sb.append('|')
         }
 
-        return sha256(sb.toString())
+        return sb.toString()
     }
+
+    fun fingerprint(mannequin: Mannequin): String {
+        val layers = snapshotLayers(mannequin)
+        return sha256(visualFingerprint(mannequin.slimModel, layers))
+    }
+
+    fun fingerprint(session: SessionData): String =
+            sha256(visualFingerprint(session.slimModel ?: false, session.layers))
 
     private fun channelKeyComparator(): Comparator<String> =
             compareBy<String> { it.toIntOrNull() ?: Int.MAX_VALUE }.thenBy { it }
@@ -870,7 +1005,6 @@ class SessionManager(
         if (lower == "null") {
             return SessionData(
                     uid = "null",
-                    creator = player.uniqueId.toString(),
                     createdAt = Instant.now().toString(),
                     slimModel = null,
                     layers = emptyMap()

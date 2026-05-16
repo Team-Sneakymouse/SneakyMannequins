@@ -1438,8 +1438,9 @@ class CommandMannequin(
         player.sendMessage(
                 TextUtility.convertToComponent("&6&lSession History &7(page $safePage/$totalPages)")
         )
-        for (session in pageItems) {
-            val date = session.createdAt.substringBefore("T")
+        for (res in pageItems) {
+            val session = res.session
+            val date = res.timestamp.toString().substringBefore("T")
             val layerCount = session.layers.size
             val entry =
                     Component.text("  ")
@@ -1457,8 +1458,8 @@ class CommandMannequin(
                             .append(Component.text(" | ").color(NamedTextColor.GRAY))
                             .append(Component.text("$layerCount layers").color(NamedTextColor.AQUA))
                             .let { base ->
-                                val charName = session.characterName
-                                if (!charName.isNullOrBlank()) {
+                                val charName = res.characterName
+                                if (charName != "Unknown" && charName.isNotBlank()) {
                                     base.append(Component.text(" | ").color(NamedTextColor.GRAY))
                                             .append(
                                                     Component.text(charName)

@@ -8,12 +8,9 @@ import java.awt.Color
  */
 data class SessionData(
         val uid: String,
-        val creator: String,
         val createdAt: String,
         val slimModel: Boolean? = null,
-        val layers: Map<String, LayerSessionData>,
-        val characterUuid: String? = null,
-        val characterName: String? = null
+        val layers: Map<String, LayerSessionData>
 ) {
     /**
      * Clears [LayerSessionData.disabled] on every layer so mannequins and Copy Me show all stored
