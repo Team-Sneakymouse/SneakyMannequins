@@ -666,10 +666,11 @@ class SessionManager(
                     } else {
                         if (createNewUid) {
                             val resultSlim = resultSlimAfterApply(mannequinSession, defaultSlim)
-                            
+                            val layers = sourceSession.layers
+
                             val existingUid = findExistingSession(
                                 slimModel = resultSlim,
-                                layers = out
+                                layers = layers
                             )
 
                             if (existingUid != null) {
@@ -677,7 +678,7 @@ class SessionManager(
                                         uid = existingUid,
                                         createdAt = Instant.now().toString(),
                                         slimModel = resultSlim,
-                                        layers = out
+                                        layers = layers
                                 )
                             } else {
                                 val newUid = generateUid()
@@ -685,7 +686,7 @@ class SessionManager(
                                         uid = newUid,
                                         createdAt = Instant.now().toString(),
                                         slimModel = resultSlim,
-                                        layers = out
+                                        layers = layers
                                 ).also { persistSession(it, recordStats) }
                             }
                         } else {
