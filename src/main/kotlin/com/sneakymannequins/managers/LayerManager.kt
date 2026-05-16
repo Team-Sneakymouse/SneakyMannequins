@@ -1424,6 +1424,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
                         params = currentRemaskParameters()
                 )
         writeMasks(sourcePath, sanitized, clusters)
+        reorderAllMaskChannelsInPart(sourcePath.parent)
         // overwrite source with sanitized (remove UV junk)
         ImageIO.write(sanitized, "png", sourcePath.toFile())
     }
@@ -1668,6 +1669,8 @@ class LayerManager(private val plugin: SneakyMannequins) {
             }
         }
 
+        reorderAllMaskChannelsInPart(dir)
+
         val (isDress, dressLength) = detectDress(sanitized)
         writeMetadata(
                 dir,
@@ -1723,10 +1726,130 @@ class LayerManager(private val plugin: SneakyMannequins) {
             else if (prefix == "_Slim_") "${dir.name}_Slim"
             else dir.name
 
-    private fun compressMaskIndices(dir: Path, files: Map<Int, Path>, prefix: String): Pair<Map<Int, Int>, Set<Int>> {
-        val remainingOld = files.keys.sorted()
-        val mapping = remainingOld.withIndex().associate { (i, old) -> old to (i + 1) }
-        if (mapping.all { it.key == it.value }) return mapping to emptySet()
+    private fun resolvePartMasterPath(dir: Path): Path? {
+        val metadataMap = loadMetadata(dir)
+        @Suppress("UNCHECKED_CAST")
+        val mappings = metadataMap["mappings"] as? Map<String, Any> ?: emptyMap()
+        val masterPathString = mappings["master"] as? String ?: "${dir.fileName}.png"
+        val masterPath = dir.resolve(masterPathString)
+        if (Files.exists(masterPath)) return masterPath
+        val fallback = dir.resolve("${dir.fileName}.png")
+        return fallback.takeIf { Files.exists(it) }
+    }
+
+    private fun countOpaqueMaskPixels(image: java.awt.image.BufferedImage): Int {
+        val w = image.width
+        val h = image.height
+        val data = IntArray(w * h)
+        image.getRGB(0, 0, w, h, data, 0, w)
+        return data.count { (it ushr 24) and 0xFF != 0 }
+    }
+
+    private fun maskTieBreak(image: java.awt.image.BufferedImage): Int {
+        val w = image.width
+        val h = image.height
+        val data = IntArray(w * h)
+        image.getRGB(0, 0, w, h, data, 0, w)
+        for (i in data.indices) {
+            if ((data[i] ushr 24) and 0xFF != 0) {
+                return (i % w) * 10000 + (i / w)
+            }
+        }
+        return 0
+    }
+
+    /**
+     * True when most masked pixels on [master] are low-saturation / low-brightness (neutral channel).
+     */
+    private fun isPredominantlyNeutralMask(
+            mask: java.awt.image.BufferedImage,
+            master: java.awt.image.BufferedImage,
+            neutralSat: Float,
+            neutralBriLow: Float
+    ): Boolean {
+        val w = minOf(mask.width, master.width)
+        val h = minOf(mask.height, master.height)
+        var masked = 0
+        var neutral = 0
+        for (x in 0 until w) {
+            for (y in 0 until h) {
+                if ((mask.getRGB(x, y) ushr 24) and 0xFF == 0) continue
+                masked++
+                val rgb = master.getRGB(x, y)
+                val hsb =
+                        java.awt.Color.RGBtoHSB(
+                                (rgb shr 16) and 0xFF,
+                                (rgb shr 8) and 0xFF,
+                                rgb and 0xFF,
+                                null
+                        )
+                if (hsb[1] < neutralSat || hsb[2] < neutralBriLow) neutral++
+            }
+        }
+        if (masked == 0) return false
+        return neutral.toFloat() / masked >= 0.75f
+    }
+
+    /**
+     * Renumber mask files so channel 1 has the most opaque pixels, then 2, etc. Neutral channels
+     * (low-saturation pixels on the master) are always placed last, matching [clusterColors].
+     */
+    private fun reorderMaskChannelsByPixelCount(
+            dir: Path,
+            files: MutableMap<Int, Path>,
+            prefix: String,
+            masterPath: Path?
+    ): Map<Int, Int> {
+        val oldIndices = files.keys.toList()
+        if (oldIndices.isEmpty()) return emptyMap()
+
+        val params = currentRemaskParameters()
+        val master =
+                masterPath?.let { p ->
+                    try {
+                        ImageIO.read(p.toFile())
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+
+        data class Entry(val oldIdx: Int, val pixels: Int, val tieBreak: Int, val isNeutral: Boolean)
+
+        val entries =
+                oldIndices.mapNotNull { old ->
+                    val path = files[old] ?: return@mapNotNull null
+                    val mask = loadMask(path) ?: return@mapNotNull null
+                    val pixels = countOpaqueMaskPixels(mask)
+                    val tieBreak = maskTieBreak(mask)
+                    val isNeutral =
+                            master != null &&
+                                    isPredominantlyNeutralMask(
+                                            mask,
+                                            master,
+                                            params.neutralSaturation,
+                                            params.neutralBrightnessLow
+                                    )
+                    Entry(old, pixels, tieBreak, isNeutral)
+                }
+
+        if (entries.isEmpty()) return oldIndices.associateWith { it }
+
+        val chromatic =
+                entries
+                        .filter { !it.isNeutral }
+                        .sortedWith(
+                                compareByDescending<Entry> { it.pixels }.thenBy { it.tieBreak }
+                        )
+        val neutral =
+                entries
+                        .filter { it.isNeutral }
+                        .sortedWith(
+                                compareByDescending<Entry> { it.pixels }.thenBy { it.tieBreak }
+                        )
+        val sorted = chromatic + neutral
+
+        val mapping = sorted.withIndex().associate { (i, entry) -> entry.oldIdx to (i + 1) }
+        if (mapping.all { it.key == it.value }) return mapping
 
         val temp = mutableMapOf<Int, Path>()
         for ((oldIdx, path) in files) {
@@ -1737,15 +1860,21 @@ class LayerManager(private val plugin: SneakyMannequins) {
             temp[oldIdx] = tmp
         }
 
-        val renamed = mutableSetOf<Int>()
         for ((oldIdx, tmpPath) in temp) {
             val newIdx = mapping.getValue(oldIdx)
             val final = dir.resolve("${baseMaskName(dir, prefix)}_mask_$newIdx.png")
             Files.move(tmpPath, final)
-            renamed += oldIdx
         }
 
-        return mapping to renamed
+        return mapping
+    }
+
+    /** Reorder master, default, and slim mask sets for a part directory. */
+    private fun reorderAllMaskChannelsInPart(dir: Path) {
+        val master = resolvePartMasterPath(dir)
+        reorderMaskChannelsByPixelCount(dir, loadMaskIndexMap(dir, ""), "", master)
+        reorderMaskChannelsByPixelCount(dir, loadMaskIndexMap(dir, "_Default_"), "_Default_", master)
+        reorderMaskChannelsByPixelCount(dir, loadMaskIndexMap(dir, "_Slim_"), "_Slim_", master)
     }
 
     private fun loadMask(path: Path): BufferedImage? =
@@ -1818,23 +1947,24 @@ class LayerManager(private val plugin: SneakyMannequins) {
         if (unique.size < 2) return ("Provide 2+ channels to merge (e.g. 1 2 4)") to MaskChannelRewriteResult(emptyRewrite(), emptyRewrite(), emptyRewrite())
         val target = unique.first()
         val mergeSet = unique.toSet()
+        val partMaster = resolvePartMasterPath(dir)
 
         fun mergeVariant(prefix: String): MaskChannelRewrite {
             val files = loadMaskIndexMap(dir, prefix)
             val existing = files.keys.sorted()
             if (target !in existing) {
-                val mapping = existing.withIndex().associate { (i, old) -> old to (i + 1) }
+                val mapping = reorderMaskChannelsByPixelCount(dir, files, prefix, partMaster)
                 return MaskChannelRewrite(targetOldIdx = null, mappingOldToNew = mapping, mergedOldIndices = emptySet(), deletedOldIndices = emptySet())
             }
 
             val toMerge = existing.filter { it in mergeSet && it in files }
             if (toMerge.size < 2) {
-                val mapping = existing.withIndex().associate { (i, old) -> old to (i + 1) }
+                val mapping = reorderMaskChannelsByPixelCount(dir, files, prefix, partMaster)
                 return MaskChannelRewrite(targetOldIdx = target, mappingOldToNew = mapping, mergedOldIndices = emptySet(), deletedOldIndices = emptySet())
             }
 
             val baseImg = loadMask(files.getValue(target)) ?: run {
-                val mapping = existing.withIndex().associate { (i, old) -> old to (i + 1) }
+                val mapping = reorderMaskChannelsByPixelCount(dir, files, prefix, partMaster)
                 return MaskChannelRewrite(targetOldIdx = target, mappingOldToNew = mapping, mergedOldIndices = emptySet(), deletedOldIndices = emptySet())
             }
 
@@ -1866,8 +1996,7 @@ class LayerManager(private val plugin: SneakyMannequins) {
                 deleted += ch
             }
 
-            val mapping = files.keys.sorted().withIndex().associate { (i, old) -> old to (i + 1) }
-            compressMaskIndices(dir, files, prefix)
+            val mapping = reorderMaskChannelsByPixelCount(dir, files, prefix, partMaster)
 
             return MaskChannelRewrite(
                     targetOldIdx = target,
@@ -1899,18 +2028,19 @@ class LayerManager(private val plugin: SneakyMannequins) {
         val ch = channel
         if (ch <= 0) return "Channel must be >= 1" to MaskChannelRewriteResult(emptyRewrite(), emptyRewrite(), emptyRewrite())
 
+        val partMaster = resolvePartMasterPath(dir)
+
         fun deleteVariant(prefix: String): MaskChannelRewrite {
             val files = loadMaskIndexMap(dir, prefix)
             val existing = files.keys.sorted()
             if (ch !in existing) {
-                val mapping = existing.withIndex().associate { (i, old) -> old to (i + 1) }
+                val mapping = reorderMaskChannelsByPixelCount(dir, files, prefix, partMaster)
                 return MaskChannelRewrite(targetOldIdx = null, mappingOldToNew = mapping, mergedOldIndices = emptySet(), deletedOldIndices = emptySet())
             }
 
             Files.deleteIfExists(files.getValue(ch))
             files.remove(ch)
-            val mapping = files.keys.sorted().withIndex().associate { (i, old) -> old to (i + 1) }
-            compressMaskIndices(dir, files, prefix)
+            val mapping = reorderMaskChannelsByPixelCount(dir, files, prefix, partMaster)
             return MaskChannelRewrite(targetOldIdx = null, mappingOldToNew = mapping, mergedOldIndices = emptySet(), deletedOldIndices = setOf(ch))
         }
 
