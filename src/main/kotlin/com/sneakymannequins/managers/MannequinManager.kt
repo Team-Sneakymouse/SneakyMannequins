@@ -2709,7 +2709,11 @@ class MannequinManager(
                         recordStats = !savedInternally
                 )
                 .thenAccept { result ->
-                    val url = ConfigManager.instance.getImageUrl(result.file.name)
+                    val url =
+                            ConfigManager.instance.getImageUrl(
+                                    result.file.name,
+                                    cacheBust = result.file.lastModified()
+                            )
                     val slim = result.slim
                     plugin.server.scheduler.runTask(
                             plugin,
@@ -2802,6 +2806,7 @@ class MannequinManager(
             contextPlayer: Player,
             session: SessionData,
             craig: Boolean = false,
+            createNewUid: Boolean = true,
             skinStateName: String = OutfitItem.REGULAR_SKIN_STATE_NAME
     ) {
         sessionManager
@@ -2809,10 +2814,15 @@ class MannequinManager(
                         requester = requester,
                         session = session,
                         contextPlayer = contextPlayer,
-                        craig = craig
+                        craig = craig,
+                        createNewUid = createNewUid
                 )
                 .thenAccept { result ->
-                    val url = ConfigManager.instance.getImageUrl(result.file.name)
+                    val url =
+                            ConfigManager.instance.getImageUrl(
+                                    result.file.name,
+                                    cacheBust = result.file.lastModified()
+                            )
                     val slim = result.slim
                     plugin.server.scheduler.runTask(
                             plugin,

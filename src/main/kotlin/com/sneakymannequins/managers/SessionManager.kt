@@ -570,11 +570,15 @@ class SessionManager(
                     }
             val skin64 = decodedSkin.skin64
             val fullImage = decodedSkin.fullImage
+            val inPlaceSessionUpdate =
+                    sessionOverride != null &&
+                            !createNewUid &&
+                            isWellFormedSessionUid(sessionOverride.uid)
             val lastAppliedUid =
-                    if (createNewUid || characterManagerBridge.active) {
-                        decodedSkin.uid
-                    } else {
-                        null
+                    when {
+                        inPlaceSessionUpdate -> null
+                        createNewUid || characterManagerBridge.active -> decodedSkin.uid
+                        else -> null
                     }
             val baseSession = lastAppliedUid?.let { load(it) }
             val defaultSlim = playerSkinModel == SkinModel.SLIM
@@ -631,7 +635,9 @@ class SessionManager(
                     }
 
             var merged: SessionData =
-                    if (baseSession != null) {
+                    if (inPlaceSessionUpdate) {
+                        sourceSession.copy(slimModel = mannequinSession.slimModel ?: defaultSlim)
+                    } else if (baseSession != null) {
                         if (createNewUid) {
                             // 4–6: Discard bitmap for compose when B exists; merge A onto B (same id → A wins);
                             // new UID already assigned below, then compose + encode + apply.
@@ -639,27 +645,14 @@ class SessionManager(
                             out.putAll(sourceSession.layers)
                             val resultSlim = resultSlimAfterApply(mannequinSession, defaultSlim)
                             
-                            val existingUid = findExistingSession(
-                                slimModel = resultSlim,
-                                layers = out
+                            val existingUid =
+                                    findExistingSession(slimModel = resultSlim, layers = out)
+                            sessionForCreateNewUid(
+                                    existingUid,
+                                    resultSlim,
+                                    out,
+                                    recordStats
                             )
-
-                            if (existingUid != null) {
-                                sessions[existingUid] ?: SessionData(
-                                        uid = existingUid,
-                                        createdAt = Instant.now().toString(),
-                                        slimModel = resultSlim,
-                                        layers = out
-                                )
-                            } else {
-                                val newUid = generateUid()
-                                SessionData(
-                                        uid = newUid,
-                                        createdAt = Instant.now().toString(),
-                                        slimModel = resultSlim,
-                                        layers = out
-                                ).also { persistSession(it, recordStats) }
-                            }
                         } else {
                             merge(sourceSession, baseSession, defaultSlim, contextPlayer)
                         }
@@ -668,27 +661,14 @@ class SessionManager(
                             val resultSlim = resultSlimAfterApply(mannequinSession, defaultSlim)
                             val layers = sourceSession.layers
 
-                            val existingUid = findExistingSession(
-                                slimModel = resultSlim,
-                                layers = layers
+                            val existingUid =
+                                    findExistingSession(slimModel = resultSlim, layers = layers)
+                            sessionForCreateNewUid(
+                                    existingUid,
+                                    resultSlim,
+                                    layers,
+                                    recordStats
                             )
-
-                            if (existingUid != null) {
-                                sessions[existingUid] ?: SessionData(
-                                        uid = existingUid,
-                                        createdAt = Instant.now().toString(),
-                                        slimModel = resultSlim,
-                                        layers = layers
-                                )
-                            } else {
-                                val newUid = generateUid()
-                                SessionData(
-                                        uid = newUid,
-                                        createdAt = Instant.now().toString(),
-                                        slimModel = resultSlim,
-                                        layers = layers
-                                ).also { persistSession(it, recordStats) }
-                            }
                         } else {
                             sourceSession.copy(
                                     slimModel = mannequinSession.slimModel ?: defaultSlim
@@ -712,7 +692,12 @@ class SessionManager(
                                 layers = merged.layers
                             )
                             if (existingUid != null) {
-                                sessions[existingUid] ?: merged.copy(uid = existingUid)
+                                merged.copy(
+                                        uid = existingUid,
+                                        createdAt =
+                                                sessions[existingUid]?.createdAt
+                                                        ?: Instant.now().toString()
+                                )
                             } else {
                                 val newUid = generateUid()
                                 merged.copy(
@@ -736,8 +721,10 @@ class SessionManager(
             // only (same as merge-with-B path).
             val composeBase: BufferedImage? =
                     when {
+                        inPlaceSessionUpdate -> null
                         createNewUid && baseSession != null -> null
                         usedPersistedSkinCompose -> null
+                        sessionOverride != null && baseSession != null -> null
                         else -> fullImage
                     }
 
@@ -796,6 +783,7 @@ class SessionManager(
             session: SessionData,
             contextPlayer: Player = requester,
             craig: Boolean = false,
+            createNewUid: Boolean = true,
             recordStats: Boolean = true
     ): CompletableFuture<FinalizedResult> {
         val dummy =
@@ -810,7 +798,7 @@ class SessionManager(
                 sessionOverride = session,
                 contextPlayer = contextPlayer,
                 craig = craig,
-                createNewUid = true,
+                createNewUid = createNewUid,
                 recordStats = recordStats
         )
     }
@@ -924,6 +912,37 @@ class SessionManager(
                 plugin.logger.warning("Failed to log session history: ${e.message}")
             }
         }
+    }
+
+    /**
+     * When [createNewUid] finalization finds a matching fingerprint, reuse that UID but always
+     * persist [layers] — never return a stale [sessions] entry (e.g. after toggling
+     * [LayerSessionData.disabled]).
+     */
+    private fun sessionForCreateNewUid(
+            existingUid: String?,
+            resultSlim: Boolean?,
+            layers: Map<String, LayerSessionData>,
+            recordStats: Boolean
+    ): SessionData {
+        if (existingUid != null) {
+            val existing = sessions[existingUid]
+            return SessionData(
+                            uid = existingUid,
+                            createdAt = existing?.createdAt ?: Instant.now().toString(),
+                            slimModel = resultSlim,
+                            layers = layers
+                    )
+                    .also { persistSession(it, recordStats) }
+        }
+        val newUid = generateUid()
+        return SessionData(
+                        uid = newUid,
+                        createdAt = Instant.now().toString(),
+                        slimModel = resultSlim,
+                        layers = layers
+                )
+                .also { persistSession(it, recordStats) }
     }
 
     private fun findExistingSession(

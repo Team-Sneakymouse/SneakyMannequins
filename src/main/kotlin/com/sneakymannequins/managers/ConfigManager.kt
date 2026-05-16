@@ -29,14 +29,21 @@ class ConfigManager {
      * @param imageName The filename of the image (e.g., "skin-123.png")
      * @return Full URL where the image can be accessed
      */
-    fun getImageUrl(imageName: String): String {
+    fun getImageUrl(imageName: String, cacheBust: Long? = null): String {
         val urlPrefix =
                 config.getString("images.url-prefix", "http://localhost:8080/images/")
                         ?: "http://localhost:8080/images/"
-        return if (urlPrefix.endsWith("/")) {
-            "$urlPrefix$imageName"
+        val base =
+                if (urlPrefix.endsWith("/")) {
+                    "$urlPrefix$imageName"
+                } else {
+                    "$urlPrefix/$imageName"
+                }
+        return if (cacheBust != null) {
+            val sep = if (base.contains('?')) '&' else '?'
+            "$base${sep}v=$cacheBust"
         } else {
-            "$urlPrefix/$imageName"
+            base
         }
     }
 
