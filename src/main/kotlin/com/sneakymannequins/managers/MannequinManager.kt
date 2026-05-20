@@ -479,15 +479,40 @@ class MannequinManager(
 
     // ── Session save/load ────────────────────────────────────────────────────────
 
+    private fun resolveSessionLayerOption(
+            layerId: String,
+            optionId: String?,
+            allowEmpty: Boolean,
+            viewer: Player?
+    ): LayerOption? {
+        when (optionId) {
+            null ->
+                    return if (allowEmpty) {
+                        layerManager.allOptions(layerId).find { it.id == "none" }
+                    } else {
+                        null
+                    }
+            "none" -> return layerManager.allOptions(layerId).find { it.id == "none" }
+            else -> {
+                val id = optionId
+                return layerManager.findPartById(layerId, id)
+                        ?: viewer?.let { layerManager.optionsFor(layerId, it).find { opt -> opt.id == id } }
+            }
+        }
+    }
+
     /**
      * Apply a loaded [SessionData] to the specified mannequin and re-render. Layers in the session
-     * that don't match a current definition are silently skipped. Layers not present in the session
-     * keep their current selection (partial load).
+     * that don't match a current definition are silently skipped. Layers not in the session but
+     * marked [LayerDefinition.allowEmpty] are set to the "none" part; other omitted layers keep
+     * their current mannequin selection.
      *
      * Sets the mannequin's saved UID and in-memory save fingerprint to this session so an immediate
      * save (HUD, chat load, Copy Me, or `/mannequin debug save`) correctly reports "Session unchanged".
+     *
+     * @param viewer When set, player-owned uploaded parts can be resolved (required for Copy Me).
      */
-    fun applySession(mannequinId: UUID, session: SessionData) {
+    fun applySession(mannequinId: UUID, session: SessionData, viewer: Player? = null) {
         val mannequin = mannequins[mannequinId] ?: return
         val state = controlState.getOrPut(mannequinId) { ControlState() }
 
@@ -498,12 +523,14 @@ class MannequinManager(
         val newSelections = mannequin.selection.selections.toMutableMap()
 
         val sessionForApply = session.withoutLayerDisabledFlags()
+        val appliedLayerIds = mutableSetOf<String>()
+
         for ((layerId, layerData) in sessionForApply.layers) {
-            if (!defMap.containsKey(layerId)) continue
-            val opts = layerManager.optionsFor(layerId)
-            val option =
-                    if (layerData.option != null) opts.find { it.id == layerData.option } else null
-            if (option == null && layerData.option != null) continue
+            val def = defMap[layerId] ?: continue
+            appliedLayerIds += layerId
+
+            val option = resolveSessionLayerOption(layerId, layerData.option, def.allowEmpty, viewer)
+            if (layerData.option != null && layerData.option != "none" && option == null) continue
 
             val channelColors =
                     layerData
@@ -535,15 +562,28 @@ class MannequinManager(
             newSelections[layerId] =
                     LayerSelection(
                             layerId = layerId,
-                            option = option ?: opts.firstOrNull(),
+                            option = option,
                             channelColors = channelColors,
                             texturedColors = texturedColors,
                             selectedTexture = layerData.selectedTexture
                     )
         }
 
+        for (def in definitions) {
+            if (def.id in appliedLayerIds || !def.allowEmpty) continue
+            val noneOpt = layerManager.allOptions(def.id).find { it.id == "none" } ?: continue
+            newSelections[def.id] =
+                    LayerSelection(
+                            layerId = def.id,
+                            option = noneOpt,
+                            channelColors = emptyMap(),
+                            texturedColors = emptyMap(),
+                            selectedTexture = null
+                    )
+        }
+
         mannequin.selection = SkinSelection(newSelections)
-        syncControlState(mannequin, state)
+        syncControlState(mannequin, state, viewer)
         for (def in definitions) rememberCurrentPartSelection(mannequin, def)
         mannequin.lastFrame = PixelFrame.blank()
 
@@ -578,7 +618,7 @@ class MannequinManager(
                 player.sendMessage(Component.text("Load blocked.").color(NamedTextColor.RED))
                 return true
             }
-            applySession(manId, session)
+            applySession(manId, session, viewer = player)
             player.sendMessage(
                     Component.text("Loaded: ")
                             .color(NamedTextColor.GREEN)
@@ -1277,8 +1317,15 @@ class MannequinManager(
                                 updateStatus(mannequinId, "${prettyName(chosen)}")
                             }
                         } else {
+                            val layerDef = styleLayers[targetIdx]
                             state.layerIndex = targetIdx
-                            updateStatus(mannequinId, "Layer: ${prettyName(configBtn.targetLayer)}")
+                            val sel = mannequin.selection.selections[layerDef.id]
+                            state.partIndex[layerDef.id] =
+                                    partListIndexForOption(layerDef.id, sel?.option?.id, player)
+                            updateStatus(
+                                    mannequinId,
+                                    "${prettyName(layerDef.displayName)}: ${sel?.option?.let { prettyName(it.displayName) } ?: "?"}"
+                            )
                         }
                     }
                 } else {
@@ -1715,7 +1762,7 @@ class MannequinManager(
                             plugin.server.scheduler.runTask(
                                     plugin,
                                     Runnable {
-                                        applySession(mannequinId, session)
+                                        applySession(mannequinId, session, viewer = player)
                                         updateStatus(mannequinId, "Copied")
                                     }
                             )
@@ -3317,17 +3364,33 @@ class MannequinManager(
         }
     }
 
-    private fun syncControlState(mannequin: Mannequin, state: ControlState) {
+    /**
+     * Index of [optionId] in the part cycle list ([LayerManager.optionsFor] for [viewer]).
+     * Player uploads are only visible when [viewer] is set.
+     */
+    private fun partListIndexForOption(
+            layerId: String,
+            optionId: String?,
+            viewer: Player?
+    ): Int {
+        if (optionId == null) return 0
+        val opts =
+                if (viewer != null) layerManager.optionsFor(layerId, viewer)
+                else layerManager.optionsFor(layerId)
+        val idx = opts.indexOfFirst { it.id == optionId }
+        if (idx >= 0) return idx
+        return layerManager.allOptions(layerId).indexOfFirst { it.id == optionId }.coerceAtLeast(0)
+    }
+
+    private fun syncControlState(mannequin: Mannequin, state: ControlState, viewer: Player? = null) {
         val definitions = layerManager.definitionsInOrder()
         for (def in definitions) {
             val sel = mannequin.selection.selections[def.id]
-            val opts = layerManager.optionsFor(def.id)
-            state.partIndex[def.id] =
-                    opts.indexOfFirst { it.id == sel?.option?.id }.coerceAtLeast(0)
+            state.partIndex[def.id] = partListIndexForOption(def.id, sel?.option?.id, viewer)
             state.channelIndex[def.id] = 0
             state.colorIndex[def.id] = 0
             val rawTex =
-                    if (sel?.option != null) layerManager.resolveTextures(def, sel.option, null)
+                    if (sel?.option != null) layerManager.resolveTextures(def, sel.option, viewer)
                     else emptyList()
             state.textureIndex[def.id] =
                     if (sel?.selectedTexture != null)
