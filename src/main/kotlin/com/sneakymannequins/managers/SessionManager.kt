@@ -9,7 +9,6 @@ import com.sneakymannequins.model.LayerSessionData
 import com.sneakymannequins.model.Mannequin
 import com.sneakymannequins.model.SessionData
 import com.sneakymannequins.model.SkinSelection
-import com.sneakymannequins.util.SkinComposer
 import com.sneakymannequins.util.SkinUv
 import com.sneakymouse.sneakyholos.util.TextUtility
 import java.awt.Color
@@ -729,37 +728,12 @@ class SessionManager(
                     }
 
             val selection = sessionToSelection(merged)
-            val layersDef = layerManager.definitionsInOrder()
-            val hueSuppressSatLow =
-                    plugin.config.getDouble("plugin.tinting.hue-suppress-saturation-low", 0.03).toFloat()
-            val hueSuppressSatHigh =
-                    plugin.config.getDouble("plugin.tinting.hue-suppress-saturation-high", 0.10).toFloat()
 
             val sessionImage =
-                    SkinComposer.compose(
-                            layers = layersDef,
+                    layerManager.composeSkin(
                             selection = selection,
                             useSlimModel = slim,
-                            optionResolver = { l, o -> layerManager.allOptions(l).find { it.id == o } },
-                            textureResolver = { layerManager.texture(it) },
-                            baseImage = composeBase,
-                            blinkEnabled =
-                                    plugin.config.getBoolean(
-                                            "integrations.entity-texture-features.blink-enabled",
-                                            false
-                                    ),
-                            jacketEnabled =
-                                    plugin.config.getBoolean(
-                                            "integrations.entity-texture-features.jacket-enabled",
-                                            false
-                                    ),
-                            defaultJacketStyle =
-                                    plugin.config.getInt(
-                                            "integrations.entity-texture-features.jacket-dress-style",
-                                            5
-                                    ),
-                            hueSuppressSaturationLow = hueSuppressSatLow,
-                            hueSuppressSaturationHigh = hueSuppressSatHigh
+                            baseImage = composeBase
                     )
             
             val finalImage = if (craig) com.sneakymannequins.util.SkinTransform.craig(sessionImage) else sessionImage

@@ -17,7 +17,6 @@ import com.sneakymannequins.model.PixelFrame
 import com.sneakymannequins.model.SessionData
 import com.sneakymannequins.model.SkinSelection
 import com.sneakymannequins.model.TextDisplayBrightnessSetting
-import com.sneakymannequins.model.TextureDefinition
 import com.sneakymannequins.model.buildChannelSlots
 import com.sneakymannequins.model.hexToColor
 import com.sneakymannequins.nms.VolatileHandler
@@ -26,7 +25,6 @@ import com.sneakymannequins.render.TextDisplayLightSupplier
 import com.sneakymannequins.render.PixelProjector
 import com.sneakymannequins.render.RenderMode
 import com.sneakymannequins.render.RenderSettings
-import com.sneakymannequins.util.SkinComposer
 import com.sneakymannequins.util.SkinUv
 import com.sneakymouse.sneakyholos.*
 import com.sneakymouse.sneakyholos.util.HoloGridBuilder
@@ -742,34 +740,6 @@ class MannequinManager(
     }
 
     /**
-     * Resolves the current (fresh) [LayerOption] for a layer+option ID, so the composer always
-     * reads up-to-date mask paths after a remask.
-     */
-    private val optionResolver: (String, String) -> LayerOption? = { layerId, optionId ->
-        layerManager.findPartById(layerId, optionId)
-    }
-
-    /**
-     * Build a texture resolver that returns the [TextureDefinition] selected for a given layer
-     * (based on the mannequin's current selection). Returns null when the layer uses "Default"
-     * (flat colour, no texture).
-     */
-    private fun textureResolver(mannequin: Mannequin): (String) -> TextureDefinition? = { layerId ->
-        val sel = mannequin.selection.selections[layerId]
-        sel?.selectedTexture?.let { layerManager.texture(it) }
-    }
-
-    private val brightnessInfluenceResolver: (String, LayerOption) -> Float = { layerId, option ->
-        val layerDef = layerManager.definitionsInOrder().find { it.id == layerId }
-        if (layerDef != null) layerManager.resolveBrightnessInfluence(layerDef, option) else 0f
-    }
-
-    private val saturationInfluenceResolver: (String, LayerOption) -> Float = { layerId, option ->
-        val layerDef = layerManager.definitionsInOrder().find { it.id == layerId }
-        if (layerDef != null) layerManager.resolveSaturationInfluence(layerDef, option) else 1f
-    }
-
-    /**
      * Build the flat list of [ChannelSlot]s for a layer, taking the currently selected texture into
      * account. When the texture has a blend map with multiple active sub-channels, each mask
      * channel expands (1a, 1b, …).
@@ -803,38 +773,12 @@ class MannequinManager(
             forceAll: Boolean = false,
             fullColorMaskInfluence: Boolean = false
     ): Int {
-        val definitions = layerManager.definitionsInOrder()
-        val hueSuppressSatLow =
-                plugin.config.getDouble("plugin.tinting.hue-suppress-saturation-low", 0.03).toFloat()
-        val hueSuppressSatHigh =
-                plugin.config.getDouble("plugin.tinting.hue-suppress-saturation-high", 0.10).toFloat()
         val composed =
-                SkinComposer.compose(
-                        definitions,
-                        mannequin.selection,
+                layerManager.composeSkin(
+                        selection = mannequin.selection,
                         useSlimModel = isSlimModel(mannequin),
-                        optionResolver = optionResolver,
-                        textureResolver = textureResolver(mannequin),
-                        brightnessInfluenceResolver = brightnessInfluenceResolver,
-                        saturationInfluenceResolver = saturationInfluenceResolver,
-                        blinkEnabled =
-                        	plugin.config.getBoolean(
-                        		"integrations.entity-texture-features.blink-enabled",
-                        		false
-                        	),
-                        jacketEnabled =
-			plugin.config.getBoolean(
-				"integrations.entity-texture-features.jacket-enabled", 
-				false
-			),
-                        showOverlay = mannequin.showOverlay, defaultJacketStyle =
-                        	plugin.config.getInt(
-                        		"integrations.entity-texture-features.jacket-dress-style",
-                        		5
-                        	),
-                        fullColorMaskInfluence = fullColorMaskInfluence,
-                        hueSuppressSaturationLow = hueSuppressSatLow,
-                        hueSuppressSaturationHigh = hueSuppressSatHigh
+                        showOverlay = mannequin.showOverlay,
+                        fullColorMaskInfluence = fullColorMaskInfluence
                 )
         val nextFrame = PixelFrame.fromImage(composed)
         val diff =
@@ -952,38 +896,11 @@ class MannequinManager(
                     "[DEBUG] renderFull for mannequin ${mannequin.id} to ${viewers.size} viewers (firstSeen: $isFirstSeen)"
             )
         }
-        val definitions = layerManager.definitionsInOrder()
-        val hueSuppressSatLow =
-                plugin.config.getDouble("plugin.tinting.hue-suppress-saturation-low", 0.03).toFloat()
-        val hueSuppressSatHigh =
-                plugin.config.getDouble("plugin.tinting.hue-suppress-saturation-high", 0.10).toFloat()
         val composed =
-                SkinComposer.compose(
-                        definitions,
-                        mannequin.selection,
+                layerManager.composeSkin(
+                        selection = mannequin.selection,
                         useSlimModel = isSlimModel(mannequin),
-                        optionResolver = optionResolver,
-                        textureResolver = textureResolver(mannequin),
-                        brightnessInfluenceResolver = brightnessInfluenceResolver,
-                        saturationInfluenceResolver = saturationInfluenceResolver,
-                        blinkEnabled =
-                        	plugin.config.getBoolean(
-                        		"integrations.entity-texture-features.blink-enabled",
-                        		false
-                        	),
-                        jacketEnabled =
-			plugin.config.getBoolean(
-				"integrations.entity-texture-features.jacket-enabled", 
-				false
-			),
-                        showOverlay = mannequin.showOverlay, defaultJacketStyle =
-                        	plugin.config.getInt(
-                        		"integrations.entity-texture-features.jacket-dress-style",
-                        		5
-                        	)
-                        ,
-                        hueSuppressSaturationLow = hueSuppressSatLow,
-                        hueSuppressSaturationHigh = hueSuppressSatHigh
+                        showOverlay = mannequin.showOverlay
                 )
         mannequin.lastFrame = PixelFrame.fromImage(composed)
         val changes = mutableListOf<PixelChange>()
@@ -3105,46 +3022,12 @@ class MannequinManager(
     }
 
 
-    private fun composeCurrentSkin(mannequin: Mannequin): java.awt.image.BufferedImage {
-        val definitions = layerManager.definitionsInOrder()
-        val hueSuppressSatLow =
-                plugin.config.getDouble("plugin.tinting.hue-suppress-saturation-low", 0.03).toFloat()
-        val hueSuppressSatHigh =
-                plugin.config.getDouble("plugin.tinting.hue-suppress-saturation-high", 0.10).toFloat()
-        return SkinComposer.compose(
-                definitions,
-                mannequin.selection,
-                useSlimModel = isSlimModel(mannequin),
-                optionResolver = { lid, oid -> layerManager.optionsFor(lid).find { it.id == oid } },
-                textureResolver = { tid: String -> layerManager.texture(tid) },
-                brightnessInfluenceResolver = { layerId, option ->
-                    val def = layerManager.definitionsInOrder().find { it.id == layerId }
-                    if (def != null) layerManager.resolveBrightnessInfluence(def, option) else 0f
-                },
-                saturationInfluenceResolver = { layerId, option ->
-                    val def = layerManager.definitionsInOrder().find { it.id == layerId }
-                    if (def != null) layerManager.resolveSaturationInfluence(def, option) else 1f
-                },
-                blinkEnabled =
-                	plugin.config.getBoolean(
-                		"integrations.entity-texture-features.blink-enabled",
-                		false
-                	),
-                jacketEnabled =
-                	plugin.config.getBoolean(
-                		"integrations.entity-texture-features.jacket-enabled",
-                		false
-                	),
-                defaultJacketStyle =
-                	plugin.config.getInt(
-                		"integrations.entity-texture-features.jacket-dress-style",
-                		5
-                	),
-                showOverlay = mannequin.showOverlay,
-                hueSuppressSaturationLow = hueSuppressSatLow,
-                hueSuppressSaturationHigh = hueSuppressSatHigh
-        )
-    }
+    private fun composeCurrentSkin(mannequin: Mannequin): java.awt.image.BufferedImage =
+            layerManager.composeSkin(
+                    selection = mannequin.selection,
+                    useSlimModel = isSlimModel(mannequin),
+                    showOverlay = mannequin.showOverlay
+            )
 
     /**
      * Players who should receive incremental [render] / [renderFull] updates: same world, within

@@ -8,9 +8,11 @@ import com.sneakymannequins.model.NamedColor
 import com.sneakymannequins.model.PaletteRef
 import com.sneakymannequins.model.PaletteSpec
 import com.sneakymannequins.model.TextureDefinition
+import com.sneakymannequins.model.SkinSelection
 import com.sneakymannequins.model.TextureRef
 import com.sneakymannequins.model.TextureSpec
 import com.sneakymannequins.util.BlinkEyeGeometry
+import com.sneakymannequins.util.SkinComposer
 import com.sneakymannequins.util.SkinUv
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
@@ -3501,6 +3503,63 @@ class LayerManager(private val plugin: SneakyMannequins) {
     fun resolveSaturationInfluence(layerDef: LayerDefinition, option: LayerOption): Float {
         return option.saturationInfluence
                 ?: layerDef.saturationInfluence ?: defaultSaturationInfluence
+    }
+
+    /**
+     * Compose a 64×64 skin from [selection]. Single entry point for mannequin preview, session
+     * finalization, and any other skin output — all pixel tinting uses the same influence and
+     * texture resolution.
+     */
+    fun composeSkin(
+            selection: SkinSelection,
+            useSlimModel: Boolean,
+            baseImage: BufferedImage? = null,
+            showOverlay: Boolean = true,
+            fullColorMaskInfluence: Boolean = false
+    ): BufferedImage {
+        val hueSuppressSatLow =
+                plugin.config.getDouble("plugin.tinting.hue-suppress-saturation-low", 0.03).toFloat()
+        val hueSuppressSatHigh =
+                plugin.config.getDouble("plugin.tinting.hue-suppress-saturation-high", 0.10).toFloat()
+        return SkinComposer.compose(
+                layers = definitionsInOrder(),
+                selection = selection,
+                useSlimModel = useSlimModel,
+                optionResolver = { layerId, optionId -> findPartById(layerId, optionId) },
+                textureResolver = { layerId ->
+                    selection.selections[layerId]?.selectedTexture?.let { texture(it) }
+                },
+                brightnessInfluenceResolver = { layerId, option ->
+                    val def = loadedLayers[layerId]?.first
+                    if (def != null) resolveBrightnessInfluence(def, option)
+                    else defaultBrightnessInfluence
+                },
+                saturationInfluenceResolver = { layerId, option ->
+                    val def = loadedLayers[layerId]?.first
+                    if (def != null) resolveSaturationInfluence(def, option)
+                    else defaultSaturationInfluence
+                },
+                baseImage = baseImage,
+                blinkEnabled =
+                        plugin.config.getBoolean(
+                                "integrations.entity-texture-features.blink-enabled",
+                                false
+                        ),
+                jacketEnabled =
+                        plugin.config.getBoolean(
+                                "integrations.entity-texture-features.jacket-enabled",
+                                false
+                        ),
+                defaultJacketStyle =
+                        plugin.config.getInt(
+                                "integrations.entity-texture-features.jacket-dress-style",
+                                5
+                        ),
+                showOverlay = showOverlay,
+                hueSuppressSaturationLow = hueSuppressSatLow,
+                hueSuppressSaturationHigh = hueSuppressSatHigh,
+                fullColorMaskInfluence = fullColorMaskInfluence
+        )
     }
 
     // ── Layer definition parsing ─────────────────────────────────────────
