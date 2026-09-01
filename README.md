@@ -1,6 +1,6 @@
 # SneakyMannequins
 
-A Paper 1.21.4 plugin that renders fully interactive mannequin previews built from per-pixel text displays. Players can walk up to a mannequin, browse a holographic HUD, and customise a live 3D skin preview assembled on the server from configurable layers. This plugin utilizes the [SneakyHolos](../SneakyHolos) library for high-performance interaction and UI management.
+A Paper 26.2 plugin that renders fully interactive mannequin previews built from per-pixel text displays. Players can walk up to a mannequin, browse a holographic HUD, and customise a live 3D skin preview assembled on the server from configurable layers. This plugin uses the [SneakyHolos](../SneakyHolos) library for interaction and UI management.
 
 ## Features
 

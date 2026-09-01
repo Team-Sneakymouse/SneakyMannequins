@@ -1,4 +1,4 @@
-package com.sneakymannequins.nms.v1_21_4
+package com.sneakymannequins.nms.v26_2
 
 import com.sneakymannequins.SneakyMannequins
 import com.sneakymannequins.model.PixelChange
@@ -17,7 +17,7 @@ import net.minecraft.server.level.ServerPlayer
 import net.minecraft.util.Brightness
 import net.minecraft.world.entity.Display
 import net.minecraft.world.entity.Display.TextDisplay
-import net.minecraft.world.entity.EntityType
+import net.minecraft.world.entity.EntityTypes
 import net.minecraft.world.phys.Vec3
 import org.bukkit.Location
 import org.bukkit.craftbukkit.entity.CraftPlayer
@@ -25,9 +25,9 @@ import org.bukkit.entity.Player
 import org.joml.Quaternionf
 import org.joml.Vector3f
 
-class VolatileHandler1214(private val plugin: SneakyMannequins) : VolatileHandler {
+class VolatileHandler262(private val plugin: SneakyMannequins) : VolatileHandler {
 
-    override val targetMinecraftVersion: String = "1.21.4"
+    override val targetMinecraftVersion: String = "26.2"
     private val entityIdCounter = AtomicInteger(1_000_000)
     override fun pixelScaleMultiplier(): Float = VolatileHandler.DEFAULT_PIXEL_SCALE_MULTIPLIER
     private val renderManager = PixelRenderManager()
@@ -85,7 +85,7 @@ class VolatileHandler1214(private val plugin: SneakyMannequins) : VolatileHandle
                         textLightSky.coerceIn(0, 15)
                 )
         val handle = (viewer as CraftPlayer).handle as ServerPlayer
-        val level = handle.serverLevel()
+        val level = handle.level()
         val connection = handle.connection
 
         if (plugin.config.getBoolean("plugin.debug", false)) {
@@ -105,7 +105,7 @@ class VolatileHandler1214(private val plugin: SneakyMannequins) : VolatileHandle
                 mannequinId = mannequinId,
                 projected = projected,
                 spawn = { proj, entityId ->
-                    val display = TextDisplay(EntityType.TEXT_DISPLAY, level)
+                    val display = TextDisplay(EntityTypes.TEXT_DISPLAY, level)
                     display.setPos(proj.x, proj.y, proj.z)
                     // Entity rotation stays at 0; face orientation lives in the
                     // transformation's left-rotation quaternion so the client
@@ -204,7 +204,7 @@ class VolatileHandler1214(private val plugin: SneakyMannequins) : VolatileHandle
                                     0f, // no entity pitch — orientation is in the
                                     // transformation
                                     0f, // no entity yaw
-                                    EntityType.TEXT_DISPLAY,
+                                    EntityTypes.TEXT_DISPLAY,
                                     0,
                                     Vec3.ZERO,
                                     0.0
@@ -259,7 +259,7 @@ class VolatileHandler1214(private val plugin: SneakyMannequins) : VolatileHandle
                 remove = { proj, entityId ->
                     val flyOut = if (!proj.visible) flyInOffsets[proj.index] else null
                     if (flyOut != null) {
-                        val display = TextDisplay(EntityType.TEXT_DISPLAY, level)
+                        val display = TextDisplay(EntityTypes.TEXT_DISPLAY, level)
                         display.setPos(proj.x, proj.y, proj.z)
                         display.setBillboardConstraints(Display.BillboardConstraints.FIXED)
                         display.setShadowRadius(0f)

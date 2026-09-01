@@ -1,5 +1,8 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     kotlin("jvm")
+    id("io.papermc.paperweight.userdev")
 }
 
 repositories {
@@ -8,12 +11,10 @@ repositories {
 
 dependencies {
     implementation(project(":SneakyHolos"))
-    compileOnly("io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT")
-    compileOnly(files("../run/versions/1.21.4/paper-1.21.4.jar"))
-    compileOnly("io.netty:netty-all:4.1.112.Final")
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.21")
+    paperweight.paperDevBundle("26.2.build.+")
+    implementation(kotlin("stdlib"))
     implementation("com.google.code.gson:gson:2.10.1")
-    compileOnly("io.github.team-sneakymouse:sneakycharactermanager-paper:1.5.0")
+    compileOnly(files("../../SneakyCharacterManager-Paper/build/libs/SneakyCharacterManager.jar"))
     compileOnly("me.clip:placeholderapi:2.11.6")
 
     testImplementation(kotlin("test"))
@@ -21,7 +22,10 @@ dependencies {
 }
 
 kotlin {
-    jvmToolchain(21)
+    jvmToolchain(25)
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_25)
+    }
 }
 
 tasks {
@@ -29,12 +33,6 @@ tasks {
         useJUnitPlatform()
     }
 
-    compileKotlin {
-        kotlinOptions {
-            jvmTarget = "21"
-        }
-    }
-    
     processResources {
         filesMatching("paper-plugin.yml") {
             expand("version" to version)

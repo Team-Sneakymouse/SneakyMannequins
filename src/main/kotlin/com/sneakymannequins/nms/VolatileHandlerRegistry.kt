@@ -1,7 +1,7 @@
 package com.sneakymannequins.nms
 
 import com.sneakymannequins.SneakyMannequins
-import com.sneakymannequins.nms.v1_21_4.VolatileHandler1214
+import com.sneakymannequins.nms.v26_2.VolatileHandler262
 import org.bukkit.Bukkit
 
 object VolatileHandlerRegistry {
@@ -9,7 +9,7 @@ object VolatileHandlerRegistry {
     fun resolve(plugin: SneakyMannequins): VolatileHandler {
         val version = Bukkit.getMinecraftVersion()
         return when (version) {
-            "1.21.4" -> VolatileHandler1214(plugin)
+            "26.2" -> VolatileHandler262(plugin)
             else -> {
                 plugin.logger.warning("Minecraft version $version is not explicitly supported; mannequin rendering disabled.")
                 UnsupportedVolatileHandler(version, plugin)

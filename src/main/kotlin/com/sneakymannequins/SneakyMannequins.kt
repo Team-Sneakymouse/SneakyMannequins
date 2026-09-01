@@ -23,7 +23,7 @@ import com.sneakymannequins.managers.StyleManager
 import com.sneakymannequins.nms.VolatileHandler
 import com.sneakymannequins.nms.VolatileHandlerRegistry
 import com.sneakymouse.sneakyholos.HoloController
-import com.sneakymouse.sneakyholos.v1_21_4.HoloHandler1214
+import com.sneakymouse.sneakyholos.v26_2.HoloHandler262
 import io.papermc.paper.event.player.AsyncChatEvent
 import java.io.File
 import java.util.jar.JarFile
@@ -86,7 +86,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
         statsManager = StatsManager(this, dataFolder)
         val sm = SessionManager(this, dataFolder, layerManager, characterManagerBridge, statsManager)
         sessionManager = sm
-        holoController = HoloController(this, HoloHandler1214()).also { it.start() }
+        holoController = HoloController(this, HoloHandler262()).also { it.start() }
         mannequinManager =
                 MannequinManager(
                                 this,
