@@ -1,47 +1,117 @@
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
-    kotlin("jvm")
-    id("io.papermc.paperweight.userdev")
+	kotlin("jvm") version "2.4.10"
+	id("io.papermc.paperweight.userdev") version "2.0.0-beta.22"
+	`maven-publish`
+}
+
+group = "io.github.team-sneakymouse"
+
+version = providers.exec {
+	workingDir(projectDir)
+	commandLine("git", "show", "-s", "--format=%ct:%h", "--abbrev=12", "HEAD")
+}.standardOutput.asText.map { commit ->
+	val (timestamp, hash) = commit.trim().split(":", limit = 2)
+	val date = DateTimeFormatter.ofPattern("yyyy.MM.dd").withZone(ZoneOffset.UTC)
+		.format(Instant.ofEpochSecond(timestamp.toLong()))
+	"$date-$hash"
+}.get()
+
+base {
+	archivesName.set("SneakyMannequins")
 }
 
 repositories {
-    maven("https://repo.extendedclip.com/content/repositories/placeholderapi/")
+	mavenCentral()
+	maven("https://repo.papermc.io/repository/maven-public/")
+	maven("https://repo.extendedclip.com/content/repositories/placeholderapi/")
 }
 
-dependencies {
-    implementation(project(":SneakyHolos"))
-    paperweight.paperDevBundle("26.2.build.+")
-    implementation(kotlin("stdlib"))
-    implementation("com.google.code.gson:gson:2.10.1")
-    compileOnly(files("../../SneakyCharacterManager-Paper/build/libs/SneakyCharacterManager.jar"))
-    compileOnly("me.clip:placeholderapi:2.11.6")
+val characterManagerJar = sequenceOf(
+	rootDir.resolve("../../SneakyCharacterManager-Paper/build/libs/SneakyCharacterManager.jar"),
+	rootDir.resolve("../SneakyCharacterManager-Paper/build/libs/SneakyCharacterManager.jar"),
+).firstOrNull { it.isFile }
+	?: error(
+		"SneakyCharacterManager.jar not found. Build SneakyCharacterManager-Paper and ensure " +
+			"SneakyCharacterManager.jar exists under its build/libs (looked in ../../ and ../)."
+	)
 
-    testImplementation(kotlin("test"))
-    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+dependencies {
+	implementation(project(":SneakyHolos"))
+	paperweight.paperDevBundle("26.2.build.+")
+	implementation(kotlin("stdlib"))
+	implementation("com.google.code.gson:gson:2.10.1")
+	compileOnly(files(characterManagerJar))
+	compileOnly("me.clip:placeholderapi:2.11.6")
+
+	testImplementation(kotlin("test"))
+	testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
 }
 
 kotlin {
-    jvmToolchain(25)
-    compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_25)
-    }
+	jvmToolchain(25)
+	compilerOptions {
+		jvmTarget.set(JvmTarget.JVM_25)
+	}
 }
 
 tasks {
-    test {
-        useJUnitPlatform()
-    }
+	test {
+		useJUnitPlatform()
+	}
 
-    processResources {
-        filesMatching("paper-plugin.yml") {
-            expand("version" to version)
-        }
-    }
+	processResources {
+		inputs.property("version", project.version.toString())
+		filesMatching(listOf("paper-plugin.yml", "plugin.yml")) {
+			expand("version" to project.version.toString())
+		}
+	}
 
-    jar {
-        from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
-        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    }
+	jar {
+		archiveBaseName.set("SneakyMannequins")
+		archiveFileName.set("SneakyMannequins-${project.version}.jar")
+		from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
+		duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+	}
 }
 
+// Only publish when this repo is the Gradle root (not when included from HoloUX-Workspace).
+if (project == rootProject) {
+	publishing {
+		publications {
+			create<MavenPublication>("maven") {
+				artifactId = "sneakymannequins"
+				artifact(tasks.jar) {
+					classifier = null
+				}
+				pom {
+					name.set("SneakyMannequins")
+					description.set("Paper plugin for interactive mannequin skin previews and holographic customization HUDs.")
+					url.set("https://github.com/Team-Sneakymouse/SneakyMannequins")
+					scm {
+						url.set("https://github.com/Team-Sneakymouse/SneakyMannequins")
+						connection.set("scm:git:https://github.com/Team-Sneakymouse/SneakyMannequins.git")
+					}
+				}
+			}
+		}
+		repositories {
+			maven {
+				name = "sneakyrp"
+				url = uri("https://maven.sneakyrp.com/releases")
+				credentials(PasswordCredentials::class)
+				authentication {
+					create<org.gradle.authentication.http.BasicAuthentication>("basic")
+				}
+			}
+		}
+	}
+
+	tasks.withType<PublishToMavenRepository>().configureEach {
+		dependsOn(tasks.check)
+	}
+}
