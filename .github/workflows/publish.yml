@@ -15,24 +15,9 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     steps:
-      - name: Checkout SneakyMannequins
-        uses: actions/checkout@v4
-        with:
-          path: SneakyMannequins
-
-      - name: Checkout SneakyHolos (project dependency)
-        uses: actions/checkout@v4
-        with:
-          repository: Team-Sneakymouse/SneakyHolos
-          path: SneakyHolos
-
-      - name: Checkout SneakyCharacterManager-Paper (compileOnly)
-        uses: actions/checkout@v4
-        with:
-          repository: Team-Sneakymouse/SneakyCharacterManager-Paper
-          path: SneakyCharacterManager-Paper
+      - uses: actions/checkout@v4
 
       - name: Set up Java 25
         uses: actions/setup-java@v5
@@ -43,12 +28,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build CharacterManager compile jar
-        working-directory: SneakyCharacterManager-Paper
-        run: ./gradlew jar --no-daemon --console=plain
-
       - name: Build and check
-        working-directory: SneakyMannequins
         run: ./gradlew build --no-daemon --console=plain
 
       - name: Fetch Maven credentials from Infisical
@@ -62,10 +42,9 @@ jobs:
           secret-path: /Maven
 
       - name: Publish
-        working-directory: SneakyMannequins
         run: |
           : "${MAVEN_USERNAME:?Infisical must provide MAVEN_USERNAME}"
           : "${MAVEN_PASSWORD:?Infisical must provide MAVEN_PASSWORD}"
           export ORG_GRADLE_PROJECT_sneakyrpUsername="$MAVEN_USERNAME"
           export ORG_GRADLE_PROJECT_sneakyrpPassword="$MAVEN_PASSWORD"
-          ./gradlew :publishMavenPublicationToSneakyrpRepository --no-daemon --console=plain
+          ./gradlew publishMavenPublicationToSneakyrpRepository --no-daemon --console=plain

@@ -29,23 +29,22 @@ repositories {
 	mavenCentral()
 	maven("https://repo.papermc.io/repository/maven-public/")
 	maven("https://repo.extendedclip.com/content/repositories/placeholderapi/")
+	maven("https://maven.sneakyrp.com/releases")
 }
 
-val characterManagerJar = sequenceOf(
-	rootDir.resolve("../../SneakyCharacterManager-Paper/build/libs/SneakyCharacterManager.jar"),
-	rootDir.resolve("../SneakyCharacterManager-Paper/build/libs/SneakyCharacterManager.jar"),
-).firstOrNull { it.isFile }
-	?: error(
-		"SneakyCharacterManager.jar not found. Build SneakyCharacterManager-Paper and ensure " +
-			"SneakyCharacterManager.jar exists under its build/libs (looked in ../../ and ../)."
-	)
-
 dependencies {
-	implementation(project(":SneakyHolos"))
+	val holos = findProject(":SneakyHolos")
+	if (holos != null) {
+		implementation(project(":SneakyHolos"))
+	} else {
+		implementation("io.github.team-sneakymouse:sneakholos:2026.10.09-02e4f81d0e24")
+	}
 	paperweight.paperDevBundle("26.2.build.+")
 	implementation(kotlin("stdlib"))
 	implementation("com.google.code.gson:gson:2.10.1")
-	compileOnly(files(characterManagerJar))
+	compileOnly("io.github.team-sneakymouse:sneakycharactermanager-paper:2026.10.09-84db8a554af1") {
+		isTransitive = false
+	}
 	compileOnly("me.clip:placeholderapi:2.11.6")
 
 	testImplementation(kotlin("test"))

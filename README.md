@@ -115,12 +115,12 @@ The plugin automatically generates this file during the initial scan/upload of a
 
 ## Development
 
-This module is part of the [HoloUX Workspace](../) and depends on the `:SneakyHolos` library via `implementation(project(":SneakyHolos"))`.
+This module is part of the [HoloUX Workspace](../). In the workspace it uses `implementation(project(":SneakyHolos"))`; standalone builds resolve `io.github.team-sneakymouse:sneakholos` from `https://maven.sneakyrp.com/releases`. Character Manager integration uses `compileOnly` on `sneakycharactermanager-paper` from the same Maven repo.
 
 - **Online Features:** See [README-Docker.md](./README-Docker.md) for webserver setup (required for MineSkin/Online skin previews).
 - **Build Library + Plugin:** `./gradlew build` (from workspace root)
 - **Run Test Server:** `./gradlew runServer` (from workspace root)
-- **Standalone Build:** clone `SneakyHolos` as a sibling (`../SneakyHolos`), ensure `SneakyCharacterManager.jar` is available under `../` or `../../SneakyCharacterManager-Paper/build/libs/`, then `./gradlew build`
+- **Standalone Build:** `./gradlew build` (resolves Holos + CharacterManager from sneakyrp)
 - **Entry point:** `com.sneakymannequins.SneakyMannequins`
 
 Versions use `yyyy.MM.dd-<12-character Git hash>` (UTC commit date). The deployable fat JAR is `SneakyMannequins-<version>.jar` (includes shaded runtime deps such as SneakyHolos). The same version is expanded into `paper-plugin.yml`.
@@ -142,7 +142,7 @@ For Reposilite, `sneakyrpUsername` is the token name and `sneakyrpPassword` is i
 ./gradlew publishMavenPublicationToSneakyrpRepository
 ```
 
-GitHub Actions builds and publishes on every push to `main` (Java 25), checking out sibling `SneakyHolos` and `SneakyCharacterManager-Paper` for compile. Credentials come from Infisical (`lords-of-minecraft` / `prod` / `/Maven`) via OIDC. Set `INFISICAL_IDENTITY_ID` and `INFISICAL_DOMAIN` as GitHub Actions secrets for this repository, and allow this repo's `main` branch on the identity's OIDC policy.
+GitHub Actions builds and publishes on every push to `main` (Java 25). Credentials come from Infisical (`lords-of-minecraft` / `prod` / `/Maven`) via OIDC. Set `INFISICAL_IDENTITY_ID` and `INFISICAL_DOMAIN` as GitHub Actions secrets for this repository, and allow this repo's `main` branch on the identity's OIDC policy.
 
 ## Architecture
 
