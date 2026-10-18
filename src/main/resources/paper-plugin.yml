@@ -7,6 +7,10 @@ authors: [Team Sneakymouse]
 website: https://rawb.tv
 dependencies:
   server:
+    SneakyUtils:
+      load: BEFORE
+      required: true
+      join-classpath: true
     SneakyCharacterManager:
       load: BEFORE
       required: false
