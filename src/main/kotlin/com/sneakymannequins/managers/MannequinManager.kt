@@ -148,6 +148,12 @@ class MannequinManager(
     /** Manages INSTANT / BUILD pixel delivery to viewers. */
     private val animationManager = AnimationManager(plugin, handler)
 
+    /** Include hidden cycling memory and pending flash restoration, not just the visible part. */
+    fun referencesPart(layerId: String, partId: String): Boolean =
+        mannequins.values.any { it.selection.selections[layerId]?.option?.id == partId } ||
+            partSelectionMemory.values.any { it[layerId]?.values?.any { selection -> selection.option?.id == partId } == true } ||
+            activeFlashRestoreSelection.any { (key, selection) -> key.second == layerId && selection?.option?.id == partId }
+
     fun getMannequin(mannequinId: UUID): Mannequin? = mannequins[mannequinId]
 
     private fun palettePages(viewerId: UUID, mannequinId: UUID): MutableMap<String, Int> {
@@ -376,7 +382,15 @@ class MannequinManager(
 
     fun get(id: UUID): Mannequin? = mannequins[id]
 
+    private fun discardActiveFlashes(mannequinId: UUID) {
+        activeFlashRestoreTask.keys.filter { it.first == mannequinId }.forEach { key ->
+            activeFlashRestoreTask.remove(key)?.let { plugin.server.scheduler.cancelTask(it) }
+        }
+        activeFlashRestoreSelection.keys.removeIf { it.first == mannequinId }
+    }
+
     fun remove(mannequinId: UUID, viewers: Collection<Player>) {
+        discardActiveFlashes(mannequinId)
         animationManager.cancelMannequin(mannequinId)
         viewers.forEach { viewer -> handler.destroyMannequin(viewer, mannequinId) }
         // Destroy virtual HUDs for all players viewing this mannequin
@@ -640,6 +654,8 @@ class MannequinManager(
     }
 
     fun reloadAll() {
+        (activeFlashRestoreTask.keys.map { it.first } + activeFlashRestoreSelection.keys.map { it.first })
+            .toSet().forEach { discardActiveFlashes(it) }
         stopTickLoop()
         animationManager.stop()
         val viewers = plugin.server.onlinePlayers
@@ -1030,6 +1046,13 @@ class MannequinManager(
         buttonVisuals[mannequinId] = visuals
     }
 
+    /** Selections (including memory and flash restores) retain immutable option snapshots. */
+    private fun partDisplayName(layerId: String, option: LayerOption?): String =
+        option?.let { retained ->
+            layerManager.allOptions(layerId).find { it.id == retained.id }?.displayName
+                ?: retained.displayName
+        } ?: "?"
+
     /**
      * Apply the status button's MiniMessage template to a message. If the template contains
      * `{message}`, the placeholder is substituted; otherwise the message is wrapped in the template
@@ -1250,7 +1273,7 @@ class MannequinManager(
                                     partListIndexForOption(layerDef.id, sel?.option?.id, player)
                             updateStatus(
                                     mannequinId,
-                                    "${prettyName(layerDef.displayName)}: ${sel?.option?.let { prettyName(it.displayName) } ?: "?"}"
+                                    "${prettyName(layerDef.displayName)}: ${prettyName(partDisplayName(layerDef.id, sel?.option))}"
                             )
                         }
                     }
@@ -1874,6 +1897,18 @@ class MannequinManager(
 
     // ── Status & label helpers ──────────────────────────────────────────────────
 
+    /** Refresh the selected layer's label without replacing retained selections or texture state. */
+    fun refreshRenamedPart(layerId: String, partId: String) {
+        for (mannequin in mannequins.values) {
+            val state = controlState[mannequin.id] ?: continue
+            val layers = getAvailableLayers(mannequin)
+            val layer = layers.getOrNull(if (layers.isEmpty()) 0 else state.layerIndex % layers.size) ?: continue
+            if (layer.id != layerId || mannequin.selection.selections[layerId]?.option?.id != partId) continue
+            updateStatus(mannequin.id, "${prettyName(layer.displayName)}: ${prettyName(partDisplayName(layerId, mannequin.selection.selections[layerId]?.option))}")
+            refreshDynamicLabels(mannequin.id)
+        }
+    }
+
     private fun updateStatus(mannequinId: UUID, msg: String) {
         statusText[mannequinId] = msg
         val json = formatStatusText(msg, mannequinId)
@@ -2169,7 +2204,7 @@ class MannequinManager(
         if (hud != null) refreshColorGrid(player, mannequin, state, hud)
 
         val prettyLayer = prettyName(layer.displayName)
-        val prettyPart = prettyName(chosen.displayName)
+        val prettyPart = prettyName(partDisplayName(layer.id, chosen))
         val partEvent =
                 MannequinPartChangeEvent(
                         mannequin.id,

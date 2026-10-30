@@ -843,6 +843,10 @@ class SessionManager(
         }
     }
 
+    /** Moving an ID must not silently invalidate persisted outfits/templates. */
+    fun referencesPart(layerId: String, partId: String): Boolean =
+        sessions.values.any { it.layers[layerId]?.option == partId }
+
     fun listSessionUids(): List<String> {
         return sessions.keys.filter { isWellFormedSessionUid(it) }
     }

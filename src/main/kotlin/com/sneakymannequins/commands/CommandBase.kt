@@ -13,7 +13,7 @@ abstract class CommandBase(
 
     private val permissionNode = "${SneakyMannequins.IDENTIFIER}.command.$name"
 
-    override fun permission(): String = permissionNode
+    override fun permission(): String? = permissionNode
 
     override fun canUse(sender: org.bukkit.command.CommandSender): Boolean {
         return sender.hasPermission(permissionNode)

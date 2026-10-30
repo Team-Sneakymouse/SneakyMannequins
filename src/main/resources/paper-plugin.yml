@@ -5,6 +5,16 @@ description: A Minecraft Paper plugin designed to create mannequins for skin pre
 api-version: '26.2'
 authors: [Team Sneakymouse]
 website: https://rawb.tv
+permissions:
+  sneakymannequins.command.part.rename:
+    description: Rename display labels of global and player-uploaded parts
+    default: op
+  sneakymannequins.command.part.globalize:
+    description: Move unreferenced player-uploaded parts into the global catalog
+    default: op
+  sneakymannequins.command.me:
+    description: Upload and delete your own custom parts
+    default: op
 dependencies:
   server:
     SneakyUtils:
