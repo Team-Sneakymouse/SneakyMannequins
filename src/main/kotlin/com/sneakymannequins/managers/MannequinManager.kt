@@ -964,6 +964,15 @@ class MannequinManager(
         }
     }
 
+    /** All tracked mannequins protect nearby drops, independently of HUD/control state. */
+    fun isItemDropProtected(location: Location): Boolean {
+        val radius = interactRadius + 2.0
+        return mannequins.values.any { mannequin ->
+            mannequin.location.world == location.world &&
+                    mannequin.location.distanceSquared(location) <= radius * radius
+        }
+    }
+
     fun nearestMannequin(location: Location, radius: Double = 10.0): Mannequin? {
         return mannequins.values
                 .minByOrNull { man ->
