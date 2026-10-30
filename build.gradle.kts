@@ -48,6 +48,7 @@ dependencies {
 	compileOnly("me.clip:placeholderapi:2.11.6")
 
 	testImplementation(kotlin("test"))
+	testImplementation("io.github.team-sneakymouse:sneakyutils:2026.10.18-657d452bd6f4")
 	testImplementation("org.mockito:mockito-core:5.21.0")
 	testImplementation("me.clip:placeholderapi:2.11.6")
 	testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")

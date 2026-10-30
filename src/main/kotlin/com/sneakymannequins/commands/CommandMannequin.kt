@@ -39,6 +39,34 @@ class CommandMannequin(
         private const val HISTORY_PAGE_SIZE = 10
     }
 
+    // Brigadier must not impose the old blanket node before canUse checks scoped access.
+    override fun permission(): String? = null
+
+    override fun canUse(sender: CommandSender): Boolean =
+        super.canUse(sender) || hasPermission(sender, "me") || hasPermission(sender, "part")
+
+    private fun handlePart(sender: CommandSender, args: Array<out String>) {
+        val action = args.getOrNull(1)?.lowercase()
+        if (action !in listOf("rename", "globalize") ||
+            !sender.hasPermission("sneakymannequins.command.part.$action")) {
+            sender.sendMessage("No permission or unknown part action")
+            return
+        }
+        if ((action == "rename" && args.size < 5) || (action == "globalize" && args.size != 4)) {
+            sender.sendMessage("Usage: /mannequin part $action <layer> <part-id>" +
+                if (action == "rename") " <new name...>" else "")
+            return
+        }
+        if (action == "globalize" && mannequinManager.referencesPart(args[2], args[3])) {
+            sender.sendMessage("Cannot globalize a part selected or remembered by an active mannequin")
+            return
+        }
+        val message = if (action == "rename") {
+            layerManager.renamePart(args[2], args[3], args.drop(4).joinToString(" "))
+        } else layerManager.globalizePart(args[2], args[3])
+        sender.sendMessage(message)
+    }
+
     override fun handle(stack: CommandSourceStack, args: Array<out String>) {
         val player = stack.sender as? Player
         val cmd = args.firstOrNull()?.lowercase()
@@ -58,6 +86,7 @@ class CommandMannequin(
         }
 
         when (cmd) {
+            "part" -> handlePart(stack.sender, args)
             "reload" -> handleReload(stack.sender)
             "history" -> handleHistory(stack, args)
             "remove" -> player?.let { removeNearest(it) }
@@ -89,6 +118,9 @@ class CommandMannequin(
     }
 
     private fun hasPermission(sender: CommandSender, subcommand: String): Boolean {
+        if (subcommand == "part") return listOf("rename", "globalize").any {
+            sender.hasPermission("sneakymannequins.command.part.$it")
+        }
         return sender.hasPermission("sneakymannequins.command.$subcommand")
     }
 
@@ -113,19 +145,61 @@ class CommandMannequin(
                         "channeldelete" to "Delete a mask channel for selected part",
                         "etf" to "Configure ETF settings interactively",
                         "me" to "Manage user-uploaded custom skin parts",
+                        "me delete <layer> <part>" to "Delete your own upload (legacy admin targeting: <layer> <uuid> <part>)",
+                        "part rename <layer> <part-id> <new name...>" to "Change only a part's display name",
+                        "part globalize <layer> <part-id>" to "Move an unreferenced player upload into the global catalog",
                         "debug" to "Access developer/debug tools"
                 )
 
         commands.forEach { (cmd, desc) ->
-            val color = if (hasPermission(sender, cmd)) "&a" else "&c"
+            val permitted = when {
+                cmd.startsWith("part rename") -> sender.hasPermission("sneakymannequins.command.part.rename")
+                cmd.startsWith("part globalize") -> sender.hasPermission("sneakymannequins.command.part.globalize")
+                else -> hasPermission(sender, cmd.substringBefore(' '))
+            }
+            val color = if (permitted) "&a" else "&c"
             sender.sendMessage(TextUtility.convertToComponent("$color/mannequin $cmd &7- $desc"))
         }
     }
 
     override fun suggest(stack: CommandSourceStack, args: Array<out String>): MutableList<String> {
+        if (args.size > 1 && !hasPermission(stack.sender, args[0].lowercase())) return mutableListOf()
+        if (args.size >= 4 && args[0].equals("me", true) && args[1].equals("delete", true)) {
+            val player = stack.sender as? Player ?: return mutableListOf()
+            val options = layerManager.allOptions(args[2]).filter { it.owner != null }
+            val admin = player.hasPermission("sneakymannequins.admin")
+            val suggestions = when (args.size) {
+                4 -> options.filter { it.owner == player.uniqueId }.mapNotNull { it.internalKey } +
+                    options.filter { admin || it.owner == player.uniqueId }.map { it.owner.toString() }
+                5 -> options.filter {
+                    it.owner.toString() == args[3] && (admin || it.owner == player.uniqueId)
+                }.mapNotNull { it.internalKey }
+                else -> emptyList()
+            }
+            return suggestions.distinct().filter { it.startsWith(args.last(), true) }.toMutableList()
+        }
+        if (args.firstOrNull()?.equals("part", ignoreCase = true) == true && args.size > 1) {
+            val action = args[1].lowercase()
+            val suggestions = if (args.size == 2) {
+                listOf("rename", "globalize").filter {
+                    stack.sender.hasPermission("sneakymannequins.command.part.$it")
+                }
+            } else if (action in listOf("rename", "globalize") &&
+                stack.sender.hasPermission("sneakymannequins.command.part.$action")) {
+                when (args.size) {
+                    3 -> layerManager.definitionsInOrder().map { it.id }
+                    4 -> layerManager.allOptions(args[2]).filter {
+                        it.directory != null && (action == "rename" || it.owner != null)
+                    }.map { it.id }
+                    else -> emptyList()
+                }
+            } else emptyList()
+            return suggestions.filter { it.startsWith(args.last(), ignoreCase = true) }.toMutableList()
+        }
         return when (args.size) {
             0, 1 ->
                     listOf(
+                                    "part",
                                     "add",
                                     "remove",
                                     "reload",
@@ -1281,22 +1355,34 @@ class CommandMannequin(
     }
 
     private fun handleMeDelete(player: Player, args: Array<out String>) {
-        // /mannequin me delete <layer> <uuid> <part>
-        if (args.size < 5) {
-            player.sendMessage(
-                    TextUtility.convertToComponent(
-                            "&cUsage: /mannequin me delete <layer> <uuid> <part>"
-                    )
-            )
+        // Short form is strictly caller-owned; legacy explicit owner syntax retains admin targeting.
+        if (args.size !in 4..5) {
+            player.sendMessage("Usage: /mannequin me delete <layer> <part> (legacy: <layer> <uuid> <part>)")
             return
         }
-        val layerId = args[2].lowercase()
-        val uuidStr = args[3]
-        val internalKey = args[4].lowercase()
-        val partId = "$uuidStr:$internalKey"
-
+        val layerId = args[2]
+        val partId = if (args.size == 4) {
+            // Never accept a foreign namespaced ID in the own-only shorthand.
+            if (args[3].contains(':')) {
+                player.sendMessage("Use your part's internal key, without an owner prefix")
+                return
+            }
+            "${player.uniqueId}:${args[3]}"
+        } else {
+            val owner = args[3]
+            if (!owner.matches(Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))) {
+                player.sendMessage("Invalid owner UUID")
+                return
+            }
+            if (!owner.equals(player.uniqueId.toString(), ignoreCase = true) &&
+                !player.hasPermission("sneakymannequins.admin")) {
+                player.sendMessage("You do not own this part")
+                return
+            }
+            "$owner:${args[4]}"
+        }
         val msg = layerManager.deletePart(player, layerId, partId)
-        player.sendMessage(TextUtility.convertToComponent("&e$msg"))
+        player.sendMessage(msg)
     }
 
     private fun handleMeRemask(sender: Player, args: Array<out String>) {

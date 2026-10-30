@@ -148,6 +148,12 @@ class MannequinManager(
     /** Manages INSTANT / BUILD pixel delivery to viewers. */
     private val animationManager = AnimationManager(plugin, handler)
 
+    /** Include hidden cycling memory and pending flash restoration, not just the visible part. */
+    fun referencesPart(layerId: String, partId: String): Boolean =
+        mannequins.values.any { it.selection.selections[layerId]?.option?.id == partId } ||
+            partSelectionMemory.values.any { it[layerId]?.values?.any { selection -> selection.option?.id == partId } == true } ||
+            activeFlashRestoreSelection.any { (key, selection) -> key.second == layerId && selection?.option?.id == partId }
+
     fun getMannequin(mannequinId: UUID): Mannequin? = mannequins[mannequinId]
 
     private fun palettePages(viewerId: UUID, mannequinId: UUID): MutableMap<String, Int> {
@@ -1030,6 +1036,13 @@ class MannequinManager(
         buttonVisuals[mannequinId] = visuals
     }
 
+    /** Selections (including memory and flash restores) retain immutable option snapshots. */
+    private fun partDisplayName(layerId: String, option: LayerOption?): String =
+        option?.let { retained ->
+            layerManager.allOptions(layerId).find { it.id == retained.id }?.displayName
+                ?: retained.displayName
+        } ?: "?"
+
     /**
      * Apply the status button's MiniMessage template to a message. If the template contains
      * `{message}`, the placeholder is substituted; otherwise the message is wrapped in the template
@@ -1250,7 +1263,7 @@ class MannequinManager(
                                     partListIndexForOption(layerDef.id, sel?.option?.id, player)
                             updateStatus(
                                     mannequinId,
-                                    "${prettyName(layerDef.displayName)}: ${sel?.option?.let { prettyName(it.displayName) } ?: "?"}"
+                                    "${prettyName(layerDef.displayName)}: ${prettyName(partDisplayName(layerDef.id, sel?.option))}"
                             )
                         }
                     }
@@ -2169,7 +2182,7 @@ class MannequinManager(
         if (hud != null) refreshColorGrid(player, mannequin, state, hud)
 
         val prettyLayer = prettyName(layer.displayName)
-        val prettyPart = prettyName(chosen.displayName)
+        val prettyPart = prettyName(partDisplayName(layer.id, chosen))
         val partEvent =
                 MannequinPartChangeEvent(
                         mannequin.id,

@@ -1,4 +1,14 @@
 # SneakyMannequins Configuration
+# Part management (permissions are granted through your permission plugin, not this file):
+# sneakymannequins.command.part.rename: /mannequin part rename <layer> <part-id> <new name...>
+# sneakymannequins.command.part.globalize: /mannequin part globalize <layer> <part-id>
+# These scoped asset-team nodes do not require command.mannequin, command.part or admin.
+# sneakymannequins.command.me: /mannequin me delete <layer> <part> (own uploads only)
+# Legacy /mannequin me delete <layer> <uuid> <part> additionally requires
+# sneakymannequins.admin when targeting someone else's upload.
+# Rename preserves internal IDs; globalize moves UUID:key to global key and refuses collisions.
+# Globalize refuses active/remembered mannequin and saved session/template references;
+# no stored session IDs are migrated. Synthetic 'none' options cannot be managed.
 
 # Image storage and serving configuration
 images:

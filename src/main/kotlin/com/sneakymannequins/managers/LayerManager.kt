@@ -998,6 +998,102 @@ class LayerManager(private val plugin: SneakyMannequins) {
         return userOpt.id
     }
 
+    /** Reject escapes and links, including ancestor links and links inside an asset tree. */
+    private fun safePartDirectory(definition: LayerDefinition, option: LayerOption): Path? {
+        val root = definition.directory.toAbsolutePath().normalize()
+        val directory = option.directory?.toAbsolutePath()?.normalize() ?: return null
+        if (directory == root || !directory.startsWith(root)) return null
+        if (option.owner == null) {
+            if (directory.parent != root) return null
+        } else {
+            if (directory.parent != root.resolve("uploads").resolve(option.owner.toString())) return null
+            if (option.internalKey != slugify(directory.fileName.toString())) return null
+        }
+        var ancestor: Path? = directory
+        while (ancestor != null) {
+            if (Files.isSymbolicLink(ancestor)) return null
+            ancestor = ancestor.parent
+        }
+        if (!Files.isDirectory(directory, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return null
+        if (!Files.isRegularFile(directory.resolve("metadata.json"), java.nio.file.LinkOption.NOFOLLOW_LINKS)) return null
+        val assetPaths = listOfNotNull(option.fileMaster, option.fileDefault, option.fileSlim) +
+            option.masks.values + option.masksDefault.values + option.masksSlim.values
+        if (assetPaths.any { !it.toAbsolutePath().normalize().startsWith(directory) }) return null
+        Files.walk(directory).use { paths ->
+            if (paths.anyMatch { Files.isSymbolicLink(it) }) return null
+        }
+        return option.directory
+    }
+
+    /** Persist a label only; IDs and all other metadata remain untouched. */
+    fun renamePart(layerId: String, partId: String, displayName: String): String {
+        val entry = loadedLayers[layerId] ?: return "Unknown layer: $layerId"
+        val option = entry.second.find { it.id == partId } ?: return "Part not found"
+        if (displayName.isBlank()) return "Display name cannot be blank"
+        val directory = runCatching { safePartDirectory(entry.first, option) }.getOrNull()
+            ?: return "Part directory is missing or unsafe"
+        val metadata = directory.resolve("metadata.json")
+        var temporary: Path? = null
+        try {
+            val json = JsonParser.parseString(Files.readString(metadata)).asJsonObject
+            json.addProperty("displayName", displayName)
+            temporary = Files.createTempFile(directory, ".rename-", ".json")
+            Files.writeString(temporary, json.toString())
+            Files.move(temporary, metadata, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        } catch (e: Exception) {
+            plugin.logger.warning("Failed to rename part $partId: ${e.message}")
+            return "Failed to rename part"
+        } finally {
+            temporary?.let { runCatching { Files.deleteIfExists(it) } }
+        }
+        loadedLayers[layerId] = entry.first to entry.second.map {
+            if (it.id == partId) it.copy(displayName = displayName) else it
+        }
+        return "Successfully renamed part to '$displayName'"
+    }
+
+    /** Move the original asset, never copy it. All validation happens before the move. */
+    fun globalizePart(layerId: String, partId: String): String {
+        val entry = loadedLayers[layerId] ?: return "Unknown layer: $layerId"
+        val option = entry.second.find { it.id == partId } ?: return "Part not found"
+        if (option.owner == null) return "Part is already global"
+        if (plugin.sessionManager?.referencesPart(layerId, partId) == true) {
+            return "Cannot globalize a part referenced by a saved session or template"
+        }
+        val source = runCatching { safePartDirectory(entry.first, option) }.getOrNull()
+            ?: return "Part directory is missing or unsafe"
+        val key = option.internalKey ?: return "Missing internal key"
+        val destination = entry.first.directory.resolve(key)
+        val collision = runCatching {
+            key != slugify(key) || key == "none" || key == "uploads" ||
+                entry.second.any { it.owner == null && it.id == key } ||
+                Files.list(entry.first.directory).use { paths -> paths.anyMatch {
+                    // Match loader IDs as well as exact filesystem names (including dangling links).
+                    it.fileName.toString() == key ||
+                        (Files.isDirectory(it) && slugify(it.name) == key) ||
+                        (it.name.lowercase().endsWith(".png") &&
+                            !it.nameWithoutExtension.lowercase().contains("_mask_") &&
+                            slugify(it.nameWithoutExtension) == key)
+                } }
+        }.getOrElse { return "Failed to inspect global part collisions" }
+        if (collision) return "Global part ID collision: $key"
+        fun relocate(path: Path?): Path? = path?.let { destination.resolve(source.relativize(it)) }
+        val updated = option.copy(id = key, owner = null, internalKey = null, directory = destination,
+            fileMaster = relocate(option.fileMaster), fileDefault = relocate(option.fileDefault),
+            fileSlim = relocate(option.fileSlim), masks = option.masks.mapValues { relocate(it.value)!! },
+            masksDefault = option.masksDefault.mapValues { relocate(it.value)!! },
+            masksSlim = option.masksSlim.mapValues { relocate(it.value)!! })
+        try {
+            Files.move(source, destination)
+        } catch (e: Exception) {
+            plugin.logger.warning("Failed to globalize part $partId: ${e.message}")
+            return "Failed to globalize part"
+        }
+        loadedLayers[layerId] = entry.first to entry.second.map { if (it.id == partId) updated else it }
+        return "Successfully globalized part '$key'"
+    }
+
     fun deletePart(player: Player, layerId: String, partId: String): String {
         val entry = loadedLayers[layerId] ?: return "Unknown layer: $layerId"
         val def = entry.first
@@ -1013,22 +1109,27 @@ class LayerManager(private val plugin: SneakyMannequins) {
             return "You do not own this part"
         }
 
-        val internalKey = optOpt.internalKey ?: return "Missing internal key"
-        val targetDir =
-                def.directory
-                        .resolve("uploads")
-                        .resolve(optOpt.owner.toString())
-                        .resolve(internalKey)
+        val targetDir = runCatching { safePartDirectory(def, optOpt) }.getOrNull()
+            ?: return "Failed to delete part: directory missing or unsafe"
 
+        // A non-UUID child of uploads is outside both global and per-player loader scans.
+        // Never roll a partially cleaned tree back into the live catalog.
+        val quarantineRoot = def.directory.resolve("uploads/.part-deletions")
+        val staged = quarantineRoot.resolve(UUID.randomUUID().toString())
         try {
-            if (targetDir.exists()) {
-                targetDir.toFile().deleteRecursively()
-            }
+            if (Files.isSymbolicLink(quarantineRoot)) return "Failed to delete part: unsafe quarantine"
+            Files.createDirectories(quarantineRoot)
+            Files.move(targetDir, staged, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
         } catch (e: Exception) {
-            plugin.logger.severe("Failed to delete ME directory $targetDir: ${e.message}")
+            plugin.logger.severe("Failed to stage ME directory $targetDir: ${e.message}")
+            return "Failed to delete part: filesystem staging failed"
         }
-
         loadedLayers[layerId] = def to options.filter { it.id != partId }
+        val cleaned = runCatching { staged.toFile().deleteRecursively() }.getOrDefault(false)
+        if (!cleaned) {
+            plugin.logger.severe("Part $partId removed from catalog; cleanup pending in $staged")
+            return "Failed to complete deletion: part quarantined at $staged; manual cleanup required"
+        }
         return "Successfully deleted part '${optOpt.displayName}'"
     }
 
