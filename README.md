@@ -34,6 +34,9 @@ A status line at the top shows the last action taken.
 
 **Left-click** cycles forward; **right-click** cycles backward. The Part and Color buttons have an "active mode" — click once to activate, then click anywhere on the Interaction entity to cycle through options.
 
+### Item-drop protection
+All players are prevented from dropping items within `max(controls.interact-radius, 0.5) + 2` blocks of any tracked mannequin (7 blocks by default). The boundary is inclusive and spherical, measured from the player's location to the mannequin origin in the same world, regardless of facing or active controls. Existing remask/ETF Q-key controls still run first. Paper restores cancelled drops; the guard does not move inventory items or remove dropped entities.
+
 ### Configurable HUD Appearance
 Every button's text (with full [MiniMessage](https://docs.advntr.dev/minimessage/format.html) support), translation, line width, and background colours (default & highlighted) are configurable in `config.yml`. An optional `ItemDisplay` frame can be enabled as a backdrop art asset behind the buttons.
 

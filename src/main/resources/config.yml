@@ -84,6 +84,8 @@ placeholders:
 controls:
   # Radius (blocks) of the mannequin interaction entity.
   # Effective width/height are 2x this value.
+  # All players' item drops are blocked within max(this value, 0.5) + 2 blocks
+  # of each mannequin origin (inclusive sphere, same world; no active controls needed).
   interact-radius: 5.0
 
   # Maximum distance (blocks) used for control interaction:

@@ -31,6 +31,8 @@ import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.bukkit.Bukkit
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
+import org.bukkit.event.EventPriority
+import org.bukkit.event.player.PlayerDropItemEvent
 import org.bukkit.event.player.PlayerMoveEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.plugin.java.JavaPlugin
@@ -172,6 +174,15 @@ class SneakyMannequins : JavaPlugin(), Listener {
         placeholderExpansion?.unregister()
         placeholderExpansion = null
         logger.info("SneakyMannequins plugin has been disabled!")
+    }
+
+    // HIGHEST leaves the HIGH-priority remask/ETF Q-key controls first refusal.
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onDropItem(event: PlayerDropItemEvent) {
+        if (mannequinManager.isItemDropProtected(event.player.location)) {
+            // Paper restores the dropped stack when this event is cancelled.
+            event.isCancelled = true
+        }
     }
 
     @EventHandler
