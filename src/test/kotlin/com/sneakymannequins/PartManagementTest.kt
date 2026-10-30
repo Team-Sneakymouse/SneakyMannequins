@@ -85,6 +85,113 @@ class PartManagementTest {
         assertEquals("New Hat Name", json.get("displayName").asString)
     }
 
+    @Suppress("UNCHECKED_CAST")
+    private fun <K, V> fieldMap(target: Any, name: String): MutableMap<K, V> =
+        target.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(target) as MutableMap<K, V>
+
+    private fun liveFixture(): Pair<com.sneakymannequins.managers.MannequinManager, com.sneakymannequins.model.Mannequin> {
+        fixture()
+        val server = mock(org.bukkit.Server::class.java, RETURNS_DEEP_STUBS)
+        `when`(plugin.server).thenReturn(server)
+        `when`(server.onlinePlayers).thenReturn(emptyList())
+        val styles = mock(com.sneakymannequins.managers.StyleManager::class.java)
+        val style = mock(com.sneakymannequins.model.MannequinStyle::class.java, RETURNS_DEEP_STUBS)
+        val button = mock(com.sneakymannequins.model.HudButton::class.java)
+        `when`(button.name).thenReturn("layer")
+        `when`(button.type).thenReturn("layer")
+        `when`(button.allowedLayers).thenReturn(null)
+        `when`(style.hudButtons).thenReturn(listOf(button))
+        `when`(style.availableLayers).thenReturn(listOf("base", "hat"))
+        `when`(styles.getStyle(anyString())).thenReturn(style)
+        val rendering = style.rendering
+        doReturn(com.sneakymannequins.model.TextDisplayBrightnessSetting.Fixed(15, 15))
+            .`when`(rendering).textDisplayBrightness
+        val holos = mock(com.sneakymouse.sneakyholos.HoloController::class.java)
+        `when`(holos.getHud(owner)).thenReturn(mock(com.sneakymouse.sneakyholos.HoloHUD::class.java))
+        val persistence = mock(com.sneakymannequins.managers.MannequinPersistence::class.java)
+        `when`(persistence.load()).thenReturn(emptyList())
+        val mannequins = com.sneakymannequins.managers.MannequinManager(plugin, manager, styles,
+            mock(com.sneakymannequins.nms.VolatileHandler::class.java), persistence,
+            mock(com.sneakymannequins.managers.SessionManager::class.java),
+            mock(com.sneakymannequins.integrations.CharacterManagerBridge::class.java), holos)
+        val mannequin = com.sneakymannequins.model.Mannequin(location = org.bukkit.Location(null, 0.0, 0.0, 0.0),
+            selection = com.sneakymannequins.model.SkinSelection(mapOf("hat" to com.sneakymannequins.model.LayerSelection("hat", option))))
+        fieldMap<UUID, com.sneakymannequins.model.Mannequin>(mannequins, "mannequins")[mannequin.id] = mannequin
+        val stateType = Class.forName("com.sneakymannequins.managers.ControlState")
+        val state = stateType.getDeclaredConstructor().apply { isAccessible = true }.newInstance()
+        fieldMap<UUID, Any>(mannequins, "controlState")[mannequin.id] = state
+        fieldMap<String, Pair<LayerDefinition, List<LayerOption>>>(manager, "loadedLayers")["base"] =
+            LayerDefinition("base", "Base", root, true) to emptyList()
+        @Suppress("UNCHECKED_CAST")
+        val order = manager.javaClass.getDeclaredField("layerOrder").apply { isAccessible = true }.get(manager) as MutableList<String>
+        order.addAll(listOf("base", "hat"))
+        `when`(plugin.config).thenReturn(org.bukkit.configuration.file.YamlConfiguration())
+        return mannequins to mannequin
+    }
+
+    @Test fun `remove releases pending flash references before and after delayed callback`() {
+        val (mannequins, mannequin) = liveFixture()
+        var callback: Runnable? = null
+        `when`(plugin.server.scheduler.runTaskLater(eq(plugin), any(Runnable::class.java), eq(10L))).thenAnswer {
+            callback = it.getArgument(1)
+            mock(org.bukkit.scheduler.BukkitTask::class.java).also { task -> `when`(task.taskId).thenReturn(71) }
+        }
+        mannequins.handleButtonClick("layer", mannequin.id, player, false)
+        assertNotNull(callback, "Actual layer navigation must schedule the flash")
+        assertTrue(mannequins.referencesPart("hat", option.id))
+        mannequins.remove(mannequin.id, emptyList())
+        assertFalse(mannequins.referencesPart("hat", option.id))
+        assertTrue(fieldMap<Pair<UUID, String>, Int>(mannequins, "activeFlashRestoreTask").isEmpty())
+        verify(plugin.server.scheduler).cancelTask(71)
+        callback!!.run()
+        assertFalse(mannequins.referencesPart("hat", option.id))
+        `when`(player.hasPermission("sneakymannequins.command.part.globalize")).thenReturn(true)
+        val stack = mock(io.papermc.paper.command.brigadier.CommandSourceStack::class.java)
+        `when`(stack.sender).thenReturn(player)
+        command(mannequins).execute(stack, arrayOf("part", "globalize", "hat", option.id))
+        assertFalse(Files.exists(option.directory!!))
+    }
+
+    @Test fun `reload releases pending flash references before and after delayed callback`() {
+        val (mannequins, mannequin) = liveFixture()
+        var callback: Runnable? = null
+        `when`(plugin.server.scheduler.runTaskLater(eq(plugin), any(Runnable::class.java), eq(10L))).thenAnswer {
+            callback = it.getArgument(1)
+            mock(org.bukkit.scheduler.BukkitTask::class.java).also { task -> `when`(task.taskId).thenReturn(71) }
+        }
+        mannequins.handleButtonClick("layer", mannequin.id, player, false)
+        assertNotNull(callback, "Actual layer navigation must schedule the flash")
+        assertTrue(mannequins.referencesPart("hat", option.id))
+        mannequins.reloadAll()
+        assertFalse(mannequins.referencesPart("hat", option.id))
+        assertTrue(fieldMap<Pair<UUID, String>, Int>(mannequins, "activeFlashRestoreTask").isEmpty())
+        verify(plugin.server.scheduler).cancelTask(71)
+        callback!!.run()
+        assertFalse(mannequins.referencesPart("hat", option.id))
+        `when`(player.hasPermission("sneakymannequins.command.part.globalize")).thenReturn(true)
+        val stack = mock(io.papermc.paper.command.brigadier.CommandSourceStack::class.java)
+        `when`(stack.sender).thenReturn(player)
+        command(mannequins).execute(stack, arrayOf("part", "globalize", "hat", option.id))
+        assertFalse(Files.exists(option.directory!!))
+    }
+
+    @Test fun `rename immediately refreshes active status without changing selection`() {
+        val (mannequins, mannequin) = liveFixture()
+        val state = fieldMap<UUID, Any>(mannequins, "controlState")[mannequin.id]!!
+        state.javaClass.getDeclaredField("layerIndex").apply { isAccessible = true }.setInt(state, 1)
+        val update = mannequins.javaClass.getDeclaredMethod("updateStatus", UUID::class.java, String::class.java)
+            .apply { isAccessible = true }
+        update.invoke(mannequins, mannequin.id, "Hat: Old")
+        val selection = mannequin.selection
+        `when`(player.hasPermission("sneakymannequins.command.part.rename")).thenReturn(true)
+        val stack = mock(io.papermc.paper.command.brigadier.CommandSourceStack::class.java)
+        `when`(stack.sender).thenReturn(player)
+        command(mannequins).execute(stack, arrayOf("part", "rename", "hat", option.id, "Fancy", "Hat"))
+        assertEquals("Hat: Fancy Hat", fieldMap<UUID, String>(mannequins, "statusText")[mannequin.id])
+        assertSame(selection, mannequin.selection)
+        assertSame(option, mannequin.selection.selections["hat"]!!.option)
+    }
+
     private fun globalize(): String {
         val method = manager.javaClass.methods.find { it.name == "globalizePart" }
         assertNotNull(method, "globalizePart behavior is not implemented")
@@ -148,6 +255,15 @@ class PartManagementTest {
         assertEquals(listOf(option), manager.allOptions("hat"))
     }
 
+    @Test fun `mixed case legacy deletion resolves canonical keys`() {
+        fixture()
+        `when`(player.hasPermission("sneakymannequins.command.me")).thenReturn(true)
+        val stack = mock(io.papermc.paper.command.brigadier.CommandSourceStack::class.java)
+        `when`(stack.sender).thenReturn(player)
+        command().execute(stack, arrayOf("me", "delete", "HaT", owner.toString(), "HaT"))
+        assertTrue(manager.allOptions("hat").isEmpty())
+    }
+
     @Test fun `me delete shorthand infers owner without administrator permission`() {
         fixture()
         `when`(player.hasPermission("sneakymannequins.command.me")).thenReturn(true)
@@ -155,7 +271,7 @@ class PartManagementTest {
         `when`(stack.sender).thenReturn(player)
         val command = command()
         assertTrue(command.canUse(player))
-        command.execute(stack, arrayOf("me", "delete", "hat", "hat"))
+        command.execute(stack, arrayOf("me", "delete", "HaT", "HaT"))
         assertTrue(manager.allOptions("hat").isEmpty())
         assertFalse(Files.exists(option.directory!!))
     }

@@ -64,6 +64,9 @@ class CommandMannequin(
         val message = if (action == "rename") {
             layerManager.renamePart(args[2], args[3], args.drop(4).joinToString(" "))
         } else layerManager.globalizePart(args[2], args[3])
+        if (action == "rename" && message.startsWith("Successfully")) {
+            mannequinManager.refreshRenamedPart(args[2], args[3])
+        }
         sender.sendMessage(message)
     }
 
@@ -1360,14 +1363,14 @@ class CommandMannequin(
             player.sendMessage("Usage: /mannequin me delete <layer> <part> (legacy: <layer> <uuid> <part>)")
             return
         }
-        val layerId = args[2]
+        val layerId = args[2].lowercase(java.util.Locale.ROOT)
         val partId = if (args.size == 4) {
             // Never accept a foreign namespaced ID in the own-only shorthand.
             if (args[3].contains(':')) {
                 player.sendMessage("Use your part's internal key, without an owner prefix")
                 return
             }
-            "${player.uniqueId}:${args[3]}"
+            "${player.uniqueId}:${args[3].lowercase(java.util.Locale.ROOT)}"
         } else {
             val owner = args[3]
             if (!owner.matches(Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))) {
@@ -1379,7 +1382,7 @@ class CommandMannequin(
                 player.sendMessage("You do not own this part")
                 return
             }
-            "$owner:${args[4]}"
+            "$owner:${args[4].lowercase(java.util.Locale.ROOT)}"
         }
         val msg = layerManager.deletePart(player, layerId, partId)
         player.sendMessage(msg)

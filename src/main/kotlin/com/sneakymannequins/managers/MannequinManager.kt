@@ -382,7 +382,15 @@ class MannequinManager(
 
     fun get(id: UUID): Mannequin? = mannequins[id]
 
+    private fun discardActiveFlashes(mannequinId: UUID) {
+        activeFlashRestoreTask.keys.filter { it.first == mannequinId }.forEach { key ->
+            activeFlashRestoreTask.remove(key)?.let { plugin.server.scheduler.cancelTask(it) }
+        }
+        activeFlashRestoreSelection.keys.removeIf { it.first == mannequinId }
+    }
+
     fun remove(mannequinId: UUID, viewers: Collection<Player>) {
+        discardActiveFlashes(mannequinId)
         animationManager.cancelMannequin(mannequinId)
         viewers.forEach { viewer -> handler.destroyMannequin(viewer, mannequinId) }
         // Destroy virtual HUDs for all players viewing this mannequin
@@ -646,6 +654,8 @@ class MannequinManager(
     }
 
     fun reloadAll() {
+        (activeFlashRestoreTask.keys.map { it.first } + activeFlashRestoreSelection.keys.map { it.first })
+            .toSet().forEach { discardActiveFlashes(it) }
         stopTickLoop()
         animationManager.stop()
         val viewers = plugin.server.onlinePlayers
@@ -1886,6 +1896,18 @@ class MannequinManager(
     }
 
     // ── Status & label helpers ──────────────────────────────────────────────────
+
+    /** Refresh the selected layer's label without replacing retained selections or texture state. */
+    fun refreshRenamedPart(layerId: String, partId: String) {
+        for (mannequin in mannequins.values) {
+            val state = controlState[mannequin.id] ?: continue
+            val layers = getAvailableLayers(mannequin)
+            val layer = layers.getOrNull(if (layers.isEmpty()) 0 else state.layerIndex % layers.size) ?: continue
+            if (layer.id != layerId || mannequin.selection.selections[layerId]?.option?.id != partId) continue
+            updateStatus(mannequin.id, "${prettyName(layer.displayName)}: ${prettyName(partDisplayName(layerId, mannequin.selection.selections[layerId]?.option))}")
+            refreshDynamicLabels(mannequin.id)
+        }
+    }
 
     private fun updateStatus(mannequinId: UUID, msg: String) {
         statusText[mannequinId] = msg
