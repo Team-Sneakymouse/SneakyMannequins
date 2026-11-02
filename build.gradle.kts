@@ -37,7 +37,7 @@ dependencies {
 	if (holos != null) {
 		implementation(project(":SneakyHolos"))
 	} else {
-		implementation("io.github.team-sneakymouse:sneakholos:2026.10.09-02e4f81d0e24")
+		implementation("io.github.team-sneakymouse:sneakyholos:2026.11.02-2f1473d35835")
 	}
 	paperweight.paperDevBundle("26.2.build.+")
 	implementation(kotlin("stdlib"))
