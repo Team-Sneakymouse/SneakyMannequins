@@ -5,6 +5,7 @@
   "remote": "git@github.com:Team-Sneakymouse/team-development-policy.git",
   "track_branch": "main",
   "local_candidates": [
-    "../team-development-policy"
+    "../team-development-policy",
+    "../../team-development-policy"
   ]
 }
