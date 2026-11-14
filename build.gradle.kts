@@ -32,6 +32,8 @@ repositories {
 	maven("https://maven.sneakyrp.com/releases")
 }
 
+val sneakyItemsVersion = "2026.11.14-ab23dacd2d06"
+
 dependencies {
 	val holos = findProject(":SneakyHolos")
 	if (holos != null) {
@@ -48,9 +50,11 @@ dependencies {
 	}
 	compileOnly("me.clip:placeholderapi:2.11.6")
 	compileOnly("io.github.team-sneakymouse:sneakyutils:2026.11.10-7e1262ebd376") { isTransitive = false }
+	compileOnly("io.github.team-sneakymouse:sneakyitems:$sneakyItemsVersion") { isTransitive = false }
 
 	testImplementation(kotlin("test"))
 	testImplementation("io.github.team-sneakymouse:sneakyutils:2026.11.10-7e1262ebd376")
+	testImplementation("io.github.team-sneakymouse:sneakyitems:$sneakyItemsVersion")
 	testImplementation("org.mockito:mockito-core:5.21.0")
 	testImplementation("me.clip:placeholderapi:2.11.6")
 	testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")

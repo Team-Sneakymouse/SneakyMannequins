@@ -4,6 +4,7 @@ import com.sneakymannequins.commands.CommandMannequin
 import com.sneakymannequins.integrations.CharacterManagerBridge
 import com.sneakymannequins.integrations.CharacterManagerBridgeFactory
 import com.sneakymannequins.integrations.placeholderapi.SneakyMannequinsPlaceholderExpansion
+import com.sneakymannequins.items.OutfitItem
 import com.sneakymannequins.listeners.OutfitItemListener
 import com.sneakymannequins.listeners.OutfitSessionApplyCoordinator
 import com.sneakymannequins.listeners.TriggerListener
@@ -22,6 +23,7 @@ import com.sneakymannequins.managers.StatsManager
 import com.sneakymannequins.managers.StyleManager
 import com.sneakymannequins.nms.VolatileHandler
 import com.sneakymannequins.nms.VolatileHandlerRegistry
+import com.sneakyitems.api.SneakyItemsAPI
 import com.sneakymouse.sneakyholos.HoloController
 import com.sneakymouse.sneakyholos.v26_2.HoloHandler262
 import io.papermc.paper.event.player.AsyncChatEvent
@@ -108,6 +110,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
                 OutfitSessionApplyCoordinator(sessionManager, mannequinManager)
         remaskManager = RemaskManager(this, mannequinManager, layerManager).also { it.start() }
         etfConfigManager = EtfConfigManager(this, mannequinManager, layerManager)
+        registerMagicItems()
 
         // Register commands
         registerCommand(
@@ -173,6 +176,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
         }
         placeholderExpansion?.unregister()
         placeholderExpansion = null
+        SneakyItemsAPI.clearOwner(this)
         logger.info("SneakyMannequins plugin has been disabled!")
     }
 
@@ -223,6 +227,22 @@ class SneakyMannequins : JavaPlugin(), Listener {
         layerManager.reload()
         mannequinManager.reloadAll()
         outfitItemGuiConfig.reload()
+        registerMagicItems()
+    }
+
+    /** Own MagicsSpells-style outfit def under resources/magic-items.yml; PDC namespace stays magicspells. */
+    private fun registerMagicItems() {
+        saveResource("magic-items.yml", false)
+        SneakyItemsAPI.clearOwner(this)
+        val n =
+                SneakyItemsAPI.registerMagicItemsFile(
+                        this,
+                        "magicspells",
+                        File(dataFolder, "magic-items.yml")
+                )
+        // World stacks before SneakyItems: own outfit_uid PDC key.
+        SneakyItemsAPI.registerLegacyKey(this, OutfitItem.key(this), OutfitItem.MAGIC_ITEM)
+        logger.info("Registered $n magic item(s) with SneakyItems.")
     }
 
     private fun firstTimeSetup() {

@@ -1,0 +1,17 @@
+# Outfit items (SneakyItems; PDC namespace magicspells).
+# One definition for every outfit copy. Per-copy uid (sneakymannequins:outfit_uid), name, lore,
+# and look stay on the stack; the updater keeps them via ignored-attributes.
+# TYPE is not ignorable: the registered material is rabbit_foot (default icon).
+magic-items:
+  item-sneakymannequins-outfit:
+    type: rabbit_foot
+    max-stack-size: 99
+    name: "&aOutfit"
+    lore:
+      - "&3Right-click to apply"
+    ignored-attributes:
+      - name
+      - item_name
+      - lore
+      - item_model
+      - custom_model_data

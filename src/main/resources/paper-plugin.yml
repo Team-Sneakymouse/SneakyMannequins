@@ -21,6 +21,10 @@ dependencies:
       load: BEFORE
       required: true
       join-classpath: true
+    SneakyItems:
+      load: BEFORE
+      required: true
+      join-classpath: true
     SneakyCharacterManager:
       load: BEFORE
       required: false

@@ -4,6 +4,9 @@ import com.sneakymannequins.SneakyMannequins
 import com.sneakymannequins.managers.LayerManager
 import com.sneakymannequins.model.LayerSessionData
 import com.sneakymannequins.ui.outfit.OutfitItemGuiConfig
+import com.sneakyitems.api.SneakyItemsAPI
+import com.sneakyitems.util.magicitems.MagicItemData
+import com.sneakyitems.util.magicitems.MagicItemIgnoredAttributes
 import com.sneakymouse.sneakyholos.util.TextUtility
 import java.util.Locale
 import net.kyori.adventure.text.Component
@@ -16,6 +19,9 @@ import org.bukkit.persistence.PersistentDataType
 import org.bukkit.entity.Player
 
 object OutfitItem {
+    /** Registered SneakyItems def for every outfit item (per-copy uid / name / lore / look). */
+    const val MAGIC_ITEM: String = "item-sneakymannequins-outfit"
+
     private const val PDC_KEY = "outfit_uid"
     private const val GUI_ACTION_KEY = "outfit_gui_action"
     private const val GUI_PREVIEW_KEY = "outfit_gui_preview"
@@ -52,6 +58,14 @@ object OutfitItem {
     fun isGuiPreviewStack(pdc: PersistentDataContainer, plugin: SneakyMannequins): Boolean =
             pdc.has(guiPreviewKey(plugin), PersistentDataType.BYTE)
 
+    /** True when [stack] is the outfit magic item (stamped) or still carries only the legacy uid key. */
+    fun isOutfitItem(stack: ItemStack?, plugin: SneakyMannequins): Boolean {
+        if (stack == null || stack.type.isAir) return false
+        if (SneakyItemsAPI.isItem(stack, MAGIC_ITEM)) return true
+        val meta = stack.itemMeta ?: return false
+        return hasUid(meta.persistentDataContainer, plugin)
+    }
+
     /**
      * @param displayNamePlain Player-chosen name without formatting; combined with
      *   `outfit-item-gui.outfit-item.name-prefix` from config. If null, uses configured default
@@ -69,7 +83,17 @@ object OutfitItem {
             displayNamePlain: String? = null,
             guiPreview: Boolean = false
     ): ItemStack {
-        val stack = ItemStack(material, 1)
+        // TYPE isn't ignorable: create-time material can differ from the registered rabbit_foot.
+        val base = createBase(player)
+        val stack =
+                when {
+                    base == null -> ItemStack(material, 1)
+                    base.type == material -> base.also { it.amount = 1 }
+                    else ->
+                            ItemStack(material, 1).also { copy ->
+                                base.itemMeta?.let { copy.itemMeta = it }
+                            }
+                }
         val meta = stack.itemMeta ?: return stack
         val cfg = plugin.outfitItemGuiConfig
 
@@ -127,10 +151,25 @@ object OutfitItem {
         pdc.set(key(plugin), PersistentDataType.STRING, uid)
         if (guiPreview) {
             pdc.set(guiPreviewKey(plugin), PersistentDataType.BYTE, 1)
+        } else {
+            pdc.remove(guiPreviewKey(plugin))
         }
 
         stack.itemMeta = meta
+        MagicItemIgnoredAttributes.add(
+                stack,
+                MagicItemData.MagicItemAttribute.NAME,
+                MagicItemData.MagicItemAttribute.ITEM_NAME,
+                MagicItemData.MagicItemAttribute.LORE,
+                MagicItemData.MagicItemAttribute.ITEM_MODEL,
+                MagicItemData.MagicItemAttribute.CUSTOM_MODEL_DATA,
+        )
         return stack
+    }
+
+    private fun createBase(player: Player): ItemStack? {
+        val magic = SneakyItemsAPI.getByInternalName(MAGIC_ITEM) ?: return null
+        return magic.createFor(player, 1) ?: magic.itemStack?.clone()
     }
 
     private fun procLoreLine(cfg: OutfitItemGuiConfig, body: String) =
