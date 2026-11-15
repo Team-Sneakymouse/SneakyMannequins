@@ -232,14 +232,13 @@ class SneakyMannequins : JavaPlugin(), Listener {
 
     /** Own MagicsSpells-style outfit def under resources/magic-items.yml; PDC namespace stays magicspells. */
     private fun registerMagicItems() {
-        if (!java.io.File(dataFolder, "magic-items.yml").exists()) saveResource("magic-items.yml", false)
         SneakyItemsAPI.clearOwner(this)
-        val n =
-                SneakyItemsAPI.registerMagicItemsFile(
-                        this,
-                        "magicspells",
-                        File(dataFolder, "magic-items.yml")
-                )
+        var n = 0
+        getResource("magic-items.yml")?.use { stream ->
+            val yaml = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(
+                java.io.InputStreamReader(stream, java.nio.charset.StandardCharsets.UTF_8))
+            n = SneakyItemsAPI.registerFromRoot(this, "magicspells", yaml)
+        } ?: logger.warning("Missing bundled resource: magic-items.yml")
         // World stacks before SneakyItems: own outfit_uid PDC key.
         SneakyItemsAPI.registerLegacyKey(this, OutfitItem.key(this), OutfitItem.MAGIC_ITEM)
         logger.info("Registered $n magic item(s) with SneakyItems.")
