@@ -232,7 +232,7 @@ class SneakyMannequins : JavaPlugin(), Listener {
 
     /** Own MagicsSpells-style outfit def under resources/magic-items.yml; PDC namespace stays magicspells. */
     private fun registerMagicItems() {
-        saveResource("magic-items.yml", false)
+        if (!java.io.File(dataFolder, "magic-items.yml").exists()) saveResource("magic-items.yml", false)
         SneakyItemsAPI.clearOwner(this)
         val n =
                 SneakyItemsAPI.registerMagicItemsFile(
