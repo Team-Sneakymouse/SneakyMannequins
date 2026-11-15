@@ -201,12 +201,12 @@ outfit-item-gui:
     corner-decoration: 26
   corner-item:
     material: jigsaw
-    custom-model-data: 3047
+    item-model: "lom:gui/outfitmakerui"
     hide-tooltip: true
   icon-picker-decoration-slot: 52
   icon-picker-decoration:
     material: jigsaw
-    custom-model-data: 3050
+    item-model: "lom:gui/outfitmaker2"
     hide-tooltip: true
   buttons:
     icon-material: painting
@@ -241,11 +241,11 @@ outfit-item-gui:
   # `buttons.icon-picker-*-material` line for that side.
   # icon-picker-nav-prev:
   #   material: arrow
-  #   custom-model-data: 1001
+  #   item-model: "lom:invisible"
   #   hide-tooltip: true
   # icon-picker-nav-next:
   #   material: arrow
-  #   custom-model-data: 1002
+  #   item-model: "lom:invisible"
   #   hide-tooltip: true
 
 # Icons for the picker.

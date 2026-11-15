@@ -1124,7 +1124,7 @@ class MannequinManager(
         val frame = style.hudFrame
         val frameEnabled = frame.enabled
         val frameItem = if (frameEnabled) frame.item else null
-        val frameCmd = frame.customModelData
+        val frameItemModel = if (frameEnabled) frame.itemModel else null
         val frameCtx = frame.displayContext
         val frameTx = frame.tx
         val frameTy = frame.ty
@@ -1142,7 +1142,7 @@ class MannequinManager(
                         textDisplayLight = textDisplayLightProvider(mannequin),
                         buttons = buttons,
                         frameItem = frameItem,
-                        frameCustomModelData = frameCmd,
+                        frameItemModel = frameItemModel,
                         frameDisplayContext = frameCtx,
                         frameTx = frameTx,
                         frameTy = frameTy,

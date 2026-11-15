@@ -68,7 +68,7 @@ class StyleManager(private val plugin: SneakyMannequins) {
                         configMenu,
                         colorGrid
                 )
-        val hudFrame = parseHudFrame(config.getConfigurationSection("hud-frame"))
+        val hudFrame = parseHudFrame(id, config.getConfigurationSection("hud-frame"))
 
         val layersSet = mutableSetOf<String>()
         collectLayers(hudButtons, layersSet)
@@ -343,12 +343,18 @@ class StyleManager(private val plugin: SneakyMannequins) {
         )
     }
 
-    private fun parseHudFrame(sec: ConfigurationSection?): HudFrameConfig {
+    private fun parseHudFrame(styleId: String, sec: ConfigurationSection?): HudFrameConfig {
         if (sec == null) return HudFrameConfig()
+        if (sec.isSet("custom-model-data")) {
+            plugin.logger.warning(
+                    "Style '$styleId': hud-frame.custom-model-data is no longer supported and is ignored. " +
+                            "Use hud-frame.item-model (e.g. \"lom:hud_frame\") instead."
+            )
+        }
         return HudFrameConfig(
                 enabled = sec.getBoolean("enabled", false),
                 item = sec.getString("item") ?: "minecraft:glass_pane",
-                customModelData = sec.getInt("custom-model-data", 0),
+                itemModel = sec.getString("item-model")?.trim()?.takeIf { it.isNotEmpty() },
                 displayContext = sec.getString("display-context") ?: "FIXED",
                 tx = sec.getDouble("translation.x", 0.0).toFloat(),
                 ty = sec.getDouble("translation.y", 1.7).toFloat(),
