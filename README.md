@@ -81,7 +81,7 @@ The full config lives at `plugins/SneakyMannequins/config.yml` (auto-generated f
 - **`plugin`** — debug mode, default skin model, preprocessing/masking settings.
 - **`triggers`** — console commands fired on hover, click, part-change, and color-change events.
 - **`hud-buttons`** — per-button text (MiniMessage), translation, line-width, background colours.
-- **`hud-frame`** — optional `ItemDisplay` backdrop (item, display context, translation, scale).
+- **`hud-frame`** — optional `ItemDisplay` backdrop (item, optional `item-model` component id, display context, translation, scale). The old integer `custom-model-data` key is ignored with a warning.
 - **`layers.palettes`** — named colour palettes (hex RGB values).
 - **`layers.order`** — rendering order (bottom to top).
 - **`layers.definitions-file`** — optional path (relative to `plugins/SneakyMannequins/`) to a YAML file containing layer defaults and the `layers:` map (same schema as the old inline `layers.definitions` block: `palettes-first` / `palettes` / `palettes-last`, default `textures`, `brightness-influence`, `saturation-influence`, then `layers` with each part’s `display-name`, `directory`, flags, palette/texture lists, etc.). Default installs use `layers/definitions.yml` (shipped in the jar and copied with other `layers/` assets on first run). When this key is set, inline **`layers.definitions`** in `config.yml` is ignored. Remove `definitions-file` and keep a **`layers.definitions`** section only if you prefer everything in one file (upgrades can stay on that layout).

@@ -91,7 +91,8 @@ data class RenderingConfig(
 data class HudFrameConfig(
     val enabled: Boolean = false,
     val item: String = "minecraft:glass_pane",
-    val customModelData: Int = 0,
+    /** `item_model` component id (e.g. `lom:hud_frame`); null/blank = vanilla model of [item]. */
+    val itemModel: String? = null,
     val displayContext: String = "FIXED",
     val tx: Float = 0f,
     val ty: Float = 1.7f,

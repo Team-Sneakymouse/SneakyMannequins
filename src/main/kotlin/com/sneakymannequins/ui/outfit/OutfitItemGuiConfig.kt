@@ -13,6 +13,12 @@ import org.bukkit.inventory.ItemStack
 /** Loads outfit maker GUI layout from plugin config. */
 class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
 
+    private companion object {
+        /** Fallback `item_model` ids for the jigsaw GUI decor (match the LoM resource pack). */
+        const val DEFAULT_CORNER_ITEM_MODEL = "lom:gui/outfitmakerui"
+        const val DEFAULT_ICON_PICKER_DECOR_MODEL = "lom:gui/outfitmaker2"
+    }
+
     lateinit var mainTitle: Component
         private set
     lateinit var iconPickerTitle: Component
@@ -157,9 +163,9 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
         slotNameButton = 14
         slotPreview = 16
         slotCorner = 26
-        cornerItem = defaultJigsawDecor(3047)
+        cornerItem = defaultJigsawDecor(DEFAULT_CORNER_ITEM_MODEL)
         iconPickerDecorationSlot = 52
-        iconPickerDecoration = defaultJigsawDecor(3050)
+        iconPickerDecoration = defaultJigsawDecor(DEFAULT_ICON_PICKER_DECOR_MODEL)
         iconButtonMaterial = Material.PAINTING
         nameButtonMaterial = Material.NAME_TAG
         iconPickerNavPrevItem = ItemStack(Material.ARROW, 1)
@@ -292,7 +298,7 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
     }
 
     private fun parseDecorItem(section: org.bukkit.configuration.ConfigurationSection?): ItemStack {
-        if (section == null) return defaultJigsawDecor(3047)
+        if (section == null) return defaultJigsawDecor(DEFAULT_CORNER_ITEM_MODEL)
         val mat = Material.matchMaterial(section.getString("material") ?: "jigsaw") ?: Material.JIGSAW
         val stack = ItemStack(mat, 1)
         val meta = stack.itemMeta ?: return stack
@@ -302,13 +308,13 @@ class OutfitItemGuiConfig(private val plugin: SneakyMannequins) {
         return stack
     }
 
-    private fun defaultJigsawDecor(cmd: Int): ItemStack {
+    private fun defaultJigsawDecor(itemModel: String): ItemStack {
         return ItemStack(Material.JIGSAW, 1).apply {
             itemMeta =
                     itemMeta?.also { m ->
                         ItemModelApplier.apply(
                                 m,
-                                ItemModelApplier.Spec(legacyCustomModelData = cmd)
+                                ItemModelApplier.Spec(itemModel = itemModel)
                         )
                         m.isHideTooltip = true
                     }

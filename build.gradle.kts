@@ -40,7 +40,7 @@ dependencies {
 		implementation(project(":SneakyHolos"))
 	} else {
 		// CI builds ship this pinned version, not workspace source. Bump it after each SneakyHolos publish.
-		implementation("io.github.team-sneakymouse:sneakyholos:2026.11.02-2f1473d35835")
+		implementation("io.github.team-sneakymouse:sneakyholos:2026.11.15-db202a4abfc0")
 	}
 	paperweight.paperDevBundle("26.2.build.+")
 	implementation(kotlin("stdlib"))

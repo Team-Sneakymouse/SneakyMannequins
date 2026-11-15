@@ -19,6 +19,19 @@ object ItemModelApplier {
             val legacyCustomModelData: Int? = null
     )
 
+    private val legacyWarned = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** Legacy integer CMD still works as a read-only fallback, but configs should use `item-model`. */
+    private fun warnLegacyCustomModelDataOnce() {
+        if (legacyWarned.compareAndSet(false, true)) {
+            org.bukkit.Bukkit.getLogger()
+                    .warning(
+                            "[SneakyMannequins] Legacy integer custom-model-data is deprecated; " +
+                                    "use item-model (e.g. \"lom:gui/outfitmakerui\") instead."
+                    )
+        }
+    }
+
     fun apply(meta: ItemMeta, spec: Spec?) {
         if (spec == null) return
         applyItemModel(meta, spec.itemModel)
@@ -55,6 +68,7 @@ object ItemModelApplier {
 
         // Fallback to legacy integer CMD (Paper exposes setCustomModelData(Integer), not int).
         if (legacyInt != null) {
+            warnLegacyCustomModelDataOnce()
             runCatching {
                 meta.setCustomModelData(legacyInt)
             }.recoverCatching {
